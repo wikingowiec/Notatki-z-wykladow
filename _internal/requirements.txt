@@ -1,0 +1,25 @@
+# interfejs
+PySide6>=6.6
+# obraz / slajdy
+numpy
+opencv-python>=4.8,<5
+mss
+av>=12
+# dźwięk (Windows)
+comtypes
+pycaw
+psutil
+PyAudioWPatch
+proc-tap
+soundfile
+soxr
+scipy
+# transkrypcja (lokalnie, GPU NVIDIA)
+faster-whisper>=1.1
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10
+# notatki / eksport
+requests
+markdown
+matplotlib
+pillow-heif
