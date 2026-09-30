@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QList
                                QStyle, QStyledItemDelegate, QVBoxLayout, QWidget)
 
 from ..storage import fmt_time
-from .controls import label, set_icon
+from .controls import show_if, label, set_icon
 from .reader import Reader
 from .theme import T, qcolor
 
@@ -257,7 +257,7 @@ class SlidePreview(QDialog):
             return
         self.cap.setText(s.caption + f"   ({self.pos + 1} z {len(self.slides)})")
         self.txt.setText(s.text or "")
-        self.txt.setVisible(bool(s.text))
+        show_if(self.txt, s.text)
         self._pm = QPixmap(s.path)
         self._fit()
 

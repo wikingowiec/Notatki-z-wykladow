@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QListWidget, QListWidgetItem, QProgr
                                QStackedWidget, QStyle, QStyledItemDelegate, QVBoxLayout, QWidget)
 
 from ..storage import Lecture, list_lectures
-from .controls import (AdaptiveBox, EmptyState, Heading, SegmentedControl, Sheet, ToggleSwitch, hairline, hbox,
+from .controls import (show_if, AdaptiveBox, EmptyState, Heading, SegmentedControl, Sheet, ToggleSwitch, hairline, hbox,
                        label, paint_shadow, set_icon)
 
 DECK = Qt.ItemDataRole.UserRole + 1
@@ -396,7 +396,7 @@ class StudyTab(QWidget):
         self.stats.setText(f"{total} fiszek · do powtórki dziś {due} · opanowane {known}" if total else "")
         self.progress.setRange(0, max(1, self.round_total))
         self.progress.setValue(self.done_in_round)
-        self.progress.setVisible(bool(self.round_total))
+        show_if(self.progress, self.round_total)
 
     def next_card(self):
         self._update_stats()
