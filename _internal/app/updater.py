@@ -53,13 +53,13 @@ def parse(v: str) -> tuple:
     return tuple(int(x) for x in re.findall(r"\d+", v or "")[:4]) or (0,)
 
 
-def newer(remote: str, local: str = version.VERSION) -> bool:
-    return parse(remote) > parse(local)
+def newer(remote: str, local: Optional[str] = None) -> bool:
+    return parse(remote) > parse(local or version.VERSION)
 
 
-def _get(url: str, timeout: float = 15) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "Wyklady-updater",
-                                               "Accept": "application/vnd.github+json"})
+def _get(url: str, timeout: float = 15, accept: str = "application/vnd.github+json") -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "Wyklady-updater", "Accept": accept,
+                                               "Cache-Control": "no-cache"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
@@ -80,7 +80,12 @@ def check(repo: str) -> Optional[UpdateInfo]:
     except urllib.error.HTTPError as e:
         if e.code != 404:
             raise RuntimeError(f"GitHub odpowiedział błędem {e.code}.") from e
-        raw = _get(f"https://raw.githubusercontent.com/{repo}/{version.BRANCH}/_internal/app/version.py").decode("utf-8")
+        path = "_internal/app/version.py"
+        try:   # API nie ma kilkuminutowego opóźnienia jak raw.githubusercontent.com
+            raw = _get(f"https://api.github.com/repos/{repo}/contents/{path}?ref={version.BRANCH}",
+                       accept="application/vnd.github.raw").decode("utf-8")
+        except Exception:  # noqa: BLE001
+            raw = _get(f"https://raw.githubusercontent.com/{repo}/{version.BRANCH}/{path}").decode("utf-8")
         m = re.search(r'VERSION\s*=\s*"([^"]+)"', raw)
         if not m:
             raise RuntimeError("W repozytorium nie ma pliku _internal/app/version.py.")
