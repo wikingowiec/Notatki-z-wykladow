@@ -1,0 +1,6 @@
+# środowisko uruchomieniowe tworzone przy pierwszym starcie (Python, biblioteki)
+_internal/runtime/
+__pycache__/
+*.pyc
+Wykłady.exe.old
+_internal/tools/launcher/build/

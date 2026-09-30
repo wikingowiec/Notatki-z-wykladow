@@ -1,0 +1,3 @@
+Inter (c) The Inter Project Authors, Fraunces (c) The Fraunces Project Authors.
+Both fonts are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+Files here are latin + latin-ext subsets merged into single TTF files.
