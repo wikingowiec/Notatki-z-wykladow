@@ -19,7 +19,7 @@ from ..session import RecordingSession
 from ..storage import Lecture, fmt_time, list_lectures
 from .ask_panel import AskPanel
 from .reader import Reader
-from .controls import (ModeCard, SegmentedControl, GroupSection, LevelMeter, PulseDot, RecordButton, ToggleSwitch, hbox, icon_button, label,
+from .controls import (show_if, ModeCard, SegmentedControl, GroupSection, LevelMeter, PulseDot, RecordButton, ToggleSwitch, hbox, icon_button, label,
                        rounded_pixmap, set_icon)
 from .theme import T, qcolor, theme
 from .widgets import RoiDialog, bgr_to_qpixmap, run_async
@@ -923,7 +923,7 @@ class RecordTab(QWidget):
         self.preview.setPixmap(rounded_pixmap(pix, 10))
         self.roi_label.setText("Slajdy będą wykrywane tylko w zaznaczonym obszarze." if roi else
                                "Wykrywanie obejmuje cały obraz. Jeśli obok slajdu jest kamerka lub czat, zaznacz sam slajd.")
-        self.btn_roi_clear.setVisible(bool(roi))
+        show_if(self.btn_roi_clear, roi)
 
     def pick_roi(self):
         info = self._current_video()

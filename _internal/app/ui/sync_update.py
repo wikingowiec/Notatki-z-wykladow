@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLineEdit, QMes
                                QVBoxLayout, QWidget)
 
 from .. import phone, updater, version
-from .controls import GroupSection, ToggleSwitch, hbox, label, set_icon
+from .controls import show_if, GroupSection, ToggleSwitch, hbox, label, set_icon
 
 
 class PhoneSection(GroupSection):
@@ -216,7 +216,7 @@ class UpdateSection(GroupSection):
 
     def _status(self, text: str):
         self.st.subtitle.setText(text)
-        self.st.subtitle.setVisible(bool(text))
+        show_if(self.st.subtitle, text)
 
     # ------------------------------------------------------------------ sprawdzanie
     def check(self, silent: bool = False):

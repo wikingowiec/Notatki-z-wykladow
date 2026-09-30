@@ -17,6 +17,18 @@ from .theme import T, display_font, icon_pixmap, palette_color, qcolor, soft, sv
 _icon_refs: list = []
 
 
+def show_if(w, on) -> None:
+    """setVisible bez migających okien: widżet bez rodzica po setVisible(True) staje się osobnym oknem
+    (na Windows widać wtedy przy starcie dziesiątki pustych okienek „Wykłady”)."""
+    if not on:
+        w.hide()
+    elif w.parentWidget() is not None:
+        w.show()
+    else:            # pokaże się sam razem z rodzicem, gdy trafi do układu
+        w.setAttribute(Qt.WidgetAttribute.WA_WState_ExplicitShowHide, False)
+        w.setAttribute(Qt.WidgetAttribute.WA_WState_Hidden, False)
+
+
 def set_icon(w, name: str, role: str = "text2", size: int = 18):
     """Ustawia ikonę i zapamiętuje ją, by przemalować po zmianie motywu (role = nazwa tokenu koloru)."""
     color = role if role.startswith("#") else getattr(T(), role)
@@ -312,7 +324,7 @@ class Row(QWidget):
         self.title = label(title)
         texts.addWidget(self.title)
         self.subtitle = label(subtitle, "footnote", wrap=True)
-        self.subtitle.setVisible(bool(subtitle))
+        show_if(self.subtitle, subtitle)
         texts.addWidget(self.subtitle)
         self.lay.addLayout(texts, 0 if stretch_widget else 1)
         self.stacked = False
@@ -353,7 +365,7 @@ class GroupSection(QWidget):
         lay.addWidget(self.frame)
         self.footer = label(footer, "footnote", wrap=True)
         self.footer.setContentsMargins(6, 0, 6, 0)
-        self.footer.setVisible(bool(footer))
+        show_if(self.footer, footer)
         lay.addWidget(self.footer)
         self._count = 0
 
@@ -441,7 +453,7 @@ class StatusPill(QWidget):
         f.setPointSizeF(max(7.5, f.pointSizeF() - 1.5))
         f.setWeight(QFont.Weight.DemiBold)
         self.setFixedWidth(QFontMetrics(f).horizontalAdvance(text) + 20)
-        self.setVisible(bool(text))
+        show_if(self, text)
         self.update()
 
     def paintEvent(self, _e):
@@ -468,7 +480,7 @@ class SubjectChip(QWidget):
         f = QFont(self.font())
         f.setWeight(QFont.Weight.DemiBold)
         self.setFixedWidth(QFontMetrics(f).horizontalAdvance(text) + 32 if text else 0)
-        self.setVisible(bool(text))
+        show_if(self, text)
         self.update()
 
     def paintEvent(self, _e):
@@ -850,10 +862,10 @@ class Heading(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(3)
         self.overline = label(overline.upper(), "overline")
-        self.overline.setVisible(bool(overline))
+        show_if(self.overline, overline)
         self.title = label(title, "largeTitle", wrap=True)
         self.subtitle = label(subtitle, "secondary", wrap=True)
-        self.subtitle.setVisible(bool(subtitle))
+        show_if(self.subtitle, subtitle)
         v.addWidget(self.overline)
         v.addWidget(self.title)
         v.addWidget(self.subtitle)

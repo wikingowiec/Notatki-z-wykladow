@@ -25,7 +25,7 @@ from .. import jobs
 from ..exporters import anchorize, export_anki, export_html, export_pdf, md_to_html
 from ..notes_doc import with_toc
 from ..storage import Lecture, card_stats, fmt_time, list_lectures, notes_lower, slides_info
-from .controls import (AdaptiveBox, EmptyState, LectureDelegate, SegmentedControl, StatusPill, SubjectChip, hbox,
+from .controls import (show_if, AdaptiveBox, EmptyState, LectureDelegate, SegmentedControl, StatusPill, SubjectChip, hbox,
                        icon_button, label, lecture_status, set_icon)
 from .theme import T, svg_icon, theme
 from .ask_panel import AskPanel
@@ -664,7 +664,7 @@ class LibraryTab(QWidget):
         self.subject_filter = subject
         self._show_detail = False
         self._apply_layout()
-        self.btn_glossary.setVisible(bool(subject))
+        show_if(self.btn_glossary, subject)
         self.list_title.setText("Wszystkie wykłady" if subject is None else (subject or "Bez przedmiotu"))
         self.refresh()
 
@@ -756,7 +756,7 @@ class LibraryTab(QWidget):
                  f"{n_slides} slajdów" if n_slides else "", f"model: {m.notes_model}" if m.notes_model else ""]
         self.meta.setText(" · ".join(x for x in parts if x))
         self.error.setText(f"Ostatnia próba nie powiodła się: {m.error}" if m.error and not busy_here else "")
-        self.error.setVisible(bool(self.error.text()))
+        show_if(self.error, self.error.text())
         self.error.setStyleSheet(f"color: {t.red};")
         has_notes = lec.notes_path.exists()
         self.btn_notes.setText("Generuj ponownie" if has_notes else "Generuj notatki")

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QMessageBox, QPlainTextEdit, QProgre
 from .. import exam as EX
 from ..mathrender import text_to_html
 from ..storage import list_lectures
-from .controls import GroupSection, SegmentedControl, ToggleSwitch, hbox, label, set_icon
+from .controls import show_if, GroupSection, SegmentedControl, ToggleSwitch, hbox, label, set_icon
 from .reader import Reader
 from .record_tab import _centered
 from .theme import T
@@ -134,7 +134,7 @@ class ExamTab(QWidget):
                 it.widget().deleteLater()
         self.history._count = 0
         exams = EX.list_exams(self.settings.library_path())
-        self.history.setVisible(bool(exams))
+        show_if(self.history, exams)
         for ex in exams[:12]:
             res = ex.get("results", [])
             best = max((r["score"] for r in res), default=None)
@@ -399,7 +399,7 @@ class ExamTab(QWidget):
         self.explain.setText("<br><br>".join(parts))
         src = q.get("source", {})
         self.btn_source.setText(f"Zobacz w notatce: {src.get('title', '')}")
-        self.btn_source.setVisible(bool(src))
+        show_if(self.btn_source, src)
         self.btn_next.setEnabled(True)
         self.btn_next.setFocus()
 
