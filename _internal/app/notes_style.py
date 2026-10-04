@@ -33,20 +33,22 @@ def mark_highlights(md: str) -> str:
 
 
 def _colors(t) -> dict:
-    """Kolor paska i tło ramki dla każdego rodzaju (z tokenów motywu)."""
-    from .ui.theme import _SUBJ_DARK, _SUBJ_LIGHT, mix
-    pal = _SUBJ_DARK if t.dark else _SUBJ_LIGHT
-    f = 0.16 if t.dark else 0.10
+    """(pasek, tło, kolor etykiety) dla każdego rodzaju ramki – z tokenów motywu (defBg/defBar/defText …)."""
+    from .ui.theme import mix
+    d = t.d
 
-    def pair(c):
-        return c, mix(t.surface, c, f)
+    def tok(k):
+        return d[f"{k}Bar"], d[f"{k}Bg"], d.get(f"{k}Text", d["ink3"])
+    f = 0.16 if t.dark else 0.10
+    sl, cd = t.subjects[5], t.subjects[6]
     return {
-        "def": pair(t.accent), "formula": pair(pal[3]), "example": pair(pal[1]),
-        "important": pair(t.orange), "slide": pair(pal[5]), "card": pair(pal[6]), "": pair(t.text3),
+        "def": tok("def"), "formula": tok("wz"), "example": tok("prz"), "important": tok("waz"),
+        "slide": (sl, mix(t.surface, sl, f), sl), "card": (cd, mix(t.surface, cd, f), cd),
+        "lead": tok("tldr"), "": tok("tldr"),
     }
 
 
-_LABEL_ALT = "|".join(sorted((re.escape(k) for k in LABELS), key=len, reverse=True))
+_LABEL_ALT = "|".join(sorted((re.escape(k) for k in list(LABELS) + list(LEAD)), key=len, reverse=True))
 _BOX_START = re.compile(r"(?=<p>\s*<strong>(?:" + _LABEL_ALT + r")\s*:?\s*</strong>)", re.IGNORECASE)
 
 
@@ -74,46 +76,131 @@ def _split_label(inner: str):
 # ---------------------------------------------------------------------------
 # Czytnik w aplikacji (QTextBrowser – podzbiór HTML, bez zaokrągleń i cieni)
 # ---------------------------------------------------------------------------
-def style_qt(body: str, t, num_colors: dict | None = None) -> str:
+KIND_ANCHOR = {"def": "def", "formula": "wz", "example": "prz", "important": "waz"}
+
+
+def _slide_figures(body: str, t, slide_times: dict, img_w: int) -> str:
+    """Slajd w notatce: obraz ~300 px, obok „Slajd 6 · 31:05” i „OPIS AI” z opisem z ramki „Na slajdzie”."""
+    from .storage import fmt_time
+    on_slide = "|".join(k for k, v in LABELS.items() if v == "slide")
+    pat = re.compile(r'<p>\s*(<img (?![^>]*src="file:)[^>]*?alt="([^"]*)"[^>]*?/?>)\s*</p>\s*'
+                     r'(<blockquote>\s*(<p>\s*<strong>(?:' + on_slide + r')\s*:?\s*</strong>.*?)</blockquote>)?',
+                     re.IGNORECASE | re.DOTALL)
+
+    def fig(m):
+        img, alt = m.group(1), m.group(2)
+        desc, rest_boxes = "", ""
+        if m.group(4):            # kilka ramek sklejonych w jeden cytat – opis to tylko „Na slajdzie”
+            parts = split_boxes(m.group(4))
+            _l, _k, desc = _split_label(parts[0])
+            desc = desc.strip()
+            if len(parts) > 1:
+                rest_boxes = "<blockquote>" + "".join(parts[1:]) + "</blockquote>"
+        wm, hm = re.search(r'width="(\d+)"', img), re.search(r'height="(\d+)"', img)
+        if wm and hm:
+            img = img.replace(hm.group(0), f'height="{round(int(hm.group(1)) * img_w / max(1, int(wm.group(1))))}"')
+        img = re.sub(r'width="\d+"', f'width="{img_w}"', img)
+        num = re.search(r"(\d+)", alt or "")
+        cap = alt or ""
+        if num and int(num.group(1)) in slide_times:
+            cap = f"{alt} · {fmt_time(slide_times[int(num.group(1))])}"
+        desc = re.sub(r"<p>", '<p style="margin:0 0 4px 0; line-height:150%;">', desc)
+        right = (f'<p style="margin:0 0 8px 0; color:{t.text2}; font-size:9.5pt; font-weight:600;">{_html.escape(cap)}</p>'
+                 + (f'<p style="margin:0 0 3px 0; color:{t.text3}; font-size:8pt; font-weight:700;">OPIS AI</p>'
+                    f'<div style="color:{t.text2}; font-size:10pt;">{desc}</div>' if desc else ""))
+        return (f'<table width="100%" cellspacing="0" cellpadding="0" style="margin:14px 0 16px 0;"><tr>'
+                f'<td width="{img_w}" valign="top"><p style="margin:0; line-height:100%;">{img}</p></td><td width="16"></td>'
+                f'<td valign="top">{right}</td></tr></table>' + rest_boxes)
+    return pat.sub(fig, body)
+
+
+def style_qt(body: str, t, num_colors: dict | None = None, slide_times: dict | None = None,
+             seek: bool = False, slide_w: int = 300, figures: bool = True) -> str:
+    """Notatka w czytniku aplikacji: ramki „pasek + tło” (tabele), zakreślenia, nagłówki tematów z kolorowym
+    numerem, wiersz „24:10–38:00 · ▶ odtwórz fragment · slajdy 5–6”, slajdy z opisem AI obok."""
     colors = _colors(t)
-    hl = _mix_hl(t)
-    body = body.replace("<mark>", f'<span style="background-color:{hl};">').replace("</mark>", "</span>")
+    body = body.replace("<mark>", f'<span style="background-color:{t.mark};">').replace("</mark>", "</span>")
+    if figures:
+        body = _slide_figures(body, t, slide_times or {}, slide_w)
+    counter: dict = {}
 
     def box(m):
         return "".join(one(x) for x in split_boxes(m.group(1)))
 
     def one(inner):
+        lm = re.match(r"\s*<p>\s*<strong>(" + "|".join(LEAD) + r")\s*:?\s*</strong>\s*:?\s*", inner, re.IGNORECASE)
+        if lm:                     # „W skrócie” w ramce → ramka tldr
+            bar, bg, _l = colors["lead"]
+            rest = "<p>" + inner[lm.end():]
+            rest = re.sub(r"<p>", '<p style="margin:0 0 2px 0; font-size:11.5pt;">', rest)
+            return (f'<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:4px; margin-bottom:16px;">'
+                    f'<tr><td width="3" bgcolor="{bar}"></td><td bgcolor="{bg}" style="padding:9px 16px 9px 14px;">'
+                    f'<p style="margin:0 0 3px 0; color:{t.text3}; font-size:8.5pt; font-weight:700;">'
+                    f'{lm.group(1).upper()}</p>{rest}</td></tr></table>')
         label, kind, rest = _split_label(inner)
-        bar, bg = colors.get(kind, colors[""])
+        bar, bg, lab = colors.get(kind, colors[""])
         rest = re.sub(r"<p>", '<p style="margin:0 0 4px 0;">', rest)
         rest = re.sub(r"<(ul|ol)>", r'<\1 style="margin-top:2px; margin-bottom:2px;">', rest)
-        head = (f'<p style="margin:0 0 3px 0; color:{bar}; font-size:8.5pt; font-weight:700;">'
-                f'{_html.escape(label.upper())}</p>') if label else ""
-        return (f'<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px; margin-bottom:14px;">'
-                f'<tr><td width="4" bgcolor="{bar}"></td>'
+        anchor = ""
+        if kind in KIND_ANCHOR:
+            k = KIND_ANCHOR[kind]
+            counter[k] = counter.get(k, 0) + 1
+            anchor = f'<a name="box-{k}-{counter[k]}"></a>'
+        head = (f'<p style="margin:0 0 4px 0; color:{lab}; font-size:8.5pt; font-weight:700;">'
+                f'{anchor}{_html.escape(label.upper())}</p>') if label else anchor
+        return (f'<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:10px; margin-bottom:16px;">'
+                f'<tr><td width="3" bgcolor="{bar}"></td>'
                 f'<td bgcolor="{bg}" style="padding:10px 16px 8px 14px;">{head}{rest}</td></tr></table>')
     body = re.sub(r"<blockquote>\s*(.*?)\s*</blockquote>", box, body, flags=re.DOTALL)
 
-    # „W skrócie:” – akapit wprowadzający
+    # „W skrócie:” – ramka tldr na początku tematu
+    bar, bg, _lab = colors["lead"]
     lead_re = re.compile(r"<p>\s*<strong>(" + "|".join(LEAD) + r")\s*:?\s*</strong>\s*:?\s*(.*?)</p>",
                          re.IGNORECASE | re.DOTALL)
-    body = lead_re.sub(lambda m: (f'<p style="margin:2px 0 12px 0; font-size:11pt; color:{t.text2};">'
-                                  f'<span style="color:{t.accent}; font-weight:700;">{m.group(1)}:</span> '
-                                  f'{m.group(2)}</p>'), body)
-    # numer tematu w nagłówku sekcji
+    body = lead_re.sub(lambda m: (
+        f'<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:4px; margin-bottom:16px;">'
+        f'<tr><td width="3" bgcolor="{bar}"></td><td bgcolor="{bg}" style="padding:9px 16px 9px 14px;">'
+        f'<span style="color:{t.text3}; font-size:8.5pt; font-weight:700;">{m.group(1).upper()}</span><br>'
+        f'<span style="font-size:11.5pt;">{m.group(2)}</span></td></tr></table>'), body)
+    # numer tematu w kolorze kategorii
     body = re.sub(r'(<h2[^>]*>(?:<a name="[^"]*"></a>)?)(\d+)\.\s', lambda m: (
         f'{m.group(1)}<span style="color:{(num_colors or {}).get(int(m.group(2)), t.accent)};">{m.group(2)}.</span> '),
         body)
-    # linia czasu pod nagłówkiem sekcji
-    body = re.sub(r"<p><em>(\d[\d:]*\s*[–-]\s*\d[\d:]*)</em>", lambda m: (
-        f'<p style="color:{t.text3}; font-size:9pt; margin:0 0 10px 0;"><span style="color:{t.text3};">'
-        f'{m.group(1)}</span>'), body)
-    # podpis pod slajdem
+
+    # wiersz pod nagłówkiem tematu: czas · ▶ odtwórz fragment · slajdy 5–6
+    def time_line(chunk: str) -> str:
+        nums = sorted({int(x) for x in re.findall(r'alt="[^"]*?(\d+)"', chunk)})
+        sl = ""
+        if nums:
+            sl = f"slajd {nums[0]}" if len(nums) == 1 else f"slajdy {nums[0]}–{nums[-1]}"
+
+        def repl(m):
+            parts = [f'<span style="color:{t.text3};">{m.group(1)}</span>']
+            if seek:
+                start = _secs(m.group(1).split("–")[0].split("-")[0].strip())
+                parts.append(f'<a href="seek:{start}" style="color:{t.accent_text}; font-weight:600; '
+                             f'text-decoration:none;">▶ odtwórz fragment</a>')
+            if sl:
+                parts.append(f'<span style="color:{t.text3};">{sl}</span>')
+            sep = f'<span style="color:{t.text3};"> · </span>'
+            return f'<p style="font-size:9.5pt; margin:0 0 12px 0;">{sep.join(parts)}'
+        return re.sub(r"<p><em>(\d[\d:]*\s*[–-]\s*\d[\d:]*)</em>", repl, chunk, count=1)
+    pieces = re.split(r"(?=<h2)", body)
+    body = "".join(time_line(pc) if pc.startswith("<h2") else pc for pc in pieces)
+    # podpis pod pozostałymi obrazami
     body = re.sub(r'<p>\s*(<img (?![^>]*src="file:)[^>]*?alt="([^"]*)"[^>]*/?>)\s*</p>', lambda m: (
         f'<p style="margin:14px 0 4px 0; line-height:100%;">{m.group(1)}</p>'
         + (f'<p style="margin:0 0 10px 0; color:{t.text3}; font-size:9pt;">{m.group(2)}</p>'
            if m.group(2) and not m.group(2).isdigit() else "")), body)
     return body
+
+
+def _secs(s: str) -> float:
+    parts = [float(x) for x in s.split(":") if x.strip().replace(".", "").isdigit()]
+    v = 0.0
+    for x in parts:
+        v = v * 60 + x
+    return v
 
 
 def _mix_hl(t) -> str:

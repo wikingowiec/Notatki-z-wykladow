@@ -69,11 +69,11 @@ def create_app(settings):
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
     load_fonts()
-    app.setFont(ui_font(10))
+    app.setFont(ui_font(10.5))
     icon = os.path.join(BASE, "icon.ico")
     if os.path.exists(icon):
         app.setWindowIcon(QIcon(icon))
-    theme().set_mode(settings.theme)
+    theme().apply(getattr(settings, "theme_name", "zeszyt"), settings.theme)
     return app
 
 

@@ -56,11 +56,12 @@ def preview_html(md: str, img_width: int = 620, folder: Path | None = None, base
     from .mathrender import protect, restore
     from .notes_doc import with_toc
     from .notes_style import mark_highlights, style_qt
-    from .ui.theme import LIGHT
+    from .ui.theme import Tokens
+    LIGHT = Tokens("zeszyt", False)
     md, maths = protect(with_toc(md))
     body = anchorize(md_to_html(mark_highlights(md)))
     body = re.sub(r'<img ([^>]*?)/?>', lambda m: f'<img {m.group(1)} width="{img_width}" />', body)
-    body = style_qt(body, LIGHT)
+    body = style_qt(body, LIGHT, figures=False)
     if folder is not None:
         body = restore(body, maths, Path(folder) / "math", "#000000")
 

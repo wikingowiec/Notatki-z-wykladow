@@ -1,3 +1,5 @@
-Inter (c) The Inter Project Authors, Fraunces (c) The Fraunces Project Authors.
-Both fonts are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
-Files here are latin + latin-ext subsets merged into single TTF files.
+Inter (c) The Inter Project Authors, Fraunces (c) The Fraunces Project Authors,
+Literata (c) The Literata Project Authors, Nunito Sans (c) The Nunito Sans Project Authors,
+Spectral (c) Production Type, Public Sans (c) The Public Sans Project Authors (USWDS).
+All fonts are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+Files here are latin + latin-ext subsets (from Fontsource) merged into single TTF files.

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QCursor, QDesktopServices, QFont, QIcon, QImage, QPainter, QPixmap, QTextCursor
-from PySide6.QtWidgets import (QApplication, QFileDialog, QStyledItemDelegate, QFrame, QHBoxLayout, QInputDialog, QLineEdit,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QStyledItemDelegate, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QProgressBar,
                                QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
@@ -26,15 +26,15 @@ from ..exporters import anchorize, export_anki, export_html, export_pdf, md_to_h
 from ..notes_doc import with_toc
 from ..storage import Lecture, card_stats, fmt_time, list_lectures, notes_lower, slides_info
 from .controls import (show_if, AdaptiveBox, EmptyState, LectureDelegate, SegmentedControl, StatusPill, SubjectChip, hbox,
-                       icon_button, label, lecture_status, set_icon)
-from .theme import T, svg_icon, theme
+                       icon_button, label, set_icon)
+from .theme import T, theme
 from .ask_panel import AskPanel
 from .reader import Reader
 from .widgets import JobRunner, run_async
 
 log = logging.getLogger(__name__)
 
-NOTES, SLIDES, TRANSCRIPT, CARDS, ASK, CHEAT = range(6)
+NOTES, SLIDES, TRANSCRIPT, CARDS, ASK, CHEAT, EXAM = range(7)
 READER_IMG_W = 640
 GRID_ICON = QSize(264, 149)
 
@@ -43,12 +43,13 @@ def reader_css() -> str:
     from .theme import DISPLAY_FAMILY, UI_FAMILY
     t = T()
     disp = f"'{DISPLAY_FAMILY}', Georgia, serif"
-    return (f"body {{ color:{t.text}; font-family:'{UI_FAMILY}'; font-size:10.5pt; line-height:165%; }}"
-            f"h1 {{ font-family:{disp}; font-size:23pt; font-weight:600; margin:2px 0 4px 0; line-height:120%; }}"
-            f"h2 {{ font-family:{disp}; font-size:15.5pt; font-weight:600; margin:26px 0 6px 0; line-height:125%; }}"
-            f"h3 {{ font-size:11pt; font-weight:700; margin:16px 0 4px 0; }}"
+    return (f"body {{ color:{t.text}; font-family:'{UI_FAMILY}'; font-size:11.6pt; line-height:170%; }}"
+            f"h1 {{ font-family:{disp}; font-size:24pt; font-weight:600; margin:2px 0 4px 0; line-height:120%; }}"
+            f"h2 {{ font-family:{disp}; font-size:18.75pt; font-weight:600; margin:30px 0 4px 0; line-height:125%; }}"
+            f"h3 {{ font-family:{disp}; font-size:13.5pt; font-weight:600; margin:18px 0 4px 0; }}"
             f"p {{ margin:0 0 10px 0; }}"
-            f"em {{ color:{t.text2}; }} a {{ color:{t.accent}; text-decoration:none; }} li {{ margin-bottom:4px; }}"
+            f"em {{ color:{t.text2}; }} a {{ color:{t.accent_text}; text-decoration:none; font-weight:600; }}"
+            f" li {{ margin-bottom:5px; }}"
             f"strong, b {{ font-weight:600; }}"
             f"code {{ background:{t.hover}; }}"
             f"blockquote {{ color:{t.text2}; margin:8px 0 8px 12px; }}"
@@ -83,7 +84,24 @@ def _sig(lec: Lecture) -> tuple:
 # ---------------------------------------------------------------------------
 # Prace w tle (bez widżetów – tylko dane i QImage, które są bezpieczne poza wątkiem interfejsu)
 # ---------------------------------------------------------------------------
-def build_notes(folder: Path, md: str, dpr: float, audio: bool = True, toc: bool = True) -> tuple[str, dict, dict]:
+def strip_title(md: str) -> str:
+    """Bez tytułu i linii „przedmiot · data · czas” na początku – pokazuje je nagłówek nad notatką."""
+    lines = md.splitlines()
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i < len(lines) and lines[i].startswith("# "):
+        i += 1
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        if i < len(lines) and re.match(r"^\*[^*].*\*\s*$", lines[i].strip()):
+            i += 1
+        return "\n".join(lines[i:]).lstrip("\n")
+    return md
+
+
+def build_notes(folder: Path, md: str, dpr: float, audio: bool = True, toc: bool = True,
+                no_title: bool = False) -> tuple[str, dict, dict]:
     """Notatka → HTML dla czytnika. W tle: miniatury slajdów, wzory, ikonki odsłuchu przy punktach.
     Zwraca (html, obrazy {klucz: QImage}, fragmenty do odsłuchu {n: [Fragment]})."""
     from ..audio_links import annotate
@@ -96,6 +114,13 @@ def build_notes(folder: Path, md: str, dpr: float, audio: bool = True, toc: bool
     cats = load_categories(Lecture(folder), md)
     num_colors = {n: palette_color(ci) for n, ci in section_colors(cats).items()}
     md = with_toc(md, include_toc=toc, categories=cats)
+    if no_title:
+        md = strip_title(md)
+    lec_ = Lecture(folder)
+    slide_t0: dict = {}
+    for ev in lec_.load_slides().get("events", []):
+        slide_t0.setdefault(int(ev["index"]), float(ev["t"]))
+    seek = bool(audio and lec_.audio_parts())
     if audio:
         lec = Lecture(folder)
         segs = lec.load_segments()
@@ -124,10 +149,14 @@ def build_notes(folder: Path, md: str, dpr: float, audio: bool = True, toc: bool
                 img.setDevicePixelRatio(dpr)
             images[key] = img
         alt = re.search(r'alt="([^"]*)"', attrs)
-        return f'<img src="{key}" alt="{alt.group(1) if alt else ""}" width="{READER_IMG_W}" />'
+        im = images.get(key)
+        hh = ""
+        if im is not None and not im.isNull() and im.width():
+            hh = f' height="{round(READER_IMG_W * im.height() / im.width())}"'
+        return f'<img src="{key}" alt="{alt.group(1) if alt else ""}" width="{READER_IMG_W}"{hh} />'
 
     body = re.sub(r"<img ([^>]*?)/?>", repl, body)
-    body = style_qt(body, t, num_colors)
+    body = style_qt(body, t, num_colors, slide_times=slide_t0, seek=seek)
     # wzory → obrazki (wczytane tu, w tle)
     body = restore(body, maths, Path(folder) / "math", t.text)
 
@@ -184,7 +213,7 @@ def _placeholder_icon() -> QIcon:
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QColor(T().hover))
-    p.drawRoundedRect(0, 0, GRID_ICON.width(), GRID_ICON.height(), 8, 8)
+    p.drawRoundedRect(0, 0, GRID_ICON.width(), GRID_ICON.height(), T().r("sm"), T().r("sm"))
     p.end()
     return QIcon(pm)
 
@@ -232,7 +261,7 @@ class OutlineDelegate(QStyledItemDelegate):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(soft(color)))
             pill = QRectF(r.left() + 2, r.top() + 7, r.width() - 4, r.height() - 9)
-            p.drawRoundedRect(pill, 8, 8)
+            p.drawRoundedRect(pill, T().r("sm"), T().r("sm"))
             p.setBrush(qcolor(color))
             p.drawEllipse(QRectF(pill.left() + 10, pill.center().y() - 4, 8, 8))
             p.setFont(f)
@@ -244,10 +273,11 @@ class OutlineDelegate(QStyledItemDelegate):
             p.drawText(pill.adjusted(0, 0, -10, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, cnt)
             p.restore()
             return
-        if hover:
+        sel = option.state & QStyle.StateFlag.State_Selected
+        if sel or hover:
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(qcolor(t.hover))
-            p.drawRoundedRect(r, 8, 8)
+            p.setBrush(qcolor(t.accent_soft if sel else t.hover))
+            p.drawRoundedRect(r, t.r("sm"), t.r("sm"))
         x = r.left() + (22 if lvl == 2 else 10)
         if lvl == 2:
             p.setPen(Qt.PenStyle.NoPen)
@@ -289,6 +319,7 @@ class LibraryTab(QWidget):
     study_requested = Signal(object)      # Lecture
     continue_requested = Signal(object)   # Lecture – nagraj kolejną część
     new_from_files = Signal()             # „Importuj nagranie” → Nowa notatka / Z pliku
+    exam_requested = Signal(object)       # Lecture – egzamin próbny z tego wykładu
     library_changed = Signal()
 
     def __init__(self, settings, runner: JobRunner, parent=None):
@@ -310,25 +341,24 @@ class LibraryTab(QWidget):
         self.search.setObjectName("search")
         self.search.setPlaceholderText("Szukaj w tytułach i notatkach")
         self.search.setClearButtonEnabled(True)
-        self._search_action = self.search.addAction(QIcon(), QLineEdit.ActionPosition.LeadingPosition)
-        self._search_icon()
-        theme().changed.connect(self._search_icon)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(220)
         self._search_timer.timeout.connect(lambda: self.refresh())
         self.search.textChanged.connect(lambda _t: self._search_timer.start())
 
+        self.list_filter = SegmentedControl(["Wszystkie", "Do nauki", "W toku"])
+        self.list_filter.changed.connect(lambda _i: self.refresh())
+        self.list_filter.setToolTip("Do nauki – są fiszki do powtórki dziś · W toku – nagrywanie albo praca AI")
         self.list = QListWidget()
         self.list.setObjectName("lectureList")
         self.list.setItemDelegate(LectureDelegate(self.list))
-        self.list.setUniformItemSizes(True)
         self.list.setMouseTracking(True)
         self.list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.list.currentItemChanged.connect(self._on_select)
         self.list.itemClicked.connect(lambda _it: self._open_detail())
 
-        self.btn_import = QPushButton("Notatka z pliku…")
+        self.btn_import = QPushButton("Notatka z pliku (m4a, mp3, wideo)…")
         self.btn_import.setObjectName("plain")
         self.btn_import.setToolTip("Plik audio lub wideo (mp3, m4a, wav, mp4, mkv…), np. nagranie z e-learningu")
         set_icon(self.btn_import, "import", "accent", 16)
@@ -336,7 +366,7 @@ class LibraryTab(QWidget):
 
         left = QWidget()
         left.setObjectName("listPane")
-        left.setFixedWidth(310)
+        left.setFixedWidth(316)
         self.left = left
         ll = QVBoxLayout(left)
         ll.setContentsMargins(14, 22, 10, 12)
@@ -352,21 +382,25 @@ class LibraryTab(QWidget):
         self.btn_glossary.hide()
         ll.addWidget(self.btn_glossary, 0, Qt.AlignmentFlag.AlignLeft)
         ll.addWidget(self.search)
+        ll.addWidget(self.list_filter)
         ll.addWidget(self.list, 1)
         ll.addWidget(self.btn_import, 0, Qt.AlignmentFlag.AlignLeft)
 
         # ================= szczegóły: nagłówek =================
-        self.title = label("", "title2", wrap=True)
+        # [przedmiot · data · czas · slajdy · tematy]  /  Tytuł (32 px)      [Ucz się · 16 fiszek] [⤴] […]
+        self.title = label("", "h1", wrap=True)
         self.meta = label("", "secondary", wrap=True)
         self.pill = StatusPill()
         self.error = label("", "errorText", wrap=True)
 
         self.btn_notes = QPushButton("Generuj notatki")
         self.btn_notes.setObjectName("primary")
-        set_icon(self.btn_notes, "sparkles", "#FFFFFF", 16)
+        set_icon(self.btn_notes, "sparkles", "on_accent", 16)
         self.btn_notes.clicked.connect(lambda: self.generate_notes())
-        self.btn_folder = icon_button("folder", "Pokaż w folderze")
-        self.btn_folder.clicked.connect(self.open_folder)
+        self.btn_learn = QPushButton("Ucz się")
+        self.btn_learn.setObjectName("primary")
+        set_icon(self.btn_learn, "play", "on_accent", 14)
+        self.btn_learn.clicked.connect(lambda: self.current and self.study_requested.emit(self.current))
         self.btn_share = icon_button("share", "Eksportuj")
         m = QMenu(self)
         m.addAction("Otwórz w przeglądarce (HTML)", self.export_html)
@@ -378,6 +412,8 @@ class LibraryTab(QWidget):
         self.btn_share.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_more = icon_button("more", "Więcej")
         mm = QMenu(self)
+        self.act_regen = mm.addAction("Generuj ponownie", lambda: self.generate_notes())
+        mm.addSeparator()
         mm.addAction("Kontynuuj nagrywanie (kolejna część)", lambda: self.current and
                      self.continue_requested.emit(self.current))
         mm.addAction("Edytuj notatki", self.edit_notes)
@@ -386,6 +422,7 @@ class LibraryTab(QWidget):
         mm.addAction("Zmień tytuł i przedmiot…", self.rename)
         mm.addAction("Transkrybuj ponownie z nagrania", lambda: self.retranscribe())
         mm.addAction("Otwórz nagranie audio", self.open_audio)
+        mm.addAction("Pokaż w folderze", self.open_folder)
         mm.addSeparator()
         mm.addAction("Usuń wykład…", self.delete)
         self.btn_more.setMenu(mm)
@@ -402,28 +439,25 @@ class LibraryTab(QWidget):
         head_text = QVBoxLayout(text_w)
         head_text.setContentsMargins(0, 0, 0, 0)
         head_text.setSpacing(6)
-        head_text.addWidget(self.title)
         ml = QHBoxLayout()
         ml.setSpacing(8)
         ml.addWidget(self.subject_chip)
         ml.addWidget(self.pill)
         ml.addWidget(self.meta, 1)
         head_text.addLayout(ml)
+        head_text.addWidget(self.title)
         head_text.addWidget(self.error)
-        self.btn_continue = icon_button("continue", "Kontynuuj nagrywanie – dograj kolejną część do tej notatki")
-        self.btn_continue.clicked.connect(lambda: self.current and self.continue_requested.emit(self.current))
-        self.btn_edit = icon_button("edit", "Edytuj notatki")
-        self.btn_edit.clicked.connect(self.edit_notes)
-        actions = hbox(self.btn_notes, self.btn_continue, self.btn_edit, self.btn_folder, self.btn_share,
-                       self.btn_more, spacing=2)
-        actions.layout().insertSpacing(1, 8)
+        actions = hbox(self.btn_learn, self.btn_notes, self.btn_share, self.btn_more, spacing=4)
+        actions.layout().insertSpacing(2, 6)
         head = AdaptiveBox(threshold=760, spacing=16, vspacing=10)
         head.add(text_w, 1)
         head.add(actions, 0, Qt.AlignmentFlag.AlignTop, Qt.AlignmentFlag.AlignLeft)
         self.head = head
 
-        self.seg = SegmentedControl(["Notatki", "Ściąga", "Zapytaj", "Slajdy", "Transkrypcja", "Fiszki"], style="tabs")
-        self._seg_to_page = [NOTES, CHEAT, ASK, SLIDES, TRANSCRIPT, CARDS]
+        self.seg = SegmentedControl(["Notatki", "Ściąga", "Zapytaj", "Slajdy", "Transkrypcja", "Fiszki", "Egzamin"],
+                                    style="tabs")
+        self._seg_to_page = [NOTES, CHEAT, ASK, SLIDES, TRANSCRIPT, CARDS, EXAM]
+        self.seg.short = {"Transkrypcja": "Tekst", "Notatki": "Notatki", "Egzamin": "Test"}
         self.seg.changed.connect(lambda i: self._show_page(self._seg_to_page[i]))
 
         # --- baner zadania ---
@@ -456,7 +490,7 @@ class LibraryTab(QWidget):
 
         # ================= strony =================
         # Notatki
-        self.notes_view = Reader(max_width=760, pad=34)
+        self.notes_view = Reader(max_width=640, pad=34)
         self.notes_empty_btn = QPushButton("Generuj notatki")
         self.notes_empty_btn.setObjectName("primary")
         self.notes_empty_btn.clicked.connect(lambda: self.generate_notes())
@@ -497,22 +531,120 @@ class LibraryTab(QWidget):
         self.outline.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.outline.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.outline.itemClicked.connect(self._outline_jump)
+        from .note_nav import JumpButtons, LectureTimeline
+        self.read_label = label("Przeczytano 0%", "caption")
+        self.read_bar = QProgressBar()
+        self.read_bar.setTextVisible(False)
+        self.read_bar.setRange(0, 100)
+        self.jump_btns = JumpButtons()
+        self.jump_btns.jump.connect(self._jump_kind)
         self.outline_box = QWidget()
         ob = QVBoxLayout(self.outline_box)
-        ob.setContentsMargins(6, 6, 0, 0)
+        ob.setContentsMargins(6, 4, 0, 0)
         ob.setSpacing(8)
         ob.addWidget(label("W TEJ NOTATCE", "sectionHeader"))
+        ob.addWidget(self.read_label)
+        ob.addWidget(self.read_bar)
+        ob.addSpacing(4)
         ob.addWidget(self.outline, 1)
-        self.outline_box.setFixedWidth(300)
+        ob.addWidget(label("PRZEJDŹ DO", "sectionHeader"))
+        ob.addWidget(self.jump_btns)
+        self.outline_box.setFixedWidth(248)
         self.outline.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.outline_box.hide()
         self._outline_on = False
+        self.timeline = LectureTimeline()
+        self.timeline.seek.connect(self._timeline_seek)
+        self.timeline.hide()
+        self._positions: dict | None = None
+        self._sec_info: list = []
+        self.notes_view.verticalScrollBar().valueChanged.connect(self._on_note_scroll)
+        self.notes_view.verticalScrollBar().rangeChanged.connect(lambda *_: self._invalidate_positions())
+        # --- 21:9: stały panel „Zapytaj notatkę” + „W tym miejscu wykładu” (Ctrl+J zwija) ---
+        self.side_ask = AskPanel(settings, busy_hint=lambda: self.runner.busy)
+        self.side_ask.compact = True
+        self.side_ask.internal_link.connect(lambda a: self.notes_view.scrollToAnchor(a))
+        self.side_ask.seek_requested.connect(
+            lambda t: self.current and self.player.play(self.current, t, None, "Odpowiedź"))
+        self.side_ask.answered.connect(self._side_actions_state)
+        self.qa_card = QPushButton("Zrób z tego fiszkę")
+        self.qa_example = QPushButton("Podaj przykład")
+        self.qa_simple = QPushButton("Wyjaśnij prościej")
+        for b, fn, ic in ((self.qa_card, self._qa_to_card, "cards"), (self.qa_example, self._qa_example, "sparkles"),
+                          (self.qa_simple, self._qa_simpler, "text")):
+            b.setObjectName("chipBtn")
+            set_icon(b, ic, "accent_text", 14)
+            b.clicked.connect(fn)
+        self.qa_status = label("", "caption", wrap=True)
+        b_hide = QPushButton("")
+        b_hide.setObjectName("plain")
+        b_hide.setToolTip("Zwiń panel (Ctrl+J)")
+        set_icon(b_hide, "xmark", "text2", 14)
+        b_hide.setFixedWidth(36)
+        b_hide.clicked.connect(self.toggle_side)
+        self.place_img = QLabel()
+        self.place_img.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.place_cap = label("", "caption")
+        self.place_text = label("", "footnote", wrap=True)
+        self.place_text.setTextFormat(Qt.TextFormat.RichText)
+        self.place_text.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.place_text.linkActivated.connect(
+            lambda u: u.startswith("seek:") and self.current and
+            self.player.play(self.current, float(u[5:]), None, "Transkrypcja"))
+        self.side_box = QWidget()
+        sbl = QVBoxLayout(self.side_box)
+        sbl.setContentsMargins(4, 4, 0, 0)
+        sbl.setSpacing(8)
+        hh = QHBoxLayout()
+        hh.addWidget(label("ZAPYTAJ NOTATKĘ", "sectionHeader"), 1)
+        hh.addWidget(label("Ctrl J", "caption"))
+        hh.addWidget(b_hide)
+        sbl.addLayout(hh)
+        sbl.addWidget(self.side_ask, 3)
+        qrow = QHBoxLayout()
+        qrow.setSpacing(6)
+        for b in (self.qa_card, self.qa_example, self.qa_simple):
+            qrow.addWidget(b)
+        qrow.addStretch()
+        sbl.addLayout(qrow)
+        sbl.addWidget(self.qa_status)
+        sbl.addSpacing(6)
+        sbl.addWidget(label("W TYM MIEJSCU WYKŁADU", "sectionHeader"))
+        prow = QHBoxLayout()
+        prow.setSpacing(12)
+        pl = QVBoxLayout()
+        pl.setSpacing(4)
+        pl.addWidget(self.place_img)
+        pl.addWidget(self.place_cap)
+        pl.addStretch()
+        prow.addLayout(pl)
+        prow.addWidget(self.place_text, 1)
+        sbl.addLayout(prow, 2)
+        self.side_box.setFixedWidth(540)
+        self.side_box.hide()
+        self._side_hidden = False
+        self._place_timer = QTimer(self)
+        self._place_timer.setSingleShot(True)
+        self._place_timer.setInterval(250)
+        self._place_timer.timeout.connect(self._update_place)
+        from PySide6.QtGui import QKeySequence, QShortcut
+        sc = QShortcut(QKeySequence("Ctrl+J"), self)
+        sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        sc.activated.connect(self.toggle_side)
+
+        notes_col = QWidget()
+        ncl = QVBoxLayout(notes_col)
+        ncl.setContentsMargins(0, 0, 0, 0)
+        ncl.setSpacing(8)
+        ncl.addWidget(self.notes_stack, 1)
+        ncl.addWidget(self.timeline)
         notes_page = QWidget()
         npl = QHBoxLayout(notes_page)
         npl.setContentsMargins(0, 0, 0, 0)
         npl.setSpacing(18)
-        npl.addWidget(self.notes_stack, 1)
+        npl.addWidget(notes_col, 1)
         npl.addWidget(self.outline_box)
+        npl.addWidget(self.side_box)
 
         # Slajdy: miniatury (klik = powiększenie, × = usuń) albo cały tekst do skopiowania
         from .slide_views import SlideTextPanel, SlideThumbs
@@ -544,7 +676,7 @@ class LibraryTab(QWidget):
         self.cards_sub = label("", "secondary")
         self.btn_study = QPushButton("Ucz się")
         self.btn_study.setObjectName("primary")
-        set_icon(self.btn_study, "play", "#FFFFFF", 14)
+        set_icon(self.btn_study, "play", "on_accent", 14)
         self.btn_study.clicked.connect(lambda: self.current and self.study_requested.emit(self.current))
         self.cards_view = Reader(max_width=820, pad=30)
         self.cards_empty = EmptyState("cards", "Brak fiszek", "Fiszki powstają automatycznie razem z notatkami.")
@@ -589,9 +721,18 @@ class LibraryTab(QWidget):
         chl.addWidget(self.cheat_filter, 0, Qt.AlignmentFlag.AlignLeft)
         chl.addWidget(self.cheat_stack, 1)
 
+        # Egzamin próbny z tego wykładu
+        b_exam = QPushButton("Przygotuj egzamin")
+        b_exam.setObjectName("primary")
+        set_icon(b_exam, "exam", "on_accent", 16)
+        b_exam.clicked.connect(lambda: self.current and self.exam_requested.emit(self.current))
+        self.exam_page = EmptyState("exam", "Egzamin próbny z tego wykładu",
+                                    "Pytania A–D, prawda/fałsz i otwarte – każde sprawdzone w tej notatce. "
+                                    "Liczbę pytań i poziom wybierzesz na następnym ekranie.", b_exam)
+
         self.pages = QStackedWidget()
-        for w in (notes_page, self.slides_stack, self.transcript_view, cw, self.ask_stack, chw):
-            self.pages.addWidget(w)       # indeksy = NOTES, SLIDES, TRANSCRIPT, CARDS, ASK, CHEAT
+        for w in (notes_page, self.slides_stack, self.transcript_view, cw, self.ask_stack, chw, self.exam_page):
+            self.pages.addWidget(w)       # indeksy = NOTES, SLIDES, TRANSCRIPT, CARDS, ASK, CHEAT, EXAM
 
         detail = QWidget()
         dl = QVBoxLayout(detail)
@@ -608,6 +749,8 @@ class LibraryTab(QWidget):
         dl.addWidget(self.player)
         self.notes_view.play_requested.connect(
             lambda frags: self.current and self.player.choose(self.current, frags, self.notes_view, QCursor.pos()))
+        self.notes_view.seek_requested.connect(
+            lambda t: self.current and self.player.play(self.current, t, None, "Notatka"))
         self.transcript_view.seek_requested.connect(
             lambda t: self.current and self.player.play(self.current, t, None, "Transkrypcja"))
 
@@ -638,9 +781,6 @@ class LibraryTab(QWidget):
         theme().changed.connect(lambda: self._load(self.current, force=True))
         self.refresh()
 
-    def _search_icon(self):
-        self._search_action.setIcon(svg_icon("search", T().text3, 16))
-
     def _dpr(self) -> float:
         return self.devicePixelRatioF() or 1.0
 
@@ -669,34 +809,69 @@ class LibraryTab(QWidget):
         self.refresh()
 
     def refresh(self, select_folder: str | None = None):
+        from datetime import date, datetime, timedelta
+        from ..storage import card_stats
         if not isinstance(select_folder, str):
             select_folder = str(self.current.folder) if self.current else None
         q = self.search.text().strip().lower()
+        flt = self.list_filter.current()
         self.list.setUpdatesEnabled(False)
         self.list.blockSignals(True)
         self.list.clear()
         to_select = None
         count = 0
+        monday = date.today() - timedelta(days=date.today().weekday())
+        group_shown = set()
         for lec in list_lectures(self.settings.library_path()):
             m = lec.meta
             if self.subject_filter is not None and m.subject != self.subject_filter:
                 continue
             if q and q not in f"{m.title} {m.subject}".lower() and q not in notes_lower(lec):
                 continue
+            busy = self._job_is_for(lec) or m.status in ("nagrywanie", "przetwarzanie")
+            n_cards, due = card_stats(lec)
+            if flt == 1 and not due:
+                continue
+            if flt == 2 and not busy:
+                continue
+            try:
+                d = datetime.fromisoformat(m.created).date()
+            except Exception:  # noqa: BLE001
+                d = monday - timedelta(days=1)
+            grp = "Ten tydzień" if d >= monday else "Wcześniej"
+            if grp not in group_shown:
+                group_shown.add(grp)
+                h = QListWidgetItem()
+                h.setFlags(Qt.ItemFlag.NoItemFlags)
+                h.setData(LectureDelegate.ROLE, {"header": grp})
+                self.list.addItem(h)
             count += 1
-            status = ("W toku", "orange") if self._job_is_for(lec) else lecture_status(lec)
-            sub = " · ".join(x for x in [lecture_date(lec), fmt_time(m.duration) if m.duration else "",
-                                         m.subject if self.subject_filter is None else ""] if x)
+            progress = None
+            if self._job_is_for(lec):
+                frac = getattr(self, "_job_frac", -1.0)
+                status = (f"AI {int(frac * 100)}%" if frac >= 0 else "AI pracuje", "blue")
+                progress = frac
+            elif m.status == "nagrywanie":
+                status = ("Nagrywanie", "red")
+            elif lec.notes_path.exists():
+                status = ("Gotowe", "blue") if m.status != "błąd" else ("Błąd", "red")
+            else:
+                status = ("Bez notatek", "gray") if m.status != "błąd" else ("Błąd", "red")
+            cards_txt = (f"{n_cards} fiszek" if n_cards != 1 else "1 fiszka") if n_cards else ""
+            sub = " · ".join(x for x in [lecture_date(lec), fmt_time(m.duration) if m.duration else "", cards_txt,
+                                         m.subject if self.subject_filter is None and not cards_txt else ""] if x)
             it = QListWidgetItem()
             it.setData(Qt.ItemDataRole.UserRole, str(lec.folder))
-            it.setData(LectureDelegate.ROLE, {"title": m.title, "sub": sub, "pill": status, "subject": m.subject})
-            it.setToolTip(m.title)
+            it.setData(LectureDelegate.ROLE, {"title": m.title, "sub": sub, "pill": status, "subject": m.subject,
+                                              "progress": progress})
+            it.setToolTip(m.title + (f" · do powtórki dziś: {due}" if due else ""))
             self.list.addItem(it)
             if select_folder and str(lec.folder) == select_folder:
                 to_select = (it, lec)
         self.list.blockSignals(False)
         self.list.setUpdatesEnabled(True)
-        self.list_count.setText(plural_lectures(count))
+        self.list_count.setText(plural_lectures(count) if not flt else
+                                f"{plural_lectures(count)} · filtr: {['', 'do nauki', 'w toku'][flt]}")
         if to_select:
             self.list.blockSignals(True)
             self.list.setCurrentItem(to_select[0])
@@ -737,32 +912,55 @@ class LibraryTab(QWidget):
         self._sig = sig
         self._gen += 1
         self._rendered.clear()
+        self._apply_side()
+        if self.side_box.isVisible():
+            self._load_side()
         self.detail_stack.setCurrentIndex(1)
         self._show_page(self.pages.currentIndex())
 
     def _update_header(self):
+        from ..storage import card_stats
+        from ..topics import sections_of
         lec = self.current
         if not lec:
             return
         m = lec.meta
-        t = T()
         self.title.setText(m.title)
         n_slides = len(slides_info(lec).get("slides", []))
         busy_here = self._job_is_for(lec)
-        text, kind = ("W toku", "orange") if busy_here else lecture_status(lec)
-        self.pill.set(text, kind)
+        has_notes = lec.notes_path.exists()
+        n_topics = len(sections_of(lec.read_text(lec.notes_path))) if has_notes else 0
+        n_cards, due = card_stats(lec)
+        if busy_here:
+            self.pill.set("AI pracuje", "blue")
+        elif m.status == "błąd":
+            self.pill.set("Błąd", "red")
+        elif not has_notes:
+            self.pill.set("Bez notatek", "gray")
+        else:
+            self.pill.set("", "gray")
         self.subject_chip.set(m.subject)
         parts = [lecture_date(lec), fmt_time(m.duration) if m.duration else "",
-                 f"{n_slides} slajdów" if n_slides else "", f"model: {m.notes_model}" if m.notes_model else ""]
+                 (f"{n_slides} slajdów" if n_slides != 1 else "1 slajd") if n_slides else "",
+                 (f"{n_topics} tematów" if n_topics != 1 else "1 temat") if n_topics else ""]
         self.meta.setText(" · ".join(x for x in parts if x))
+        self.meta.setToolTip(f"Model notatek: {m.notes_model}" if m.notes_model else "")
         self.error.setText(f"Ostatnia próba nie powiodła się: {m.error}" if m.error and not busy_here else "")
         show_if(self.error, self.error.text())
-        self.error.setStyleSheet(f"color: {t.red};")
-        has_notes = lec.notes_path.exists()
-        self.btn_notes.setText("Generuj ponownie" if has_notes else "Generuj notatki")
+        # główny przycisk: nauka z fiszek; bez notatek – generowanie
+        self.btn_learn.setText(f"Ucz się · {n_cards} fiszek" if n_cards != 1 else "Ucz się · 1 fiszka")
+        self.btn_learn.setToolTip(f"Do powtórki dziś: {due}" if due else "Wszystkie fiszki tego wykładu")
+        show_if(self.btn_learn, n_cards)
+        show_if(self.btn_notes, not has_notes)
         self.btn_notes.setEnabled(not self.runner.busy)
+        self.act_regen.setText("Generuj ponownie" if has_notes else "Generuj notatki")
+        self.act_regen.setEnabled(not self.runner.busy)
         self.notes_empty_btn.setEnabled(not self.runner.busy)
         self.banner.setVisible(busy_here)
+        names = ["Notatki", "Ściąga", "Zapytaj", f"Slajdy {n_slides}" if n_slides else "Slajdy", "Transkrypcja",
+                 f"Fiszki {n_cards}" if n_cards else "Fiszki", "Egzamin"]
+        for i, name in enumerate(names):
+            self.seg.set_text(i, name)
 
     def _show_page(self, page: int):
         self.pages.setCurrentIndex(page)
@@ -770,7 +968,8 @@ class LibraryTab(QWidget):
             return
         self._rendered.add(page)
         {NOTES: self._render_notes, SLIDES: self._render_slides, TRANSCRIPT: self._render_transcript,
-         CARDS: self._render_cards, ASK: self._render_ask, CHEAT: self._render_cheat}[page]()
+         CARDS: self._render_cards, ASK: self._render_ask, CHEAT: self._render_cheat,
+         EXAM: lambda: None}[page]()
 
     def _render_notes(self):
         lec, gen = self.current, self._gen
@@ -793,10 +992,11 @@ class LibraryTab(QWidget):
             self.notes_view.plays = plays
             self.notes_view.setHtml(html_doc)
             sb.setValue(0)
+            self._after_notes(md)
             if self._pending_anchor:
                 QTimer.singleShot(30, lambda a=self._pending_anchor: self.notes_view.scrollToAnchor(a))
                 self._pending_anchor = None
-        run_async(lambda: build_notes(folder, md, dpr, toc=toc), done)
+        run_async(lambda: build_notes(folder, md, dpr, toc=toc, no_title=True), done)
 
     def _render_slides(self):
         from .slide_views import SlideInfo
@@ -960,6 +1160,215 @@ class LibraryTab(QWidget):
             self.notes_stack.setCurrentIndex(0)
             self.notes_view.scrollToAnchor(anchor)
 
+    # ------------------------------------------------------------------ 21:9: panel „Zapytaj notatkę”
+    def _apply_side(self):
+        on = getattr(self, "_side_wide", False) and not self._side_hidden and self.current is not None \
+            and self.current.notes_path.exists()
+        if on != self.side_box.isVisible():
+            self.side_box.setVisible(on)
+            if on:
+                self._load_side()
+
+    def toggle_side(self):
+        if not getattr(self, "_side_wide", False):
+            self.seg.set_current(2, emit=True)           # węższe okno – zakładka „Zapytaj”
+            return
+        self._side_hidden = not self._side_hidden
+        self._apply_side()
+
+    def _load_side(self):
+        from ..topics import sections_of
+        from .note_nav import section_times
+        lec = self.current
+        if lec is None or not lec.notes_path.exists():
+            return
+        md = lec.read_text(lec.notes_path)
+        times = section_times(md)
+        self.side_ask.anchor_times = {a: times[n][0] for n, _t, a, _tm in sections_of(md) if n in times} \
+            if lec.audio_parts() else {}
+        self.side_ask.set_source(lambda: lec.read_text(lec.notes_path), lec.folder / "qa.json",
+                                 self.settings.ollama_ctx)
+        self._side_actions_state()
+        self.qa_status.setText("")
+        self._update_place()
+
+    def _last_answer(self) -> dict | None:
+        hist = self.side_ask.history()
+        return next((a for a in reversed(hist) if a.get("status") in ("odpowiedz", "czesciowo")), None)
+
+    def _side_actions_state(self):
+        ok = self._last_answer() is not None
+        for b in (self.qa_card, self.qa_example, self.qa_simple):
+            b.setEnabled(ok)
+            b.setToolTip("" if ok else "Najpierw zadaj pytanie")
+
+    def _qa_example(self):
+        a = self._last_answer()
+        if a:
+            self.side_ask.ask_text(f"Podaj przykład do pytania: {a['question']}")
+
+    def _qa_simpler(self):
+        a = self._last_answer()
+        if a:
+            self.side_ask.ask_text(f"Wyjaśnij prościej, krótko i bez żargonu: {a['question']}")
+
+    def _qa_to_card(self):
+        """Ostatnia odpowiedź → nowa fiszka w kategorii tematu, z którego pochodzi cytat."""
+        from ..topics import category_of, load_categories, sections_of
+        from .note_nav import section_times
+        a = self._last_answer()
+        lec = self.current
+        if not a or lec is None:
+            return
+        md = lec.read_text(lec.notes_path)
+        anchor = (a.get("quotes") or [{}])[0].get("anchor", "")
+        secs = sections_of(md)
+        num, title = next(((n, t) for n, t, an, _tm in secs if an == anchor), (0, ""))
+        cats = load_categories(lec, md)
+        times = section_times(md)
+        q = a["question"]
+        for pre in ("Podaj przykład do pytania: ", "Wyjaśnij prościej, krótko i bez żargonu: "):
+            q = q.replace(pre, "")
+        cards = lec.load_flashcards()
+        if any(c.get("q", "").strip().lower() == q.strip().lower() for c in cards):
+            self.qa_status.setText("Taka fiszka już jest.")
+            return
+        cards.append({"q": q, "a": a.get("answer", ""), "section": num, "t": times.get(num, (0.0, 0.0))[0],
+                      "known": 0, "category": category_of(cats, num) if num else "", "topic": title,
+                      "source": "zapytaj"})
+        lec.save_flashcards(cards)
+        cat = category_of(cats, num) if num else ""
+        self.qa_status.setText("Dodano fiszkę" + (f" do kategorii „{cat}”." if cat else "."))
+        self._update_header()
+        self.library_changed.emit()
+
+    def _update_place(self):
+        """„W tym miejscu wykładu”: slajd i fragment transkrypcji z miejsca, które właśnie czytasz."""
+        if not self.side_box.isVisible() or self.current is None:
+            return
+        from ..storage import fmt_time
+        lec = self.current
+        t_now = self.timeline.now
+        ev = [e for e in lec.load_slides().get("events", []) if e["t"] <= t_now + 1]
+        slide = None
+        if ev:
+            idx = ev[-1]["index"]
+            slide = next((x for x in lec.load_slides().get("slides", []) if x["index"] == idx), None)
+        if slide:
+            from ..slides import ensure_thumb
+            th = ensure_thumb(lec.folder, slide["file"])
+            pm = QPixmap(str(th)) if th else QPixmap()
+            if not pm.isNull():
+                dpr = self._dpr()
+                pm = pm.scaledToWidth(int(200 * dpr), Qt.TransformationMode.SmoothTransformation)
+                pm.setDevicePixelRatio(dpr)
+                from .controls import rounded_pixmap
+                self.place_img.setPixmap(rounded_pixmap(pm))
+            self.place_cap.setText(f"Slajd {slide['index']} · {fmt_time(ev[-1]['t'])}")
+        else:
+            self.place_img.clear()
+            self.place_cap.setText("")
+        segs = [sg for sg in lec.load_segments() if t_now - 15 <= sg["start"] <= t_now + 45]
+        t = T()
+        if segs:
+            self.place_text.setText("".join(
+                f"<p style='margin:0 0 6px 0'><a href='seek:{sg['start']}' style='color:{t.text3}; "
+                f"text-decoration:none'>{fmt_time(sg['start'])}</a>&nbsp; {html.escape(sg['text'])}</p>"
+                for sg in segs[:6]))
+        else:
+            self.place_text.setText(f"<span style='color:{t.text3}'>Brak transkrypcji w tym miejscu.</span>")
+
+    # ------------------------------------------------------------------ nawigacja po notatce
+    def _after_notes(self, md: str):
+        """Po wczytaniu notatki: oś wykładu, liczby ramek do „Przejdź do”, pozycje tematów."""
+        from ..topics import load_categories, section_colors, sections_of
+        from .note_nav import section_times
+        from .theme import palette_color
+        lec = self.current
+        if lec is None:
+            return
+        cats = load_categories(lec, md)
+        colors = section_colors(cats)
+        times = section_times(md)
+        self._sec_info = [(n, *times[n], palette_color(colors.get(n, 0)), a, title)
+                          for n, title, a, _tm in sections_of(md) if n in times]
+        timeline = bool(self._sec_info) and not (lec.meta.kind == "files" and not lec.audio_parts())
+        marks = [float(m.get("start", 0)) for m in lec.load_marks()]
+        self.timeline.set_data(self._sec_info, marks, float(lec.meta.duration or 0))
+        self.timeline.setVisible(timeline)
+        self._invalidate_positions()
+        QTimer.singleShot(80, self._update_counts)
+
+    def _invalidate_positions(self):
+        self._positions = None
+
+    def _pos(self) -> dict:
+        if self._positions is None:
+            from .note_nav import anchor_positions
+            self._positions = anchor_positions(self.notes_view)
+        return self._positions
+
+    def _update_counts(self):
+        pos = self._pos()
+        self.jump_btns.set_counts({k: sum(1 for a in pos if a.startswith(f"box-{k}-"))
+                                   for k in ("def", "wz", "prz", "waz")})
+        self._on_note_scroll(self.notes_view.verticalScrollBar().value())
+
+    def _on_note_scroll(self, v: int):
+        sb = self.notes_view.verticalScrollBar()
+        pct = 100 if sb.maximum() <= 0 else int(round(100 * v / sb.maximum()))
+        self.read_label.setText(f"Przeczytano {pct}%")
+        self.read_bar.setValue(pct)
+        if self.current is None:
+            return
+        pos = self._pos()
+        y = v + min(260, int(self.notes_view.viewport().height() * 0.35))
+        cur_row, best = -1, -1.0
+        for i in range(self.outline.count()):
+            it = self.outline.item(i)
+            if (it.data(OutlineDelegate.LEVEL) or 0) == 0:
+                continue
+            ay = pos.get(it.data(Qt.ItemDataRole.UserRole))
+            if ay is not None and best <= ay <= y:
+                cur_row, best = i, ay
+        if cur_row >= 0 and self.outline.currentRow() != cur_row:
+            self.outline.blockSignals(True)
+            self.outline.setCurrentRow(cur_row)
+            self.outline.scrollToItem(self.outline.item(cur_row))
+            self.outline.blockSignals(False)
+        info = sorted((pos.get(a), s, e) for _n, s, e, _c, a, _t in self._sec_info if pos.get(a) is not None)
+        end_y = sb.maximum() + self.notes_view.viewport().height()
+        for k, (ay, s, e) in enumerate(info):
+            nxt = info[k + 1][0] if k + 1 < len(info) else end_y
+            if y < nxt or k == len(info) - 1:
+                frac = 0.0 if y < ay else min(1.0, (y - ay) / max(1.0, nxt - ay))
+                self.timeline.set_now(s + frac * (e - s))
+                break
+        if self.side_box.isVisible():
+            self._place_timer.start()
+
+    def _timeline_seek(self, t: float):
+        pos = self._pos()
+        info = sorted((pos.get(a), s, e) for _n, s, e, _c, a, _t in self._sec_info if pos.get(a) is not None)
+        sb = self.notes_view.verticalScrollBar()
+        end_y = sb.maximum() + self.notes_view.viewport().height()
+        for k, (ay, s, e) in enumerate(info):
+            if t < e or k == len(info) - 1:
+                nxt = info[k + 1][0] if k + 1 < len(info) else end_y
+                frac = 0.0 if e <= s else max(0.0, min(1.0, (t - s) / (e - s)))
+                self.notes_stack.setCurrentIndex(0)
+                sb.setValue(int(ay + frac * (nxt - ay) - 60))
+                return
+
+    def _jump_kind(self, kind: str):
+        ys = sorted(y for a, y in self._pos().items() if a.startswith(f"box-{kind}-"))
+        if not ys:
+            return
+        sb = self.notes_view.verticalScrollBar()
+        cur = sb.value() + 60
+        nxt = next((y for y in ys if y > cur + 4), ys[0])
+        sb.setValue(int(nxt - 50))
+
     # ------------------------------------------------------------------ układ: wąski / zwykły / szeroki
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -968,7 +1377,9 @@ class LibraryTab(QWidget):
         compact = w - self._list_w < 580
         self._compact = compact
         self._apply_layout()
-        outline = (not compact) and (w - self._list_w) >= 1100
+        outline = (not compact) and (w - self._list_w) >= 1050
+        self._side_wide = (not compact) and w >= 1950        # okno ≥ ~2200 px (21:9)
+        self._apply_side()
         if outline != self._outline_on:
             self._outline_on = outline
             self.outline_box.setVisible(outline)
@@ -1147,11 +1558,23 @@ class LibraryTab(QWidget):
             self.select(lec)
 
     def _job_started(self, name, lecture):
+        self._job_frac = -1.0
         self.job_label.setText(name + "…")
         self.job_bar.setRange(0, 0)
         self.refresh()
 
     def _job_progress(self, msg: str, frac: float):
+        self._job_frac = frac
+        lec = self.runner.lecture
+        if lec is not None:          # procent i pasek przy wykładzie na liście
+            for i in range(self.list.count()):
+                it = self.list.item(i)
+                if it.data(Qt.ItemDataRole.UserRole) == str(lec.folder):
+                    d = dict(it.data(LectureDelegate.ROLE) or {})
+                    d["pill"] = (f"AI {int(frac * 100)}%" if frac >= 0 else "AI pracuje", "blue")
+                    d["progress"] = frac
+                    it.setData(LectureDelegate.ROLE, d)
+                    break
         self.job_label.setText(msg)
         if frac < 0:
             self.job_bar.setRange(0, 0)

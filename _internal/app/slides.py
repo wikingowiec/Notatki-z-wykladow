@@ -429,6 +429,7 @@ class SlideRecorder:
 
     def start(self, t0: float):
         self.t0 = t0
+        self.paused = False
         self._thread = threading.Thread(target=self._run, name="SlideRecorder", daemon=True)
         self._thread.start()
 
@@ -437,12 +438,26 @@ class SlideRecorder:
         if self._thread:
             self._thread.join(5)
 
+    def pause(self):
+        if not self.paused:
+            self._pause_at = time.monotonic()
+            self.paused = True
+
+    def resume(self):
+        if self.paused:
+            self.t0 += time.monotonic() - self._pause_at
+            self.paused = False
+
     def _run(self):
         from .screen_capture import crop_roi
         last_status = ""
         next_t = time.monotonic()
         try:
             while not self._stop.is_set():
+                if self.paused:
+                    self._stop.wait(0.2)
+                    next_t = time.monotonic()
+                    continue
                 now = time.monotonic()
                 try:
                     img = self.grabber.grab()

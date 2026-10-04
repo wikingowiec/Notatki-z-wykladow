@@ -148,7 +148,8 @@ class _RoiCanvas(QLabel):
         p.fillRect(0, r.bottom(), W, H - r.bottom(), shade)
         p.fillRect(0, r.top(), r.left(), r.height(), shade)
         p.fillRect(r.right(), r.top(), W - r.right(), r.height(), shade)
-        p.setPen(QPen(QColor("#4f8cff"), 2))
+        from .theme import T as _T
+        p.setPen(QPen(QColor(_T().accent), 2))
         p.drawRect(r)
         p.end()
 

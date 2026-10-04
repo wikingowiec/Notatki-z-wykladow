@@ -28,8 +28,8 @@ KEY = Qt.ItemDataRole.UserRole + 4
 ALERT = Qt.ItemDataRole.UserRole + 5
 COLOR = Qt.ItemDataRole.UserRole + 6
 
-SIDEBAR_W = 252
-RAIL_W = 76
+SIDEBAR_W = 240
+RAIL_W = 64
 
 
 class SidebarDelegate(QStyledItemDelegate):
@@ -92,7 +92,7 @@ class SidebarDelegate(QStyledItemDelegate):
             if self.rail:
                 d = 42
                 c = QRectF(rr.center().x() - d / 2, rr.center().y() - d / 2, d, d)
-                p.drawRoundedRect(c, 13, 13)
+                p.drawRoundedRect(c, T().r("md"), T().r("md"))
                 if rec:
                     p.setBrush(fg)
                     p.drawEllipse(QRectF(c.center().x() - 6, c.center().y() - 6, 12, 12))
@@ -100,7 +100,7 @@ class SidebarDelegate(QStyledItemDelegate):
                     pm = icon_pixmap("plus", fg.name(), 20, dpr)
                     p.drawPixmap(int(c.center().x() - 10), int(c.center().y() - 10), pm)
             else:
-                p.drawRoundedRect(rr, 12, 12)
+                p.drawRoundedRect(rr, T().r("md"), T().r("md"))
                 if rec:
                     p.setBrush(fg)
                     p.drawEllipse(QRectF(rr.left() + 16, rr.center().y() - 5, 10, 10))
@@ -125,7 +125,7 @@ class SidebarDelegate(QStyledItemDelegate):
         if sel or hover:
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.selected if sel else t.hover))
-            p.drawRoundedRect(rr, 10, 10)
+            p.drawRoundedRect(rr, T().r("md"), T().r("md"))
         color = index.data(COLOR)
         icon = index.data(ICON)
         icon_x = rr.center().x() - 9 if self.rail else rr.left() + 11
@@ -134,7 +134,7 @@ class SidebarDelegate(QStyledItemDelegate):
                 sq = QRectF(rr.center().x() - 13, rr.center().y() - 13, 26, 26)
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(qcolor(soft(color)))
-                p.drawRoundedRect(sq, 8, 8)
+                p.drawRoundedRect(sq, T().r("sm"), T().r("sm"))
                 f = QFont(font)
                 f.setWeight(QFont.Weight.Bold)
                 p.setFont(f)
@@ -143,7 +143,7 @@ class SidebarDelegate(QStyledItemDelegate):
             else:
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(qcolor(color))
-                p.drawEllipse(QRectF(icon_x + 4, rr.center().y() - 5, 10, 10))
+                p.drawRoundedRect(QRectF(icon_x + 4.5, rr.center().y() - 4.5, 9, 9), 2, 2)
         elif icon:
             pm = icon_pixmap(icon, t.accent if sel else t.text2, 18, dpr)
             p.drawPixmap(int(icon_x), int(rr.center().y() - 9), pm)
@@ -171,7 +171,7 @@ class SidebarDelegate(QStyledItemDelegate):
             if alert:
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(qcolor(t.accent))
-                p.drawRoundedRect(cr, 10, 10)
+                p.drawRoundedRect(cr, T().r("md"), T().r("md"))
                 p.setPen(qcolor(t.on_accent))
             else:
                 p.setPen(qcolor(t.text3))
@@ -182,6 +182,15 @@ class SidebarDelegate(QStyledItemDelegate):
         p.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    p.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, int(tr.width())))
         p.restore()
+
+
+def _fmt_left(sec: float) -> str:
+    if sec < 60:
+        return "minuta"
+    m = round(sec / 60)
+    if m < 60:
+        return f"{m} min"
+    return f"{m // 60} h {m % 60:02d} min"
 
 
 class MainWindow(QMainWindow):
@@ -227,6 +236,46 @@ class MainWindow(QMainWindow):
         self.side_head = head
         sv.addLayout(head)
 
+        # „Nowa notatka” | mikrofon („nagraj jak ostatnio”), w trakcie nagrywania – pozycja „● Nagrywanie 48:12”
+        quick = QWidget()
+        ql = QVBoxLayout(quick)
+        ql.setContentsMargins(12, 0, 12, 6)
+        ql.setSpacing(6)
+        from PySide6.QtWidgets import QBoxLayout, QPushButton
+        from .controls import set_icon
+        self.split = QWidget()
+        self.split_lay = QBoxLayout(QBoxLayout.Direction.LeftToRight, self.split)
+        self.split_lay.setContentsMargins(0, 0, 0, 0)
+        self.split_lay.setSpacing(0)
+        self.btn_new = QPushButton("Nowa notatka")
+        self.btn_new.setObjectName("splitMain")
+        self.btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_new.setToolTip("Nowa notatka – nagranie albo pliki")
+        set_icon(self.btn_new, "plus", "on_accent", 18)
+        self.btn_new.clicked.connect(lambda: self._select_key(("record", None)))
+        self.btn_mic = QPushButton()
+        self.btn_mic.setObjectName("splitMic")
+        self.btn_mic.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_icon(self.btn_mic, "mic", "on_accent", 18)
+        self.btn_mic.clicked.connect(self.quick_record)
+        self.split_lay.addWidget(self.btn_new, 1)
+        self.split_lay.addWidget(self.btn_mic)
+        self.quick_caption = label("", "caption", wrap=True)
+        self.quick_caption.setContentsMargins(4, 0, 4, 0)
+        self.rec_pill = QPushButton("")
+        self.rec_pill.setObjectName("recPill")
+        self.rec_pill.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rec_pill.setToolTip("Wróć do nagrywania")
+        self.rec_pill.clicked.connect(lambda: self._select_key(("record", None)))
+        self.rec_pill.hide()
+        # bez fokusu: ukrycie przycisku z fokusem przenosi go na listę, a ta wybiera 1. pozycję (skok do biblioteki)
+        for b in (self.btn_new, self.btn_mic, self.rec_pill):
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        ql.addWidget(self.split)
+        ql.addWidget(self.rec_pill)
+        ql.addWidget(self.quick_caption)
+        sv.addWidget(quick)
+
         self.delegate = SidebarDelegate()
         self.nav = QListWidget()
         self.nav.setObjectName("sidebarList")
@@ -235,6 +284,7 @@ class MainWindow(QMainWindow):
         self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav.currentItemChanged.connect(self._nav_changed)
+        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)   # fokus z klawiatury wybierałby 1. pozycję listy
         sv.addWidget(self.nav, 1)
 
         # karta zadania w tle
@@ -243,13 +293,17 @@ class MainWindow(QMainWindow):
         jl = QVBoxLayout(self.job_card)
         jl.setContentsMargins(12, 10, 12, 11)
         jl.setSpacing(6)
+        self.job_over = label("AI PRACUJE W TLE", "overline")
         self.job_title = label("", "headline", wrap=True)
-        self.job_msg = label("", "footnote", wrap=True)
+        self.job_msg = label("", "caption", wrap=True)
         self.job_bar = QProgressBar()
         self.job_bar.setTextVisible(False)
+        self.job_eta = label("", "caption")
+        jl.addWidget(self.job_over)
         jl.addWidget(self.job_title)
         jl.addWidget(self.job_msg)
         jl.addWidget(self.job_bar)
+        jl.addWidget(self.job_eta)
         self.job_card.setCursor(Qt.CursorShape.PointingHandCursor)
         self.job_card.mousePressEvent = lambda _e: self._show_job_lecture()
         self.job_card.hide()
@@ -258,6 +312,17 @@ class MainWindow(QMainWindow):
         jwl.setContentsMargins(12, 0, 12, 0)
         jwl.addWidget(self.job_card)
         sv.addWidget(jw)
+
+        self.streak = QPushButton("")
+        self.streak.setObjectName("streak")
+        self.streak.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.streak.clicked.connect(lambda: self._select_key(("study", None)))
+        self.streak.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        sw = QWidget()
+        swl = QVBoxLayout(sw)
+        swl.setContentsMargins(12, 0, 12, 0)
+        swl.addWidget(self.streak)
+        sv.addWidget(sw)
 
         self.delegate_bottom = SidebarDelegate()
         self.nav_bottom = QListWidget()
@@ -274,6 +339,7 @@ class MainWindow(QMainWindow):
         it.setToolTip("Ustawienia")
         self.nav_bottom.addItem(it)
         self.nav_bottom.currentItemChanged.connect(self._nav_bottom_changed)
+        self.nav_bottom.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         sv.addWidget(self.nav_bottom)
 
         central = QWidget()
@@ -287,9 +353,15 @@ class MainWindow(QMainWindow):
         # ---------------- sygnały ----------------
         self.record.recording_finished.connect(self._after_recording)
         self.record.recording_state.connect(self._recording_state)
+        self.record.last_rec_changed.connect(self._update_quick)
+        self.study.reviewed.connect(self._update_streak)
+        self.study.open_note.connect(self.open_lecture_at)
+        self.study.play_at.connect(lambda lec, t: (self.open_lecture_at(str(lec.folder)),
+                                                  self.library.player.play(lec, t, None, "Fiszka")))
         self.library.study_requested.connect(self._study_lecture)
         self.library.continue_requested.connect(self._continue_lecture)
         self.library.new_from_files.connect(self._new_from_files)
+        self.library.exam_requested.connect(self._exam_lecture)
         self.record.files_requested.connect(self._import_files)
         self.ask_tab.open_lecture.connect(self.open_lecture_at)
         self.exam_tab.open_lecture.connect(self.open_lecture_at)
@@ -306,6 +378,14 @@ class MainWindow(QMainWindow):
         self._lib_dir = settings.library_dir
 
         self.rebuild_nav()
+        self._update_quick()
+        self._update_streak()
+        self._job_t0 = 0.0
+        from PySide6.QtGui import QKeySequence, QShortcut
+        for seq, fn in (("Ctrl+Shift+R", self.quick_record), ("Ctrl+K", self.quick_jump)):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(fn)
         self._select_key(("library", None) if list_lectures(settings.library_path()) else ("record", None))
         QTimer.singleShot(800, self._recover)
         # wszystkie listy rozwijane: wyższe, czytelne pozycje
@@ -350,7 +430,6 @@ class MainWindow(QMainWindow):
             self.nav.addItem(it)
             return it
 
-        self.rec_item = add("Nowa notatka", "primary", key=("record", None))
         add("Biblioteka", "header")
         add("Wszystkie wykłady", icon="books", key=("library", None), count=str(len(lectures)) if lectures else "")
         for s in sorted(k for k in subjects if k):
@@ -367,6 +446,16 @@ class MainWindow(QMainWindow):
         self._update_rec_item()
 
     def _select_key(self, key, silent: bool = False):
+        if key and key[0] == "record":
+            for lst in (self.nav, self.nav_bottom):
+                lst.blockSignals(True)
+                lst.clearSelection()
+                lst.setCurrentItem(None)
+                lst.blockSignals(False)
+            self._set_new_active(True)
+            if not silent:
+                self._open(key)
+            return
         for i in range(self.nav.count()):
             it = self.nav.item(i)
             if it.data(KEY) == key:
@@ -383,6 +472,7 @@ class MainWindow(QMainWindow):
     def _nav_changed(self, item, _prev):
         if item is None or item.data(KEY) is None:
             return
+        self._set_new_active(False)
         self.nav_bottom.blockSignals(True)
         self.nav_bottom.clearSelection()
         self.nav_bottom.setCurrentItem(None)
@@ -392,6 +482,7 @@ class MainWindow(QMainWindow):
     def _nav_bottom_changed(self, item, _prev):
         if item is None:
             return
+        self._set_new_active(False)
         self.nav.blockSignals(True)
         self.nav.clearSelection()
         self.nav.setCurrentItem(None)
@@ -439,9 +530,10 @@ class MainWindow(QMainWindow):
         self._relayout()
 
     def _relayout(self):
-        """Wąskie albo pionowe okno (np. monitor 9:16) → pasek boczny jako szyna z ikonami."""
+        """Wąskie albo pionowe okno (np. monitor 9:16) → pasek boczny jako szyna z ikonami (64 px)."""
+        from PySide6.QtWidgets import QBoxLayout  # noqa: F401
         w, h = self.width(), self.height()
-        rail = w < 1000 or (h > w * 1.15 and w < 1400)
+        rail = w < 1100 or (h > w * 1.15 and w < 1400)
         if rail == self._rail:
             return
         self._rail = rail
@@ -451,8 +543,19 @@ class MainWindow(QMainWindow):
         self.app_title.setVisible(not rail)
         self.side_head.setContentsMargins(23 if rail else 20, 0, 12, 10)
         self.nav.setStyleSheet("QListWidget#sidebarList { padding: 0 6px; }" if rail else "")
-        self.job_title.setVisible(not rail)
-        self.job_msg.setVisible(not rail)
+        for w_ in (self.job_title, self.job_msg, self.job_over, self.job_eta):
+            w_.setVisible(not rail)
+        self.split_lay.setDirection(QBoxLayout.Direction.TopToBottom if rail else QBoxLayout.Direction.LeftToRight)
+        self.split_lay.setSpacing(6 if rail else 0)
+        self.split.setProperty("rail", rail)
+        for b in (self.btn_new, self.btn_mic, self.rec_pill, self.streak):
+            b.setProperty("rail", rail)
+            b.style().unpolish(b)
+            b.style().polish(b)
+        self.btn_new.setText("" if rail else "Nowa notatka")
+        self._update_quick()
+        self._update_streak()
+        self._update_rec_item()
         for lst in (self.nav, self.nav_bottom):
             lst.doItemsLayout()
             lst.viewport().update()
@@ -467,12 +570,77 @@ class MainWindow(QMainWindow):
 
     def _update_rec_item(self):
         try:
-            it = self.rec_item
             rec = self.record.is_recording()
-            it.setData(COUNT, ("● " + self.record.elapsed_text()) if rec else "")
-            it.setData(ALERT, rec)
         except RuntimeError:
-            pass
+            return
+        self.split.setVisible(not rec)
+        self.rec_pill.setVisible(rec)
+        self.quick_caption.setVisible(not rec and not self._rail and bool(self.quick_caption.text()))
+        if rec:
+            tm = self.record.elapsed_text()
+            paused = self.record.is_paused()
+            word, sym = ("Pauza", "❚❚") if paused else ("Nagrywanie", "●")
+            self.rec_pill.setText(sym if self._rail else f"{sym}   {word}   {tm}")
+            self.rec_pill.setToolTip(f"Nagrywanie {tm} – wróć do nagrywania")
+
+    def _set_new_active(self, on: bool):
+        for b in (self.btn_new, self.rec_pill):
+            if bool(b.property("active")) != on:
+                b.setProperty("active", on)
+                b.style().unpolish(b)
+                b.style().polish(b)
+
+    # ------------------------------------------------------------------ nagraj jak ostatnio
+    def _update_quick(self):
+        q = self.record.quick_label()
+        self.btn_mic.setToolTip("Nagraj jak ostatnio (Ctrl+Shift+R)" + (f" – {q}" if q else ""))
+        self.quick_caption.setText(f"Ctrl Shift R — nagraj jak ostatnio ({q})" if q else
+                                   "Ctrl Shift R — nagraj jak ostatnio")
+        self.quick_caption.setVisible(not self._rail and not self.record.is_recording())
+
+    def quick_record(self):
+        if self.record.is_recording():
+            self._select_key(("record", None))
+            return
+        self._select_key(("record", None))
+        why = self.record.quick_start()
+        if why:
+            self.record._set_status(why)
+            QMessageBox.information(self, "Nagraj jak ostatnio", why)
+
+    # ------------------------------------------------------------------ szybkie przejście (Ctrl+K)
+    def quick_jump(self):
+        if self.pages.currentWidget() is self.record and self.record.is_recording():
+            self.record.focus_ask()          # w trakcie nagrywania: pytanie do tego, co już padło
+            return
+        from .quick_jump import QuickJump
+        dlg = QuickJump(self.settings, self)
+        dlg.chosen.connect(self._jump_to)
+        dlg.popup()
+
+    def _jump_to(self, kind: str, a: str, b: str):
+        if kind == "page":
+            self._select_key((a, None))
+        elif kind == "lecture":
+            self.open_lecture_at(a, b)
+
+    # ------------------------------------------------------------------ seria dni
+    def _update_streak(self):
+        from .. import study_stats
+        from .controls import set_icon
+        try:
+            st = study_stats.summary(self.settings.library_path())
+        except Exception:  # noqa: BLE001
+            st = {"streak": 0, "today": 0}
+        n = st["streak"]
+        if self._rail:
+            self.streak.setText(str(n) if n else "")
+        elif n:
+            self.streak.setText(f"{n} {study_stats.days_word(n)} nauki z rzędu")
+        else:
+            self.streak.setText("Zacznij serię – powtórz fiszki")
+        self.streak.setToolTip(f"Seria: {n} {study_stats.days_word(n)} z rzędu · dziś ocenione fiszki: {st['today']}")
+        set_icon(self.streak, "flame", "streak" if n else "text3", 18)
 
     def _after_recording(self, lecture, needs_file_transcription: bool):
         self.rebuild_nav()
@@ -565,6 +733,11 @@ class MainWindow(QMainWindow):
                     self.library.generate_notes(lec, use_cache=True)
                 break          # kolejne zadania można uruchomić później z biblioteki
 
+    def _exam_lecture(self, lecture):
+        self._select_key(("exam", None), silent=True)
+        self.pages.setCurrentWidget(self.exam_tab)
+        self.exam_tab.preselect(str(lecture.folder))
+
     def _study_lecture(self, lecture):
         self._select_key(("study", None), silent=True)
         self.pages.setCurrentWidget(self.study)
@@ -581,20 +754,35 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ zadania w tle
     def _job_started(self, name, lecture):
+        import time as _t
+        self._job_t0 = _t.monotonic()
+        self._job_name = name
+        self._job_lecture = lecture
         self.job_title.setText(name)
         self.job_msg.setText(lecture.meta.title if lecture else "")
+        self.job_eta.setText("")
         self.job_card.setToolTip(name + (f" – {lecture.meta.title}" if lecture else ""))
         self.job_bar.setRange(0, 0)
         self.job_card.show()
 
     def _job_progress(self, msg: str, frac: float):
-        self.job_msg.setText(msg)
-        self.job_card.setToolTip(f"{self.job_title.text()}\n{msg}")
+        import time as _t
+        lec = self.runner.lecture or getattr(self, "_job_lecture", None)
+        self.job_title.setText(msg or self._job_name)
+        self.job_msg.setText(lec.meta.title if lec else "")
+        self.job_card.setToolTip(f"{self._job_name}\n{msg}")
         if frac < 0:
             self.job_bar.setRange(0, 0)
+            self.job_eta.setText("")
         else:
             self.job_bar.setRange(0, 1000)
             self.job_bar.setValue(int(frac * 1000))
+            el = _t.monotonic() - self._job_t0
+            if frac >= 0.04 and el > 8:
+                left = el * (1 - frac) / frac
+                self.job_eta.setText(f"{int(frac * 100)}% · zostało ok. {_fmt_left(left)}")
+            else:
+                self.job_eta.setText(f"{int(frac * 100)}%")
 
     def _job_finished(self, ok, msg, lecture):
         self.job_card.hide()

@@ -115,7 +115,7 @@ class LiveNotes:
 
     def _write(self, closed, lang: str):
         notes = [self.cache.get(section_key(s, self.model, lang), "") for s in closed]
-        md = assemble_markdown(self.lecture, closed, notes, texts(lang).live_banner)
+        md = assemble_markdown(self.lecture, closed, notes, texts(lang).live_banner, marks=self.lecture.load_marks())
         tmp = self.lecture.notes_path.with_suffix(".tmp")
         tmp.write_text(md, encoding="utf-8")
         tmp.replace(self.lecture.notes_path)
