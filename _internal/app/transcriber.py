@@ -71,7 +71,10 @@ def cuda_available() -> bool:
 
 class WhisperEngine:
     def __init__(self, model_name: str = "large-v3", device: str = "auto", language: str = "pl",
-                 low_vram: bool = False):
+                 low_vram: bool = False, beam: int = 5, batch: int = 1, cpu_threads: int = 0):
+        self.beam = max(1, int(beam or 5))
+        self.batch = max(1, int(batch or 1))  # >1: transkrypcja pliku wieloma fragmentami naraz (kilka razy szybciej)
+        self.cpu_threads = int(cpu_threads or 0)
         self.low_vram = low_vram   # przy notatkach na żywo: Whisper w int8 zostawia miejsce na model AI
         self.model_name = model_name
         self.device_pref = device
@@ -102,7 +105,8 @@ class WhisperEngine:
                 model_name = self.model_name
                 if device == "cpu" and self.model_name.startswith("large") and self.device_pref == "auto":
                     model_name = "medium"   # na CPU large jest za wolny do pracy na żywo
-                m = WhisperModel(model_name, device=device, compute_type=ctype)
+                m = WhisperModel(model_name, device=device, compute_type=ctype,
+                                 cpu_threads=self.cpu_threads if device == "cpu" else 0)
                 # szybki test, czy biblioteki CUDA (cuBLAS/cuDNN) naprawdę działają
                 list(m.transcribe(np.zeros(SR, dtype=np.float32), language=self.language or "pl")[0])
                 self.model, self.device = m, f"{device}/{ctype}/{model_name}"
@@ -120,7 +124,7 @@ class WhisperEngine:
     def transcribe_array(self, audio: np.ndarray, prompt: str = "") -> list[dict]:
         with self._lock:
             segments, info = self.model.transcribe(
-                audio, language=self.language, beam_size=5, vad_filter=True,
+                audio, language=self.language, beam_size=self.beam, vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 500},
                 condition_on_previous_text=False, initial_prompt=prompt or None,
                 no_speech_threshold=0.6, hotwords=self.hotwords or None,
@@ -139,11 +143,23 @@ class WhisperEngine:
                         on_segment: Optional[Callable[[dict], None]] = None,
                         cancel: Optional[threading.Event] = None) -> list[dict]:
         with self._lock:
-            segments, info = self.model.transcribe(
-                path, language=self.language, beam_size=5, vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 500}, condition_on_previous_text=False,
-                hotwords=self.hotwords or None,
-            )
+            segments, info = None, None
+            if self.batch > 1:
+                try:
+                    from faster_whisper import BatchedInferencePipeline
+                    segments, info = BatchedInferencePipeline(model=self.model).transcribe(
+                        path, language=self.language, beam_size=self.beam, vad_filter=True,
+                        vad_parameters={"min_silence_duration_ms": 500}, condition_on_previous_text=False,
+                        hotwords=self.hotwords or None, batch_size=self.batch, without_timestamps=False)
+                except Exception:  # noqa: BLE001
+                    log.exception("Whisper: tryb wsadowy niedostępny – zwykła transkrypcja")
+                    segments = None
+            if segments is None:
+                segments, info = self.model.transcribe(
+                    path, language=self.language, beam_size=self.beam, vad_filter=True,
+                    vad_parameters={"min_silence_duration_ms": 500}, condition_on_previous_text=False,
+                    hotwords=self.hotwords or None,
+                )
             if getattr(info, "language", None):
                 self.detected = (info.language, float(getattr(info, "language_probability", 0) or 0))
             duration = info.duration or 1.0
@@ -161,6 +177,14 @@ class WhisperEngine:
                 if progress:
                     progress(min(1.0, s.end / duration))
             return out
+
+
+def engine_for(settings, language: str, low_vram: bool = False) -> "WhisperEngine":
+    """Silnik Whispera z ustawień: model, dokładność (beam), fragmenty naraz i wątki procesora."""
+    from .perf import cpu_threads
+    return WhisperEngine(settings.whisper_model, settings.whisper_device, language, low_vram=low_vram,
+                         beam=getattr(settings, "whisper_beam", 5), batch=getattr(settings, "whisper_batch", 1),
+                         cpu_threads=cpu_threads(getattr(settings, "hw_info", None)))
 
 
 def find_cut(buf: np.ndarray, lo: int, hi: int) -> int:

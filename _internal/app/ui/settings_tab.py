@@ -13,6 +13,7 @@ from ..llm import Ollama
 from .controls import GroupSection, SegmentedControl, StatusDot, ToggleSwitch, hbox, label
 from .record_tab import _centered
 from . import tokens as TK
+from .. import perf
 from .theme import theme
 
 VISION_MODELS = [
@@ -124,6 +125,8 @@ class SettingsTab(QWidget):
     pull_progress = Signal(str, float)
     pull_done = Signal(bool, str)
     gpu_result = Signal(str, str)
+    hw_ready = Signal(dict)
+    whisper_have = Signal(bool)
     saved = Signal()
 
     def __init__(self, settings, parent=None):
@@ -191,6 +194,41 @@ class SettingsTab(QWidget):
                   "Po zakończeniu nagrania automatycznie twórz notatki, podsumowanie i fiszki.")
         v.addWidget(g)
 
+        # ---------------- Wydajność ----------------
+        from .profile_card import ProfileCard
+        gp = GroupSection("Wydajność", "Profil dobiera modele i tryby pracy do mocy komputera. Pojedyncze ustawienia "
+                                       "możesz potem zmieniać niżej – wtedy profil zmienia się na „Własne”.")
+        b_hw = QPushButton("Sprawdź ponownie")
+        b_hw.clicked.connect(lambda: self._detect_hw(True))
+        self.hw_row = gp.add_row("Twój komputer", b_hw)
+        self.hw_row.subtitle.setText("Sprawdzam sprzęt…")
+        self.hw_row.subtitle.show()
+        pcards = AdaptiveBox(threshold=640, spacing=12)
+        self.profile_cards = {}
+        for k in perf.ORDER:
+            c = ProfileCard(k)
+            c.clicked.connect(self._profile_clicked)
+            pcards.add(c, 1)
+            self.profile_cards[k] = c
+        pw = QWidget()
+        pl = QVBoxLayout(pw)
+        pl.setContentsMargins(16, 16, 16, 12)
+        pl.addWidget(pcards)
+        gp.add(pw)
+        self.btn_get = QPushButton("Pobierz brakujące")
+        self.btn_get.setObjectName("primary")
+        self.btn_get.clicked.connect(self._pull_missing)
+        self.btn_get.hide()
+        self.perf_row = gp.add_row("Profil", self.btn_get)
+        self.perf_row.subtitle.show()
+        self.perf_bar = QProgressBar()
+        self.perf_bar.setTextVisible(False)
+        self.perf_bar.setRange(0, 1000)
+        gp.add(self._wrap(self.perf_bar))
+        self.hw = perf.hardware(self.s) if getattr(self.s, "hw_info", None) else {}
+        self._missing: list[str] = []
+        v.addWidget(gp)
+
         # ---------------- Telefon ----------------
         from ..storage import list_lectures
         from .sync_update import PhoneSection, UpdateSection
@@ -203,6 +241,8 @@ class SettingsTab(QWidget):
                               ("medium", "medium – słabsze karty"), ("small", "small – najszybszy")], self.s.whisper_model)
         self.lang = combo([("auto", "Wykryj automatycznie"), ("pl", "Polski"), ("en", "Angielski"), ("de", "Niemiecki"),
                            ("es", "Hiszpański"), ("fr", "Francuski")], self.s.language)
+        self.beam = combo([(1, "Szybko"), (2, "Zrównoważona"), (5, "Najdokładniej")],
+                          int(getattr(self.s, "whisper_beam", 5)), 200)
         self.w_device = combo([("auto", "Automatycznie"), ("cuda", "Karta graficzna (CUDA)"), ("cpu", "Procesor")],
                               self.s.whisper_device)
         self.chunk = QSpinBox()
@@ -217,6 +257,7 @@ class SettingsTab(QWidget):
         g.add_row("Język wykładów", self.lang, "Notatki, fiszki i podsumowanie powstają w języku wykładu – "
                                               "wykład po angielsku da notatki po angielsku.")
         g.add_row("Model", self.w_model, "Dokładniejszy model = lepszy tekst, ale większe obciążenie karty.")
+        g.add_row("Dokładność", self.beam, "„Szybko” rozpoznaje mowę ok. 2× szybciej kosztem drobnych pomyłek.")
         g.add_row("Urządzenie", self.w_device)
         g.add_row("Fragment na żywo co", self.chunk, "Co ile sekund dopisywać tekst podczas wykładu.")
         g.add_row("Karta graficzna", hbox(self.gpu_dot, self.gpu_text, b_gpu, spacing=8))
@@ -304,9 +345,13 @@ class SettingsTab(QWidget):
                             "rozpoznawania mowy. Po zakończeniu notatka powstaje od nowa mocniejszym modelem.")
         lm.subtitle.show()
         g.add(self._wrap(self.pull_bar))
+        self.reuse = ToggleSwitch(bool(getattr(self.s, "reuse_live_notes", False)))
         g.add_row("Notatki i pytania na żywo", self.live_notes,
                   "Notatki powstają w trakcie nagrywania, a pytania można zadawać od razu. Whisper działa wtedy w "
                   "oszczędniejszym trybie, żeby oba modele zmieściły się w pamięci karty graficznej.")
+        g.add_row("Szybkie zakończenie", self.reuse,
+                  "Fragmenty napisane w trakcie nagrywania zostają w notatce – po wykładzie dopisuje się tylko reszta, "
+                  "fiszki i podsumowanie. Dużo szybciej, ale te fragmenty pisał lżejszy model.")
         self.describe = ToggleSwitch(bool(getattr(self.s, "describe_slides", True)))
         self.vision_model = QComboBox()
         self.vision_model.setEditable(True)
@@ -350,11 +395,11 @@ class SettingsTab(QWidget):
         lay.addWidget(_centered(col, 720))
 
         # auto-zapis
-        for w in (self.auto, self.ocr, self.live_notes, self.describe):
+        for w in (self.auto, self.ocr, self.live_notes, self.describe, self.reuse):
             w.toggled.connect(self.save)
         self.vision_model.currentIndexChanged.connect(self.save)
         self.vision_model.editTextChanged.connect(self.save)
-        for w in (self.w_model, self.lang, self.w_device, self.audio_backend, self.ctx):
+        for w in (self.w_model, self.lang, self.w_device, self.audio_backend, self.ctx, self.beam):
             w.currentIndexChanged.connect(self.save)
         for w in (self.chunk, self.cards):
             w.valueChanged.connect(self.save)
@@ -370,9 +415,13 @@ class SettingsTab(QWidget):
         self.pull_progress.connect(self._on_pull_progress)
         self.pull_done.connect(self._on_pull_done)
         self.gpu_result.connect(self._on_gpu)
+        self.hw_ready.connect(self._on_hw)
+        self.whisper_have.connect(self._on_whisper_have)
         self._fill_models([])
         self._loading = False
+        self._update_profiles()
         QTimer.singleShot(400, self.check_ollama)
+        QTimer.singleShot(200, lambda: self._detect_hw(False))
 
     def _about(self) -> QWidget:
         from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel
@@ -497,7 +546,9 @@ class SettingsTab(QWidget):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_ollama_status(self, state: str, models: list):
+        self._ollama_up = state != "down"
         self._fill_models(models)
+        self._update_profiles()
         has = lambda m: m in models or f"{m}:latest" in models  # noqa: E731
         main, live = self.current_model(), self._combo_model(self.live_model)
         self.btn_pull.setEnabled(state != "down" and not has(main))
@@ -531,17 +582,179 @@ class SettingsTab(QWidget):
 
     def _on_pull_progress(self, status: str, frac: float):
         self.ai_text.setText(f"Pobieranie: {status}")
-        if frac < 0:
-            self.pull_bar.setRange(0, 0)
-        else:
-            self.pull_bar.setRange(0, 1000)
-            self.pull_bar.setValue(int(frac * 1000))
+        if self._pulling_many:
+            self.perf_row.subtitle.setText(f"Pobieranie: {status}")
+        for bar in (self.pull_bar, self.perf_bar):
+            if frac < 0:
+                bar.setRange(0, 0)
+            else:
+                bar.setRange(0, 1000)
+                bar.setValue(int(frac * 1000))
 
     def _on_pull_done(self, ok: bool, msg: str):
         self.pull_bar._box.hide()
+        self.perf_bar._box.hide()
+        self._pulling_many = False
+        self.btn_get.setEnabled(True)
         if not ok:
             QMessageBox.warning(self, "Pobieranie modelu", msg)
         self.check_ollama()
+        self._check_whisper()
+
+    # ------------------------------------------------------------------ profile wydajności
+    _pulling_many = False
+    _ollama_up = False
+    _whisper_ok = True
+
+    def _detect_hw(self, refresh: bool):
+        if refresh:
+            self.hw_row.subtitle.setText("Sprawdzam sprzęt…")
+
+        def work():
+            try:
+                hw = perf.hardware(self.s, refresh=refresh or not getattr(self.s, "hw_info", None))
+            except Exception:  # noqa: BLE001
+                hw = {}
+            self.hw_ready.emit(hw)
+        threading.Thread(target=work, daemon=True).start()
+        self._check_whisper()
+
+    def _on_hw(self, hw: dict):
+        self.hw = hw
+        if hw:
+            key, why = perf.recommend(hw)
+            self.hw_row.subtitle.setText(f"{perf.describe(hw)}<br>Polecany profil: <b>{perf.LABELS[key]}</b>. {why}")
+            self.hw_row.subtitle.setTextFormat(Qt.TextFormat.RichText)
+        else:
+            self.hw_row.subtitle.setText("Nie udało się sprawdzić sprzętu.")
+        self._update_profiles()
+
+    def _check_whisper(self):
+        name = self.s.whisper_model
+
+        def work():
+            try:
+                from faster_whisper.utils import download_model
+                download_model(name, local_files_only=True)
+                ok = True
+            except Exception:  # noqa: BLE001
+                ok = False
+            self.whisper_have.emit(ok)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_whisper_have(self, ok: bool):
+        self._whisper_ok = ok
+        self._update_profiles()
+
+    def _needed_models(self) -> list[str]:
+        s = self.s
+        out = [s.ollama_model] + ([s.live_model] if s.live_notes else []) + \
+              ([s.vision_model] if s.describe_slides else [])
+        return list(dict.fromkeys(m for m in out if m))
+
+    def _update_profiles(self):
+        if not hasattr(self, "profile_cards"):
+            return
+        hw = self.hw or {}
+        rec = perf.recommend(hw)[0] if hw else ""
+        cur = perf.current(self.s, hw) if hw else (getattr(self.s, "hw_profile", "") or "")
+        for k, c in self.profile_cards.items():
+            gb = perf.download_gb(k, hw, with_libs=False)
+            c.set_state(selected=k == cur, recommended=k == rec, size_text=f"Do pobrania ok. {perf.fmt_gb(gb)}")
+        if self._pulling_many:
+            return
+        installed = getattr(self, "_installed", [])
+        has = lambda m: m in installed or f"{m}:latest" in installed  # noqa: E731
+        self._missing = [m for m in self._needed_models() if not has(m)] if self._ollama_up else []
+        parts = []
+        if not cur:
+            parts.append("<b>Własne ustawienia</b> – coś zmieniono ręcznie. Kliknij profil, żeby wrócić do gotowego "
+                         "zestawu.")
+        else:
+            parts.append(f"<b>{perf.LABELS[cur]}</b>.")
+        todo = [(m.split("/")[-1], perf.model_gb(m)) for m in self._missing]
+        if not self._whisper_ok:
+            todo.insert(0, (f"model mowy {self.s.whisper_model}", perf.WHISPER_GB.get(self.s.whisper_model, 1.5)))
+        if todo:
+            tot = sum(g for _n, g in todo)
+            parts.append("Do pobrania: " + ", ".join(n for n, _g in todo) + f" – ok. {perf.fmt_gb(tot)}.")
+        elif self._ollama_up:
+            parts.append("Wszystkie modele są pobrane.")
+        if not self._ollama_up:
+            parts.append("Ollama nie działa – modele AI pobiorą się, gdy ją uruchomisz.")
+        self.perf_row.subtitle.setTextFormat(Qt.TextFormat.RichText)
+        self.perf_row.subtitle.setText(" ".join(parts))
+        self.btn_get.setVisible(bool(todo))
+
+    def _profile_clicked(self, key: str):
+        if self._pulling_many:
+            return
+        if not self.hw:
+            self.hw = perf.hardware(self.s)
+        perf.apply(self.s, key, self.hw)
+        self.s.save()
+        self._load_widgets()
+        self.saved.emit()
+        self._whisper_ok = True
+        self._update_profiles()
+        self.check_ollama()
+        self._check_whisper()
+
+    def _load_widgets(self):
+        """Kontrolki niżej po zmianie profilu (bez zapisu po drodze)."""
+        s = self.s
+        self._loading = True
+        try:
+            for c, val in ((self.w_model, s.whisper_model), (self.beam, int(s.whisper_beam)), (self.ctx, int(s.ollama_ctx))):
+                i = c.findData(val)
+                if i >= 0:
+                    c.setCurrentIndex(i)
+            self.chunk.setValue(int(s.live_chunk_seconds))
+            self.live_notes.setChecked(bool(s.live_notes))
+            self.describe.setChecked(bool(s.describe_slides))
+            self.reuse.setChecked(bool(s.reuse_live_notes))
+            i = self.vision_model.findData(s.vision_model)
+            if i >= 0:
+                self.vision_model.setCurrentIndex(i)
+            else:
+                self.vision_model.setEditText(s.vision_model)
+            for c, val in ((self.model, s.ollama_model), (self.live_model, s.live_model)):
+                c.blockSignals(True)
+                i = c.findData(val)
+                if i < 0:
+                    c.addItem(val + "  (do pobrania)", val)
+                    i = c.count() - 1
+                c.setCurrentIndex(i)
+                c.blockSignals(False)
+        finally:
+            self._loading = False
+
+    def _pull_missing(self):
+        models = list(self._missing)
+        whisper = None if self._whisper_ok else self.s.whisper_model
+        if not models and not whisper:
+            return
+        url = self.url.text().strip() or self.s.ollama_url
+        self._pulling_many = True
+        self.btn_get.setEnabled(False)
+        self.btn_pull.setEnabled(False)
+        self.btn_pull_live.setEnabled(False)
+        self.perf_bar._box.show()
+
+        def work():
+            try:
+                if whisper:
+                    self.pull_progress.emit(f"model mowy {whisper}…", -1)
+                    from faster_whisper.utils import download_model
+                    download_model(whisper)
+                for k, m in enumerate(models, 1):
+                    short = m.split("/")[-1]
+                    pre = f"{short} ({k}/{len(models)})" if len(models) > 1 else short
+                    Ollama(url).pull(m, progress=lambda st, f, pre=pre: self.pull_progress.emit(f"{pre} · {st}", f))
+                self.pull_done.emit(True, "")
+            except Exception as e:  # noqa: BLE001
+                self.pull_done.emit(False, str(e))
+        threading.Thread(target=work, daemon=True).start()
 
     def _check_gpu(self):
         self.gpu_text.setText("Sprawdzanie…")
@@ -573,6 +786,8 @@ class SettingsTab(QWidget):
         s.whisper_device = self.w_device.currentData()
         s.language = self.lang.currentData()
         s.live_chunk_seconds = float(self.chunk.value())
+        s.whisper_beam = int(self.beam.currentData())
+        s.reuse_live_notes = self.reuse.isChecked()
         s.slide_sensitivity = self.sens.value() / 100
         s.slide_stable_seconds = self.stable.value()
         s.slide_interval = self.interval.value()
@@ -592,7 +807,9 @@ class SettingsTab(QWidget):
         vm = self.vision_model.itemData(vi) if vi >= 0 else vt.split()[0] if vt else ""
         if vm:
             s.vision_model = vm
+        s.hw_profile = perf.current(s, self.hw)
         s.save()
         self.saved.emit()
+        self._update_profiles()
         if self.sender() in (self.model, self.live_model, self.url):
             self._on_ollama_status("up" if self.ai_dot.kind != "red" else "down", getattr(self, "_installed", []))

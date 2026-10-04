@@ -350,6 +350,100 @@ class NotebookView(QWidget):
                    Qt.AlignmentFlag.AlignCenter, "Wykłady")
 
 
+class ProfileChooser(QWidget):
+    """Przed pobieraniem: na jaki sprzęt przygotować aplikację. Profil polecany po sprawdzeniu sprzętu
+    jest zaznaczony od razu – wystarczy kliknąć „Zainstaluj”."""
+    chosen = Signal(str, dict)
+    hw_ready = Signal(dict)
+
+    def __init__(self, settings):
+        super().__init__()
+        from .. import perf
+        from ..ui.controls import AdaptiveBox
+        from ..ui.profile_card import ProfileCard
+        self.settings = settings
+        self.hw: dict = {}
+        self.key = ""
+        head = QLabel("Na jaki komputer przygotować aplikację?")
+        f = QFont(DISPLAY_FAMILY)
+        f.setPointSizeF(15)
+        f.setWeight(QFont.Weight.DemiBold)
+        head.setFont(f)
+        self.hw_text = QLabel("Sprawdzam procesor, pamięć i kartę graficzną…")
+        self.hw_text.setObjectName("secondary")
+        self.hw_text.setWordWrap(True)
+        self.hw_text.setTextFormat(Qt.TextFormat.RichText)
+        self.cards = {}
+        box = AdaptiveBox(threshold=600, spacing=12)
+        for k in perf.ORDER:
+            c = ProfileCard(k)
+            c.clicked.connect(self._pick)
+            c.setEnabled(False)
+            box.add(c, 1)
+            self.cards[k] = c
+        self.note = QLabel("")
+        self.note.setObjectName("footnote")
+        self.note.setWordWrap(True)
+        self.btn = QPushButton("Zainstaluj")
+        self.btn.setObjectName("primary")
+        self.btn.setEnabled(False)
+        self.btn.setMinimumWidth(170)
+        self.btn.clicked.connect(lambda: self.chosen.emit(self.key, self.hw))
+        row = QHBoxLayout()
+        row.addWidget(self.note, 1)
+        row.addSpacing(16)
+        row.addWidget(self.btn, 0, Qt.AlignmentFlag.AlignBottom)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.setSpacing(10)
+        v.addWidget(head)
+        v.addWidget(self.hw_text)
+        v.addSpacing(8)
+        v.addWidget(box)
+        v.addStretch(1)
+        v.addLayout(row)
+        self.hw_ready.connect(self._on_hw)
+
+    def detect(self):
+        import threading
+        from .. import perf
+
+        def work():
+            try:
+                hw = perf.hardware(self.settings, refresh=True)
+            except Exception:  # noqa: BLE001
+                hw = {"cpu": "", "threads": 4, "ram_gb": 0, "gpus": []}
+            self.hw_ready.emit(hw)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_hw(self, hw: dict):
+        from .. import perf
+        self.hw = hw
+        key, why = perf.recommend(hw)
+        self.rec, self.why = key, why
+        self.hw_text.setText(f"{perf.describe(hw)}<br>{why}")
+        for k, c in self.cards.items():
+            c.setEnabled(True)
+            c.set_state(recommended=k == key, size_text=f"Do pobrania ok. {perf.fmt_gb(perf.download_gb(k, hw))}")
+        self.btn.setEnabled(True)
+        self._pick(key)
+
+    def _pick(self, key: str):
+        from .. import perf
+        self.key = key
+        for k, c in self.cards.items():
+            c.set_state(selected=k == key)
+        gb = perf.fmt_gb(perf.download_gb(key, self.hw))
+        if key == self.rec:
+            msg = "Wybrano automatycznie po sprawdzeniu sprzętu."
+        elif perf.ORDER.index(key) > perf.ORDER.index(self.rec):
+            msg = "Ten profil może być za ciężki dla tego komputera – notatki będą powstawać wolno."
+        else:
+            msg = "Lżejszy niż polecany – szybciej, ale notatki mogą być trochę mniej dokładne."
+        self.note.setText(f"{msg} Pobierze się ok. {gb}. Profil zmienisz później w Ustawieniach → Wydajność.")
+        self.btn.setText(f"Zainstaluj · {perf.LABELS[key]}")
+
+
 class SetupWindow(QWidget):
     """Okno bez ramki (ok. ¼ ekranu): nagłówek, notes, pasek postępu."""
     finished = Signal()
@@ -363,6 +457,8 @@ class SetupWindow(QWidget):
         self.inst = Installer(settings)
         first = not (self.inst.marker.get("complete"))
         self._drag = None
+        # przy pierwszej instalacji: najpierw wybór profilu sprzętu (o ile nie wybrano go wcześniej)
+        self.choose = first and not getattr(settings, "hw_profile", "")
 
         self.logo = QLabel()
         self.logo.setPixmap(logo_pixmap(30, self.devicePixelRatioF() or 2.0))
@@ -425,15 +521,19 @@ class SetupWindow(QWidget):
         v.setContentsMargins(40, 34, 40, 34)
         v.setSpacing(14)
         v.addLayout(head)
+        self.chooser = ProfileChooser(settings)
+        self.chooser.chosen.connect(self._profile_chosen)
+        v.addWidget(self.chooser, 1)
         v.addWidget(self.book, 1)
         v.addWidget(self.bar)
         v.addWidget(self.hint)
         v.addWidget(self.err_row)
+        for w in ((self.book, self.bar, self.hint) if self.choose else (self.chooser,)):
+            w.setVisible(False)
+        if self.choose:
+            self.sub.setText("Najpierw dopasujmy aplikację do Twojego komputera")
 
-        self.inst.step_changed.connect(self._step)
-        self.inst.progress.connect(self._progress)
-        self.inst.failed.connect(self._failed)
-        self.inst.completed.connect(self._completed)
+        self._connect()
 
         scr = QApplication.primaryScreen().availableGeometry()
         w = int(min(1180, max(700, scr.width() * 0.5)))
@@ -441,8 +541,34 @@ class SetupWindow(QWidget):
         self.setGeometry(scr.left() + (scr.width() - w) // 2, scr.top() + (scr.height() - h) // 2, w, h)
 
     # ------------------------------------------------------------------
+    def _connect(self):
+        self.inst.step_changed.connect(self._step)
+        self.inst.progress.connect(self._progress)
+        self.inst.failed.connect(self._failed)
+        self.inst.completed.connect(self._completed)
+
     def start(self):
         self.show()
+        if self.choose:
+            self.chooser.detect()
+        else:
+            self.inst.start()
+
+    def _profile_chosen(self, key: str, hw: dict):
+        from .. import perf
+        from .installer import Installer
+        perf.apply(self.settings, key, hw)
+        self.settings.save()
+        self.inst = Installer(self.settings)          # kroki i rozmiary według wybranego profilu
+        self._connect()
+        self.book.steps = [[st.title, "pending"] for st in self.inst.steps]
+        self.hint.setText(f"Pobiera się ok. {perf.fmt_gb(perf.download_gb(key, hw))} (biblioteki i lokalne modele AI) "
+                          "– to może potrwać od kilkunastu minut do godziny. Możesz w tym czasie korzystać z komputera.")
+        self.sub.setText("Przygotowuję wszystko do pierwszego wykładu")
+        self.chooser.hide()
+        for w in (self.book, self.bar, self.hint):
+            w.show()
+        self.book.t0 = time.monotonic() - FLIP_TIME      # bez przewracania kartki w pierwszej chwili
         self.inst.start()
 
     def _step(self, i: int, st: str):
@@ -464,10 +590,7 @@ class SetupWindow(QWidget):
         from .installer import Installer
         old = self.inst
         self.inst = Installer(self.settings)
-        self.inst.step_changed.connect(self._step)
-        self.inst.progress.connect(self._progress)
-        self.inst.failed.connect(self._failed)
-        self.inst.completed.connect(self._completed)
+        self._connect()
         del old
         self.inst.start()
 
@@ -489,6 +612,9 @@ class SetupWindow(QWidget):
         self._fade = a
 
     def _ask_close(self):
+        if self.chooser.isVisible():
+            QApplication.quit()
+            return
         if self.book.phase != "working":
             return
         if QMessageBox.question(self, "Przerwać?", "Przerwać przygotowanie? Dokończy się przy następnym "

@@ -36,6 +36,12 @@ class Settings:
     whisper_device: str = "auto"             # auto / cuda / cpu
     language: str = "auto"                   # "auto" (wykryj), "pl", "en", … – notatki powstają w języku wykładu
     live_chunk_seconds: float = 20.0         # co ile sekund transkrybować na żywo
+    whisper_beam: int = 5                    # 1 = najszybciej, 5 = najdokładniej
+    whisper_batch: int = 8                   # ile fragmentów naraz przy transkrypcji pliku
+
+    # Wydajność: profil sprzętu (lekki / zrownowazony / pelna, "" = własne) i wynik wykrywania sprzętu
+    hw_profile: str = ""
+    hw_info: dict = field(default_factory=dict)
 
     # Slajdy
     slide_interval: float = 1.0              # co ile sekund sprawdzać ekran
@@ -55,6 +61,7 @@ class Settings:
     live_model: str = "SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0"   # lżejszy model do notatek na żywo
     auto_stop_minutes: int = 10              # zapytaj o zakończenie po tylu minutach ciszy (0 = wyłączone)
     live_ctx: int = 8192                     # kontekst modelu w trakcie nagrywania (mniej pamięci GPU)
+    reuse_live_notes: bool = False           # po wykładzie zostaw fragmenty napisane na żywo (szybciej)
     flashcards_per_section: int = 4
     describe_slides: bool = True             # opisuj obrazy/schematy/wykresy na slajdach (model widzący obrazy)
     vision_model: str = "qwen3-vl:8b-instruct"

@@ -27,11 +27,11 @@ def vocabulary_for(lecture: Lecture, settings: Settings) -> str:
 def transcribe_lecture(lecture: Lecture, settings: Settings, progress: Progress,
                        cancel: threading.Event, source: Optional[str] = None) -> None:
     """Transkrypcja wszystkich części nagrania (czas każdej części przesunięty o jej początek)."""
-    from .transcriber import WhisperEngine
+    from .transcriber import engine_for
     parts = [(Path(source), 0.0, 0.0)] if source else lecture.audio_parts()
     if not parts or not parts[0][0].exists():
         raise RuntimeError("Brak pliku audio do transkrypcji.")
-    engine = WhisperEngine(settings.whisper_model, settings.whisper_device, lecture.meta.language or settings.language)
+    engine = engine_for(settings, lecture.meta.language or settings.language)
     engine.hotwords = vocabulary_for(lecture, settings)
     engine.load(lambda m: progress(m, -1))
     try:
@@ -116,8 +116,10 @@ def generate_notes(lecture: Lecture, settings: Settings, progress: Progress, can
     lecture.meta.status = "przetwarzanie"
     lecture.save_meta()
     try:
+        reuse = [settings.live_model] if use_cache and getattr(settings, "reuse_live_notes", False) else []
         generate(lecture, llm, model, num_ctx=settings.ollama_ctx, cards_per_section=settings.flashcards_per_section,
-                 progress=progress, on_token=on_token, cancel=cancel, use_cache=use_cache, vision_model=vision)
+                 progress=progress, on_token=on_token, cancel=cancel, use_cache=use_cache, vision_model=vision,
+                 reuse_models=reuse)
         lecture.meta.status = "gotowy"
         lecture.meta.error = ""
     except Exception as e:
