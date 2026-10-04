@@ -15,7 +15,7 @@ from .config import Settings
 from .screen_capture import VideoSourceInfo, make_grabber
 from .slides import SlideEvent, SlideRecorder, SlideStore
 from .storage import Lecture, load_glossary
-from .transcriber import LiveTranscriber, Vocabulary, WhisperEngine
+from .transcriber import LiveTranscriber, Vocabulary, WhisperEngine, engine_for
 
 log = logging.getLogger(__name__)
 
@@ -101,8 +101,7 @@ class RecordingSession:
         if part_file is not None:
             self.recorder = AudioRecorder(self.audio_info, lec.folder / part_file, backend=s.audio_backend)
         if self.live:
-            self.engine = WhisperEngine(s.whisper_model, s.whisper_device, self.language,
-                                        low_vram=self.live_notes_enabled)
+            self.engine = engine_for(s, self.language, low_vram=self.live_notes_enabled)
             self.engine.hotwords = self.vocab.hotwords()
             self.transcriber = LiveTranscriber(self.engine, s.live_chunk_seconds, self._segments)
             self.recorder.listeners.append(self.transcriber.feed)

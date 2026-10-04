@@ -408,7 +408,8 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
              progress: Optional[Callable[[str, float], None]] = None,
              on_token: Optional[Callable[[str], None]] = None,
              cancel: Optional[threading.Event] = None, use_cache: bool = False,
-             vision_model: Optional[str] = None) -> None:
+             vision_model: Optional[str] = None, reuse_models: Optional[list] = None) -> None:
+    """reuse_models: modele, których fragmenty (np. napisane na żywo lżejszym modelem) zostają w notatce."""
     def prog(msg, frac):
         if progress:
             progress(msg, frac)
@@ -449,6 +450,11 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
         key = section_key(sec, model, lang)
         if key in cache:
             notes.append(cache[key])
+            continue
+        alt = next((cache[k] for k in (section_key(sec, m, lang) for m in (reuse_models or []) if m != model)
+                    if k in cache), None)
+        if alt:
+            notes.append(alt)
             continue
         prog(f"Notatki: fragment {i}/{n}", 0.15 + 0.40 * (i - 1) / n)
         if on_token:

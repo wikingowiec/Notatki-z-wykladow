@@ -83,6 +83,11 @@ def open_main_window(app, settings, fade_in: bool = False):
     log = logging.getLogger("main")
     from app.transcriber import setup_cuda_dll_paths
     setup_cuda_dll_paths()        # biblioteki CUDA z pakietów pip – przed importem faster_whisper
+    try:
+        from app.perf import ollama_env
+        ollama_env()              # flash attention i mniejsza pamięć kontekstu dla Ollamy (od jej następnego startu)
+    except Exception:  # noqa: BLE001
+        pass
     from PySide6.QtNetwork import QLocalServer
     from app.ui.main_window import MainWindow
     from app.ui.theme import apply_titlebar

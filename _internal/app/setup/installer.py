@@ -21,11 +21,11 @@ from typing import Callable, Optional
 from PySide6.QtCore import QObject, Signal
 
 from . import state
+from ..perf import MODEL_GB, WHISPER_GB
 
 log = logging.getLogger(__name__)
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0      # CREATE_NO_WINDOW
 OLLAMA_SETUP_URL = "https://ollama.com/download/OllamaSetup.exe"
-MODEL_GB = {"bielik-11b": 6.7, "bielik-4.5b": 5.0, "qwen3-vl:8b": 6.1, "qwen3-vl:4b": 3.3, "gemma3:12b": 8.1}
 
 
 class Cancelled(Exception):
@@ -64,7 +64,8 @@ class Installer(QObject):
         models = self._models()
         self.steps = [
             Step("pip", "Biblioteki aplikacji", 2.6 if m.get("req_hash") != state.req_hash() else 0.02, self._pip),
-            Step("whisper", "Model rozpoznawania mowy", 0.02 if m.get("whisper") == self.s.whisper_model else 3.1,
+            Step("whisper", "Model rozpoznawania mowy",
+                 0.02 if m.get("whisper") == self.s.whisper_model else WHISPER_GB.get(self.s.whisper_model, 1.5),
                  self._whisper),
             Step("ollama", "Ollama – lokalne AI", 0.02 if m.get("ai_done") else 1.0, self._ollama),
             Step("models", "Modele AI do notatek",
@@ -211,13 +212,14 @@ class Installer(QObject):
 
         base = [py, "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location",
                 "--progress-bar", "raw"]
+        req = self._requirements()
         try:
-            self._run_proc(base + ["-r", str(state.BASE / "requirements.txt")], on_line, cwd=str(state.BASE))
+            self._run_proc(base + ["-r", req], on_line, cwd=str(state.BASE))
         except RuntimeError as e:
             if "--progress-bar" in str(e) and "invalid choice" in str(e):     # stary pip bez trybu „raw”
                 base.remove("--progress-bar")
                 base.remove("raw")
-                self._run_proc(base + ["-r", str(state.BASE / "requirements.txt")], on_line, cwd=str(state.BASE))
+                self._run_proc(base + ["-r", req], on_line, cwd=str(state.BASE))
             else:
                 raise
         try:
@@ -229,6 +231,20 @@ class Installer(QObject):
         importlib.invalidate_caches()
         state.save_marker(req_hash=state.req_hash())
         return "done"
+
+    def _requirements(self) -> str:
+        """requirements.txt – bez bibliotek CUDA (ok. 1,4 GB), gdy w komputerze nie ma karty NVIDIA."""
+        src = state.BASE / "requirements.txt"
+        from ..perf import has_nvidia, hardware
+        try:
+            if has_nvidia(hardware(self.s)):
+                return str(src)
+            lines = [x for x in src.read_text(encoding="utf-8").splitlines() if not x.strip().startswith("nvidia-")]
+            dst = state.RUNTIME / "requirements-cpu.txt"
+            dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return str(dst)
+        except Exception:  # noqa: BLE001
+            return str(src)
 
     # ------------------------------------------------------------------ 2. model mowy
     def _whisper(self, i: int):
@@ -301,6 +317,8 @@ class Installer(QObject):
             return False
 
     def _ollama(self, i: int):
+        from ..perf import ollama_env
+        ollama_env()                  # zmienne przed instalacją – Ollama wystartuje już z nimi
         exe = self.find_ollama()
         if not exe:
             import tempfile
@@ -318,7 +336,8 @@ class Installer(QObject):
                 raise RuntimeError("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download.")
         if not self._ollama_up():
             self._report(i, 0.95, "Uruchamiam Ollamę…")
-            subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            from ..perf import ollama_env
+            subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=ollama_env(),
                              creationflags=NO_WINDOW | (0x00000008 if sys.platform == "win32" else 0))
             for _ in range(40):
                 if self._ollama_up():
@@ -331,7 +350,7 @@ class Installer(QObject):
 
     # ------------------------------------------------------------------ 4. modele AI
     def _models(self) -> list[str]:
-        out = [self.s.ollama_model, self.s.live_model]
+        out = [self.s.ollama_model] + ([self.s.live_model] if getattr(self.s, "live_notes", True) else [])
         if getattr(self.s, "describe_slides", True) and getattr(self.s, "vision_model", ""):
             out.append(self.s.vision_model)
         return [m for m in dict.fromkeys(out) if m]
