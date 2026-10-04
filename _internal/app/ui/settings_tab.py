@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QPointF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFileDialog, QLineEdit, QMessageBox, QProgressBar,
                                QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget)
@@ -12,6 +12,7 @@ from ..config import log_path
 from ..llm import Ollama
 from .controls import GroupSection, SegmentedControl, StatusDot, ToggleSwitch, hbox, label
 from .record_tab import _centered
+from . import tokens as TK
 from .theme import theme
 
 VISION_MODELS = [
@@ -25,7 +26,86 @@ RECOMMENDED_MODELS = [
     ("qwen3:14b", "Qwen3 14B – mocny, ~9 GB"),
     ("SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0", "Bielik 4.5B – lżejszy i szybszy, ~5 GB"),
 ]
-THEMES = [("system", "Systemowy"), ("light", "Jasny"), ("dark", "Ciemny")]
+THEMES = [("system", "Jak system"), ("light", "Jasny"), ("dark", "Ciemny")]
+
+
+class ThemeCard(QWidget):
+    """Karta wyboru motywu: nazwa w foncie motywu, próbki kolorów, nazwy fontów. Rysuje się w kolorach
+    swojego motywu (jasnych albo ciemnych – jak aktualny tryb)."""
+    clicked = Signal(str)
+
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+        self.selected = False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumSize(200, 150)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setToolTip(f"Motyw {TK.THEME_LABELS[name]}")
+
+    def sizeHint(self):
+        from PySide6.QtCore import QSize
+        return QSize(260, 156)
+
+    def mousePressEvent(self, e):
+        self.clicked.emit(self.name)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.clicked.emit(self.name)
+        else:
+            super().keyPressEvent(e)
+
+    def paintEvent(self, _e):
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QFont, QPainter, QPen
+        from .theme import T, _family, qcolor
+        cur = T()
+        v = TK.variant(TK.THEMES[self.name], cur.dark)
+        rad = v["radius"]["lg"]
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
+        p.setPen(QPen(qcolor(cur.accent if self.selected else v["line"]), 2.4 if self.selected else 1))
+        p.setBrush(qcolor(v["bg"]))
+        p.drawRoundedRect(r, rad, rad)
+        x, y = r.left() + 18, r.top() + 16
+        f = QFont(_family(v["fontDisplay"], "display"))
+        f.setPixelSize(24)
+        f.setWeight(QFont.Weight.DemiBold)
+        p.setFont(f)
+        p.setPen(qcolor(v["ink"]))
+        p.drawText(QRectF(x, y, r.width() - 60, 32), Qt.AlignmentFlag.AlignVCenter, TK.THEME_LABELS[self.name])
+        if self.selected:
+            c = QRectF(r.right() - 36, y + 4, 22, 22)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(qcolor(cur.accent))
+            p.drawEllipse(c)
+            p.setPen(QPen(qcolor(cur.on_accent), 2))
+            p.drawPolyline([c.center() + d for d in (QPointF(-5, 0), QPointF(-1.5, 3.5), QPointF(5, -3.5))])
+        y += 42
+        sw = 22
+        for k, key in enumerate(("accent", "surface", "mark", "defBg", "rec")):
+            p.setPen(QPen(qcolor(v["line2"]), 1))
+            p.setBrush(qcolor(v[key]))
+            rr = max(3, v["radius"]["xs"])
+            p.drawRoundedRect(QRectF(x + k * (sw + 8), y, sw, sw), rr, rr)
+        y += sw + 14
+        fu = QFont(_family(v["fontUi"], "ui"))
+        fu.setPixelSize(13)
+        fu.setWeight(QFont.Weight.DemiBold)
+        p.setFont(fu)
+        p.setPen(qcolor(v["ink2"]))
+        p.drawText(QRectF(x, y, r.width() - 36, 18), Qt.AlignmentFlag.AlignVCenter,
+                   f"{v['fontDisplay']} + {v['fontUi']}")
+        fu.setWeight(QFont.Weight.Normal)
+        fu.setPixelSize(12)
+        p.setFont(fu)
+        p.setPen(qcolor(v["ink3"]))
+        p.drawText(QRectF(x, y + 20, r.width() - 36, 18), Qt.AlignmentFlag.AlignVCenter,
+                   p.fontMetrics().elidedText(TK.THEME_NOTES[self.name], Qt.TextElideMode.ElideRight,
+                                              int(r.width() - 36)))
+        p.end()
 
 
 def combo(items: list[tuple[str, str]], value, width: int = 260) -> QComboBox:
@@ -76,14 +156,37 @@ class SettingsTab(QWidget):
         i = min(range(self.scale.count()), key=lambda k: abs(self.scale.itemData(k) - float(self.s.ui_scale or 1.0)))
         self.scale.setCurrentIndex(i)
         self.scale.currentIndexChanged.connect(self._scale_changed)
+        from .controls import AdaptiveBox
+        gw = GroupSection("Wygląd", "Motyw zmienia kolory, fonty i zaokrąglenia. Zmiana działa od razu.")
+        cards = AdaptiveBox(threshold=640, spacing=12)
+        self.theme_cards = {}
+        for n in TK.THEMES:
+            c = ThemeCard(n)
+            c.clicked.connect(self._theme_name_changed)
+            cards.add(c, 1)
+            self.theme_cards[n] = c
+        wrap = QWidget()
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(16, 16, 16, 16)
+        wl.addWidget(cards)
+        gw.add(wrap)
+        gw.add_row("Tryb", self.appearance, "Jasny – papier, ciemny – tablica. „Jak system” – zgodnie z Windows.")
+        self._mark_theme()
+        v.addWidget(gw)
         g = GroupSection("Ogólne")
-        g.add_row("Wygląd", self.appearance, "Jasny – papier, ciemny – tablica.")
         self.scale_row = g.add_row("Rozmiar interfejsu", self.scale,
                                    "Większy na dużym monitorze, mniejszy na małym ekranie. Działa po ponownym uruchomieniu.")
         r = g.add_row("Folder biblioteki", hbox(b_open, b_lib, spacing=6))
         r.subtitle.setText(self.s.library_dir)
         r.subtitle.show()
         self.lib_row = r
+        self.goal = QSpinBox()
+        self.goal.setRange(5, 300)
+        self.goal.setSingleStep(5)
+        self.goal.setSuffix(" fiszek")
+        self.goal.setValue(int(getattr(self.s, "daily_goal", 20) or 20))
+        self.goal.valueChanged.connect(lambda v: (setattr(self.s, "daily_goal", int(v)), self.s.save()))
+        g.add_row("Cel dzienny", self.goal, "Ile fiszek dziennie chcesz powtórzyć – pierścień na ekranie Fiszki.")
         g.add_row("Notatki po nagraniu", self.auto,
                   "Po zakończeniu nagrania automatycznie twórz notatki, podsumowanie i fiszki.")
         v.addWidget(g)
@@ -329,6 +432,18 @@ class SettingsTab(QWidget):
         self.s.theme = THEMES[i][0]
         self.s.save()
         theme().set_mode(self.s.theme)
+        self._mark_theme()
+
+    def _theme_name_changed(self, name: str):
+        self.s.theme_name = name
+        self.s.save()
+        theme().set_name(name)
+        self._mark_theme()
+
+    def _mark_theme(self):
+        for n, c in self.theme_cards.items():
+            c.selected = n == getattr(self.s, "theme_name", "zeszyt")
+            c.update()
 
     def _scale_changed(self, _i: int):
         new = float(self.scale.currentData())

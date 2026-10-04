@@ -323,6 +323,17 @@ class AudioRecorder:
     def elapsed(self) -> float:
         return self.samples_written / TARGET_SR
 
+    # pauza: dźwięk z tego czasu jest pomijany (nie trafia do pliku ani do transkrypcji)
+    def pause(self):
+        if not getattr(self, "paused", False):
+            self._pause_at = time.monotonic()
+            self.paused = True
+
+    def resume(self):
+        if getattr(self, "paused", False):
+            self.t0 += time.monotonic() - self._pause_at
+            self.paused = False
+
     def _emit(self, x: np.ndarray):
         if x.size == 0:
             return
@@ -342,6 +353,9 @@ class AudioRecorder:
                     arr, rate = self._q.get(timeout=0.1)
                 except queue.Empty:
                     arr = None
+                if getattr(self, "paused", False):
+                    self.level_db = -90.0
+                    continue
                 if arr is not None:
                     if self._resampler is None or self._resampler.in_rate != rate:
                         self._resampler = _Resampler(rate)

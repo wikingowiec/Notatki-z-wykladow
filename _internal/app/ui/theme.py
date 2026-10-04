@@ -1,37 +1,51 @@
-"""Motyw „Zeszyt / Tablica”: ciepły papier w jasnym trybie, zielona tablica w ciemnym.
+"""Motywy „Zeszyt”, „Atrament” i „Akademia” (każdy jasny i ciemny).
 
-Tokeny kolorów, fonty (Inter + Fraunces, dołączone do aplikacji), arkusz stylów Qt, kolory przedmiotów,
-ikony wektorowe i logo."""
+Wartości pochodzą z tokens.py. Tu powstaje obiekt Tokens (stare nazwy pól + wszystkie nowe tokeny jako
+atrybuty), menedżer motywu, fonty, arkusz stylów Qt, kolory przedmiotów, ikony wektorowe i logo."""
 from __future__ import annotations
 
 import hashlib
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QObject, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-UI_FAMILY = "Inter"
-DISPLAY_FAMILY = "Fraunces"
-FONT = f"'{UI_FAMILY}', 'Segoe UI Variable Text', 'Segoe UI', 'Helvetica Neue', sans-serif"
-FONT_DISPLAY = f"'{DISPLAY_FAMILY}', 'Georgia', 'Cambria', serif"
+from . import tokens as TK
+
+UI_FAMILY = TK.FONT_UI
+DISPLAY_FAMILY = TK.FONT_DISPLAY
+FONT = ""
+FONT_DISPLAY = ""
 FONTS_DIR = Path(__file__).with_name("fonts")
+_AVAILABLE: set[str] = set()
 
 
 def load_fonts() -> None:
-    """Rejestruje dołączone fonty (przed utworzeniem okien)."""
-    global UI_FAMILY, DISPLAY_FAMILY
-    fams = set()
+    """Rejestruje dołączone fonty wszystkich motywów (przed utworzeniem okien)."""
     for f in sorted(FONTS_DIR.glob("*.ttf")):
         fid = QFontDatabase.addApplicationFont(str(f))
         if fid >= 0:
-            fams.update(QFontDatabase.applicationFontFamilies(fid))
-    if not any(x.startswith("Inter") for x in fams):
-        UI_FAMILY = "Segoe UI"
-    if not any(x.startswith("Fraunces") for x in fams):
-        DISPLAY_FAMILY = "Georgia"
+            for fam in QFontDatabase.applicationFontFamilies(fid):
+                _AVAILABLE.add(fam)
+                _AVAILABLE.add(fam.split(" ")[0] if fam.endswith(("Medium", "SemiBold")) else fam)
+    _AVAILABLE.update(QFontDatabase.families())
+    _set_families(T())
+
+
+def _family(name: str, kind: str) -> str:
+    if not _AVAILABLE or name in _AVAILABLE:
+        return name
+    return TK.FALLBACK[kind]
+
+
+def _set_families(t) -> None:
+    global UI_FAMILY, DISPLAY_FAMILY, FONT, FONT_DISPLAY
+    UI_FAMILY = _family(t.font_ui, "ui")
+    DISPLAY_FAMILY = _family(t.font_display, "display")
+    FONT = f"'{UI_FAMILY}', 'Segoe UI Variable Text', 'Segoe UI', 'Helvetica Neue', sans-serif"
+    FONT_DISPLAY = f"'{DISPLAY_FAMILY}', 'Georgia', 'Cambria', serif"
 
 
 def ui_font(pt: float = 10.0, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
@@ -49,74 +63,9 @@ def display_font(pt: float = 20.0, weight: QFont.Weight = QFont.Weight.DemiBold)
     return f
 
 
-@dataclass(frozen=True)
-class Tokens:
-    dark: bool
-    window: str        # tło treści (papier / tablica)
-    sidebar: str       # tło paska bocznego
-    surface: str       # karty, arkusze
-    surface2: str      # pola, przyciski
-    hover: str
-    selected: str
-    text: str
-    text2: str
-    text3: str
-    separator: str
-    accent: str
-    accent_hover: str
-    accent_soft: str
-    on_accent: str     # tekst na tle akcentu
-    red: str
-    red_soft: str
-    green: str
-    green_soft: str
-    orange: str
-    orange_soft: str
-    highlight: str     # zakreślacz (ważne fragmenty)
-    highlight_soft: str
-    shadow: str        # kolor cienia kart (z alfą w kodzie)
-    track: str         # tło kontrolki segmentowej / pasków
-
-
-LIGHT = Tokens(
-    dark=False,
-    window="#F6F3EC", sidebar="#EDE8DE", surface="#FFFEFA", surface2="#FFFEFA",
-    hover="#EAE4D8", selected="#E2DBCC",
-    text="#1F1D1A", text2="#6B655B", text3="#A29B8E", separator="#E2DBCE",
-    accent="#2F6B55", accent_hover="#275B48", accent_soft="#E1EDE5", on_accent="#FFFFFF",
-    red="#D2452F", red_soft="#FAE4DE", green="#2F7A4A", green_soft="#E1F0E3",
-    orange="#B5620C", orange_soft="#F9EAD3", highlight="#F4CF4B", highlight_soft="#FBF0C4",
-    shadow="#5A4A2A", track="#E9E3D7",
-)
-DARK = Tokens(
-    dark=True,
-    window="#141A17", sidebar="#0F1412", surface="#1B221F", surface2="#222B27",
-    hover="#27312D", selected="#2F3B36",
-    text="#ECEFE8", text2="#A2ADA6", text3="#6C7872", separator="#2A3430",
-    accent="#7FD4AE", accent_hover="#98DFBF", accent_soft="#1D3A2E", on_accent="#0D1A14",
-    red="#FF7462", red_soft="#3C201B", green="#86D69A", green_soft="#1B3424",
-    orange="#F2A64A", orange_soft="#3A2A15", highlight="#F0D160", highlight_soft="#39321A",
-    shadow="#000000", track="#1E2623",
-)
-
-# kolory przedmiotów (stonowane – dobrze wyglądają na papierze i na tablicy)
-_SUBJ_LIGHT = ["#2F6B55", "#3B5BA5", "#B4553A", "#86569A", "#A77C16", "#2A7C88", "#A2466A", "#5D6B2C"]
-_SUBJ_DARK = ["#7FD4AE", "#93ACF2", "#F29B80", "#CFA2E2", "#EBC35F", "#72CBD6", "#EB90B3", "#BBC877"]
-MODE_COLOR = {"av": 0, "audio": 2, "slides": 1, "files": 4}
-
-
-def subject_color(name: str | None, dark: bool | None = None) -> str:
-    dark = T().dark if dark is None else dark
-    pal = _SUBJ_DARK if dark else _SUBJ_LIGHT
-    if not name:
-        return T().text3
-    i = int(hashlib.md5(name.strip().lower().encode("utf-8")).hexdigest(), 16) % len(pal)
-    return pal[i]
-
-
-def palette_color(i: int) -> str:
-    pal = _SUBJ_DARK if T().dark else _SUBJ_LIGHT
-    return pal[i % len(pal)]
+def px(name: str) -> float:
+    """Rozmiar fontu z TYPE (px) w punktach Qt (96 dpi)."""
+    return TK.TYPE[name][1] * 0.75
 
 
 def mix(a: str, b: str, f: float) -> str:
@@ -126,6 +75,59 @@ def mix(a: str, b: str, f: float) -> str:
                   round(ca.blue() + (cb.blue() - ca.blue()) * f)).name()
 
 
+class Tokens:
+    """Bieżący motyw. Stare nazwy (window, text2, separator…) + każdy token z tokens.py jako atrybut
+    (t.defBg, t.mark, t.streak…) + t.radius, t.font_ui, t.font_display, t.shadows."""
+
+    def __init__(self, name: str, dark: bool):
+        d = TK.variant(TK.THEMES.get(name, "A"), dark)
+        self.d = d
+        self.name, self.dark = name, dark
+        self.radius = d["radius"]
+        self.font_ui, self.font_display = d["fontUi"], d["fontDisplay"]
+        self.shadows = d.get("shadows", True)
+        self.window, self.sidebar, self.surface, self.surface2 = d["bg"], d["side"], d["surface"], d["surface2"]
+        self.hover = mix(d["bg"], d["ink"], 0.08 if dark else 0.05)
+        self.selected = d["sideActive"]
+        self.text, self.text2, self.text3 = d["ink"], d["ink2"], d["ink3"]
+        self.separator, self.line2 = d["line"], d["line2"]
+        self.accent, self.accent_hover, self.accent_pressed = d["accent"], d["accentHover"], d["accentPressed"]
+        self.accent_soft, self.accent_text, self.on_accent = d["accentSoft"], d["accentText"], d["accentInk"]
+        self.red, self.red_soft, self.red_text, self.on_red = d["rec"], d["recSoft"], d["recText"], d["recInk"]
+        self.green, self.green_soft = d["ok"], d["okSoft"]
+        self.orange, self.orange_soft = d["streak"], d["wazBg"]
+        self.highlight, self.highlight_soft = d["markLine"], d["mark"]
+        self.shadow = d["shadow"]
+        self.track = mix(d["surface2"], d["line"], 0.75)
+        self.subjects = TK.SUBJECTS_DARK if dark else TK.SUBJECTS_LIGHT
+
+    def __getattr__(self, key):          # nowe tokeny: t.defBg, t.mark, t.streak …
+        d = self.__dict__.get("d")
+        if d is not None and key in d:
+            return d[key]
+        raise AttributeError(key)
+
+    def r(self, name: str) -> int:
+        return self.radius[name]
+
+
+MODE_COLOR = {"av": 0, "audio": 2, "slides": 1, "files": 4}
+
+
+def subject_color(name: str | None, dark: bool | None = None) -> str:
+    t = T()
+    pal = (TK.SUBJECTS_DARK if dark else TK.SUBJECTS_LIGHT) if dark is not None else t.subjects
+    if not name:
+        return t.text3
+    i = int(hashlib.md5(name.strip().lower().encode("utf-8")).hexdigest(), 16) % len(pal)
+    return pal[i]
+
+
+def palette_color(i: int) -> str:
+    pal = T().subjects
+    return pal[i % len(pal)]
+
+
 def soft(color: str) -> str:
     """Delikatne tło w danym kolorze."""
     t = T()
@@ -133,15 +135,22 @@ def soft(color: str) -> str:
 
 
 class Theme(QObject):
+    """Menedżer motywu (jeden na aplikację): nazwa motywu + tryb jasny/ciemny/systemowy.
+    apply() przestawia paletę, arkusz stylów, fonty i emituje changed (alias themeChanged)."""
     changed = Signal()
 
     def __init__(self):
         super().__init__()
         self.mode = "system"          # system / light / dark
-        self.t: Tokens = LIGHT
+        self.name = "zeszyt"
+        self.t: Tokens = Tokens(self.name, False)
         hints = QGuiApplication.styleHints()
         if hasattr(hints, "colorSchemeChanged"):
             hints.colorSchemeChanged.connect(lambda *_: self._maybe_update())
+
+    @property
+    def themeChanged(self):
+        return self.changed
 
     def system_dark(self) -> bool:
         hints = QGuiApplication.styleHints()
@@ -154,18 +163,38 @@ class Theme(QObject):
         self.mode = mode
         self._maybe_update(force=True)
 
+    def set_name(self, name: str):
+        self.name = name if name in TK.THEMES else "zeszyt"
+        self._maybe_update(force=True)
+
+    def apply(self, name: str | None = None, mode: str | None = None):
+        if name is not None:
+            self.name = name if name in TK.THEMES else "zeszyt"
+        if mode is not None:
+            self.mode = mode
+        self._maybe_update(force=True)
+
     def _maybe_update(self, force: bool = False):
         dark = self.system_dark() if self.mode == "system" else self.mode == "dark"
-        new = DARK if dark else LIGHT
-        if force or new is not self.t:
-            self.t = new
-            app = QGuiApplication.instance()
-            if app is not None:
-                app.setPalette(build_palette(new))
+        if not force and dark == self.t.dark and self.name == self.t.name:
+            return
+        new = Tokens(self.name, dark)
+        self.t = new
+        _set_families(new)
+        _icon_cache.clear()
+        _pixmap_cache.clear()
+        _logo_cache.clear()
+        app = QGuiApplication.instance()
+        if app is not None:
+            app.setPalette(build_palette(new))
+            if hasattr(app, "setStyleSheet"):
+                f = app.font()
+                f.setFamily(UI_FAMILY)
+                app.setFont(f)
                 app.setStyleSheet(build_qss(new))
-                for w in app.topLevelWidgets() if hasattr(app, "topLevelWidgets") else []:
-                    apply_titlebar(w)
-            self.changed.emit()
+            for w in app.topLevelWidgets() if hasattr(app, "topLevelWidgets") else []:
+                apply_titlebar(w)
+        self.changed.emit()
 
 
 THEME: Theme | None = None
@@ -266,11 +295,14 @@ _ICONS = {
     "continue": '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>',
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     "chevron-left": '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
+    "chevron-down": '<path d="M5.5 9.5L12 16l6.5-6.5"/>',
     "chevron-right": '<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
     "list": '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/>',
     "calendar": '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
     "clock": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     "pencil-note": '<path d="M6 3.5h8.5L19 8v6"/><path d="M14 3.5V8h5"/><path d="M6 3.5A1.5 1.5 0 0 0 4.5 5v14A1.5 1.5 0 0 0 6 20.5h6"/><path d="M14.5 21l.6-2.6 5-5a1.4 1.4 0 0 1 2 2l-5 5z"/>',
+    "flame": '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.4-5.6 3.9-7.8.4 1.6 1.3 2.7 2.4 3.3.2-2.7 1.4-5.2 3.4-7.3.3 3 2.1 4.8 3.4 6.8.9 1.4 1.4 3 1.4 4.8C20 18.3 16.1 21 12 21z"/><path d="M12 21c-1.8 0-3-1.2-3-2.9 0-1.6 1.2-2.6 2-3.7.4 1 1 1.5 1.6 1.7.3-.9.7-1.6 1.3-2.2.6 1.3 1.1 2.4 1.1 3.6 0 2.1-1.3 3.5-3 3.5z"/>',
+    "keyboard": '<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.5M9.5 10h.5M13 10h.5M17 10h.5M7 14h10"/>',
     "highlighter": '<path d="M9 14.5l-3.5 3.5h5l1.5-1.5"/><path d="M8.5 11.5l4 4 8-8-4-4z"/><path d="M3 21h18"/>',
 }
 
@@ -327,7 +359,11 @@ def qcolor(hex_: str, alpha: int | None = None) -> QColor:
 # ---------------------------------------------------------------------------
 # Logo: kartka z falą dźwięku i czerwoną kropką nagrywania
 # ---------------------------------------------------------------------------
-def logo_svg(accent: str = "#2F6B55", paper: str = "#FFFDF7", red: str = "#E0533C") -> str:
+def logo_svg(accent: str | None = None, paper: str | None = None, red: str | None = None) -> str:
+    t = T()
+    accent = accent or (t.accent if not t.dark else mix(t.accent, t.bg, 0.35))
+    paper = paper or t.logoPaper
+    red = red or (t.rec if not t.dark else t.recText)
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
 <rect x="2" y="2" width="60" height="60" rx="16" fill="{accent}"/>
 <rect x="14.5" y="11.5" width="31" height="41" rx="5" fill="{paper}"/>
@@ -344,11 +380,10 @@ _logo_cache: dict = {}
 
 def logo_pixmap(size: int, dpr: float = 2.0) -> QPixmap:
     t = T()
-    key = (size, dpr, t.dark)
+    key = (size, dpr, t.dark, t.name)
     pm = _logo_cache.get(key)
     if pm is None:
-        acc = "#2F6B55" if not t.dark else "#3E8A6D"
-        r = QSvgRenderer(QByteArray(logo_svg(acc).encode()))
+        r = QSvgRenderer(QByteArray(logo_svg().encode()))
         pm = QPixmap(int(size * dpr), int(size * dpr))
         pm.fill(Qt.GlobalColor.transparent)
         p = QPainter(pm)
@@ -378,6 +413,8 @@ def _asset(name: str, svg: str) -> str:
 
 
 def build_qss(t: Tokens) -> str:
+    R = t.radius
+    pt = lambda name: f"{px(name):.2f}pt"          # noqa: E731
     focus_ring = t.accent
     col = t.text2.lstrip("#")
     arrow = _asset(f"chevron_{col}.svg",
@@ -385,8 +422,15 @@ def build_qss(t: Tokens) -> str:
                    f'<path d="M3 4.5l3 3 3-3" fill="none" stroke="#{col}" stroke-width="1.6" '
                    f'stroke-linecap="round" stroke-linejoin="round"/></svg>')
     arrow_css = f"image: url({arrow}); width: 12px; height: 12px;" if arrow else ""
+    c3 = t.text3.lstrip("#")
+    lens = _asset(f"search_{c3}.svg",
+                  f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 18" width="36" height="18">'
+                  f'<g transform="translate(12,0) scale(0.75)" fill="none" stroke="#{c3}" stroke-width="2.2" '
+                  f'stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/></g></svg>')
+    lens_css = (f"background-image: url({lens}); background-repeat: no-repeat; background-position: left center; "
+                f"background-origin: border;") if lens else ""
     return f"""
-* {{ font-family: {FONT}; font-size: 10pt; color: {t.text}; outline: none; }}
+* {{ font-family: {FONT}; font-size: {pt('body')}; color: {t.text}; outline: none; }}
 QMainWindow, QDialog {{ background: {t.window}; }}
 QWidget#page, QWidget#content, QScrollArea#page > QWidget > QWidget {{ background: {t.window}; }}
 QScrollArea {{ background: transparent; border: none; }}
@@ -396,112 +440,161 @@ QLabel, QCheckBox {{ background: transparent; }}
 QWidget#sidebar {{ background: {t.sidebar}; border-right: 1px solid {t.separator}; }}
 QListWidget#sidebarList {{ background: transparent; border: none; padding: 0 10px; }}
 QListWidget#sidebarList::item {{ border: none; padding: 0; margin: 0; }}
-QLabel#appTitle {{ font-family: {FONT_DISPLAY}; font-size: 15pt; font-weight: 600; padding: 0 2px; }}
-QWidget#jobCard {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: 12px; }}
+QLabel#appTitle {{ font-family: {FONT_DISPLAY}; font-size: 15.75pt; font-weight: 600; padding: 0 2px; }}
+QPushButton#splitMain {{ background: {t.accent}; color: {t.on_accent}; border: none; text-align: left;
+    padding: 0 14px; min-height: 44px; border-radius: 0; border-top-left-radius: {R['md']}px;
+    border-bottom-left-radius: {R['md']}px; }}
+QPushButton#splitMain:hover, QPushButton#splitMic:hover {{ background: {t.accent_hover}; }}
+QPushButton#splitMain:pressed, QPushButton#splitMic:pressed {{ background: {t.accent_pressed}; }}
+QPushButton#splitMic {{ background: {t.accent}; border: none; border-left: 1px solid {mix(t.accent, t.on_accent, 0.35)};
+    min-height: 44px; min-width: 46px; max-width: 46px; padding: 0; border-radius: 0;
+    border-top-right-radius: {R['md']}px; border-bottom-right-radius: {R['md']}px; }}
+QPushButton#splitMain[rail="true"], QPushButton#splitMic[rail="true"] {{ border-radius: {R['md']}px; border: none;
+    padding: 0; min-width: 44px; max-width: 44px; text-align: center; }}
+QPushButton#splitMain[active="true"] {{ background: {t.accent_pressed}; }}
+QPushButton#recPill {{ background: {t.red_soft}; color: {t.red_text}; border: none; text-align: left; padding: 0 14px;
+    min-height: 44px; border-radius: {R['md']}px; font-weight: 700; }}
+QPushButton#recPill:hover {{ background: {mix(t.red_soft, t.red, 0.12)}; }}
+QPushButton#recPill[rail="true"] {{ text-align: center; padding: 0; min-width: 44px; max-width: 44px; }}
+QPushButton#jump {{ min-height: 34px; padding: 0 8px; font-weight: 600; text-align: left; border-radius: {R['sm']}px; }}
+QPushButton#jump[kind="def"] {{ border-left: 3px solid {t.defBar}; }}
+QPushButton#jump[kind="wz"] {{ border-left: 3px solid {t.wzBar}; }}
+QPushButton#jump[kind="prz"] {{ border-left: 3px solid {t.przBar}; }}
+QPushButton#jump[kind="waz"] {{ border-left: 3px solid {t.wazBar}; }}
+QFrame#flashcard {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: {R['xl']}px; }}
+QFrame#dash {{ border: none; border-top: 2px dashed {t.line2}; background: transparent; }}
+QPushButton#rateNo, QPushButton#rateYes {{ min-height: 68px; border-radius: {R['lg']}px; font-size: 11pt;
+    text-align: center; padding: 6px 18px; }}
+QPushButton#rateNo {{ background: {t.surface}; border: 1px solid {t.line2}; color: {t.text}; }}
+QPushButton#rateNo:hover {{ border-color: {t.red}; background: {t.red_soft}; }}
+QPushButton#rateYes {{ background: {t.accent}; border: none; color: {t.on_accent}; }}
+QPushButton#rateYes:hover {{ background: {t.accent_hover}; }}
+QPushButton#chipBtn {{ min-height: 34px; padding: 0 12px; border-radius: 17px; font-weight: 600;
+    color: {t.accent_text}; background: {t.surface}; border: 1px solid {t.separator}; }}
+QPushButton#chipBtn:hover {{ border-color: {t.accent}; background: {t.accent_soft}; }}
+QPushButton#chipBtn:disabled {{ color: {t.text3}; }}
+QPushButton#streak {{ background: transparent; border: none; color: {t.text2}; text-align: left; padding: 0 8px;
+    min-height: 34px; font-weight: 600; border-radius: {R['sm']}px; }}
+QPushButton#streak[rail="true"] {{ padding: 0; text-align: center; }}
+QPushButton#streak:hover {{ background: {t.hover}; color: {t.text}; }}
+QWidget#jobCard {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: {R['md']}px; }}
 
 /* --- typografia --- */
-QLabel#largeTitle {{ font-family: {FONT_DISPLAY}; font-size: 25pt; font-weight: 600; }}
-QLabel#title2 {{ font-family: {FONT_DISPLAY}; font-size: 18pt; font-weight: 600; }}
-QLabel#title3 {{ font-family: {FONT_DISPLAY}; font-size: 13.5pt; font-weight: 600; }}
+QLabel#largeTitle {{ font-family: {FONT_DISPLAY}; font-size: {pt('display')}; font-weight: 600; }}
+QLabel#h1 {{ font-family: {FONT_DISPLAY}; font-size: {pt('h1')}; font-weight: 600; }}
+QLabel#title2 {{ font-family: {FONT_DISPLAY}; font-size: {pt('h2')}; font-weight: 600; }}
+QLabel#title3 {{ font-family: {FONT_DISPLAY}; font-size: {pt('h3')}; font-weight: 600; }}
 QLabel#headline {{ font-weight: 600; }}
 QLabel#secondary {{ color: {t.text2}; }}
-QLabel#footnote {{ color: {t.text2}; font-size: 9pt; }}
-QLabel#overline {{ color: {t.accent}; font-size: 8.5pt; font-weight: 700; }}
-QLabel#sectionHeader {{ color: {t.text3}; font-size: 8.5pt; font-weight: 700; padding: 0 0 0 4px; }}
-QLabel#timer {{ font-family: {FONT_DISPLAY}; font-size: 30pt; font-weight: 500; }}
-QLabel#cardQ {{ font-family: {FONT_DISPLAY}; font-size: 19pt; font-weight: 600; }}
-QLabel#cardA {{ font-size: 13pt; color: {t.text}; }}
-QLabel#cardHint {{ color: {t.text3}; font-size: 9pt; }}
-QLabel#errorText {{ color: {t.red}; }}
-QLabel#recLabel {{ color: {t.red}; font-size: 8.5pt; font-weight: 700; }}
+QLabel#footnote {{ color: {t.text2}; font-size: {pt('small')}; }}
+QLabel#caption {{ color: {t.text3}; font-size: {pt('caption')}; }}
+QLabel#overline {{ color: {t.accent_text}; font-size: {pt('overline')}; font-weight: 700; }}
+QLabel#sectionHeader {{ color: {t.text3}; font-size: {pt('overline')}; font-weight: 700;
+    padding: 0 0 0 4px; }}
+QLabel#timer {{ font-family: {FONT_DISPLAY}; font-size: {pt('timer')}; font-weight: 500; }}
+QLabel#cardQ {{ font-family: {FONT_DISPLAY}; font-size: {pt('question')}; font-weight: 600; }}
+QLabel#cardA {{ font-size: 14pt; color: {t.text}; }}
+QLabel#cardHint {{ color: {t.text3}; font-size: {pt('caption')}; }}
+QLabel#errorText {{ color: {t.red_text}; }}
+QLabel#recLabel {{ color: {t.red_text}; font-size: {pt('overline')}; font-weight: 700; }}
 
 /* --- grupy i karty --- */
-QFrame#group {{ background: {t.surface}; border-radius: 14px; border: 1px solid {t.separator}; }}
+QFrame#group {{ background: {t.surface}; border-radius: {R['lg']}px; border: 1px solid {t.separator}; }}
 QFrame#hairline {{ background: {t.separator}; max-height: 1px; min-height: 1px; border: none; }}
-QFrame#card {{ background: {t.surface}; border-radius: 18px; border: 1px solid {t.separator}; }}
-QFrame#banner {{ background: {t.accent_soft}; border-radius: 12px; border: none; }}
-QFrame#warnBanner {{ background: {t.highlight_soft}; border-radius: 12px; border: none; }}
-QFrame#recBar {{ background: {t.surface}; border-radius: 18px; border: 1px solid {t.separator}; }}
-QFrame#pane {{ background: {t.surface}; border-radius: 16px; border: 1px solid {t.separator}; }}
+QFrame#card {{ background: {t.surface}; border-radius: {R['xl']}px; border: 1px solid {t.separator}; }}
+QFrame#banner {{ background: {t.accent_soft}; border-radius: {R['md']}px; border: none; }}
+QFrame#warnBanner {{ background: {t.highlight_soft}; border-radius: {R['md']}px; border: none; }}
+QFrame#recBar {{ background: {t.surface}; border-radius: {R['lg']}px; border: 1px solid {t.separator}; }}
+QFrame#pane {{ background: {t.surface}; border-radius: {R['lg']}px; border: 1px solid {t.separator}; }}
 
 /* --- pola --- */
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
-    background: {t.surface2}; border: 1px solid {t.separator}; border-radius: 9px;
-    padding: 6px 10px; min-height: 20px; selection-background-color: {t.accent}; selection-color: {t.on_accent}; }}
-QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {t.text3}; }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 2px solid {focus_ring}; padding: 5px 9px; }}
-QLineEdit:disabled, QComboBox:disabled {{ color: {t.text2}; background: {t.hover}; }}
-QLineEdit#search {{ background: {t.hover}; border: 1px solid transparent; border-radius: 10px; padding: 7px 10px; }}
-QLineEdit#search:focus {{ border: 2px solid {focus_ring}; padding: 6px 9px; background: {t.surface2}; }}
-QLineEdit#bare, QComboBox#bare {{ background: transparent; border: none; padding: 4px 0; }}
-QLineEdit#askInput {{ border-radius: 12px; padding: 9px 14px; font-size: 10.5pt; }}
-QLineEdit#askInput:focus {{ padding: 8px 13px; }}
+    background: {t.surface2}; border: 1px solid {t.separator}; border-radius: {R['md']}px;
+    padding: 0 12px; min-height: 38px; selection-background-color: {t.accent_soft}; selection-color: {t.text}; }}
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {t.line2}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 2px solid {focus_ring}; padding: 0 11px; }}
+QLineEdit:disabled, QComboBox:disabled {{ color: {t.text3}; background: {t.hover}; }}
+QLineEdit#search {{ background-color: {t.surface2}; border: 1px solid {t.separator}; border-radius: {R['md']}px;
+    padding: 0 10px 0 34px; {lens_css} }}
+QLineEdit#search:focus {{ border: 2px solid {focus_ring}; padding: 0 9px 0 33px; background-color: {t.surface}; }}
+QLineEdit#bare, QComboBox#bare {{ background: transparent; border: none; padding: 4px 0; min-height: 0; }}
+QLineEdit#askInput {{ border-radius: {R['md']}px; padding: 0 14px; min-height: 42px; font-size: 10.75pt; }}
+QLineEdit#askInput:focus {{ padding: 0 13px; }}
 QComboBox {{ combobox-popup: 0; }}
 QComboBox::drop-down {{ border: none; width: 28px; }}
 QComboBox::down-arrow {{ {arrow_css} margin-right: 8px; }}
-QComboBox QAbstractItemView {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: 12px;
+QComboBox QAbstractItemView {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: {R['md']}px;
     padding: 6px; outline: none; selection-background-color: {t.accent_soft}; selection-color: {t.text}; }}
-QComboBox QAbstractItemView::item {{ min-height: 34px; padding: 0 10px; border-radius: 8px; }}
+QComboBox QAbstractItemView::item {{ min-height: 36px; padding: 0 10px; border-radius: {R['sm']}px; }}
 QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{ width: 0; border: none; }}
 
-/* --- przyciski --- */
-QPushButton, QToolButton {{ background: {t.surface2}; border: 1px solid {t.separator}; border-radius: 9px;
-    padding: 6px 15px; min-height: 20px; }}
-QPushButton:hover, QToolButton:hover {{ background: {t.hover}; border-color: {t.selected}; }}
-QPushButton:pressed, QToolButton:pressed {{ background: {t.selected}; }}
+/* --- przyciski (min. 44 px) --- */
+QPushButton, QToolButton {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: {R['md']}px;
+    padding: 0 16px; min-height: 40px; font-weight: 600; }}
+QPushButton:hover, QToolButton:hover {{ border-color: {t.line2}; background: {t.surface}; }}
+QPushButton:pressed, QToolButton:pressed {{ background: {t.hover}; }}
 QPushButton:disabled, QToolButton:disabled {{ color: {t.text3}; }}
-QPushButton:focus {{ border-color: {t.accent}; }}
-QPushButton#primary {{ background: {t.accent}; border: none; color: {t.on_accent}; font-weight: 600; padding: 7px 18px; }}
+QPushButton:focus {{ border: 2px solid {t.accent}; padding: 0 15px; }}
+QPushButton#primary {{ background: {t.accent}; border: none; color: {t.on_accent}; padding: 0 18px; }}
 QPushButton#primary:hover {{ background: {t.accent_hover}; }}
+QPushButton#primary:pressed {{ background: {t.accent_pressed}; }}
 QPushButton#primary:disabled {{ background: {t.hover}; color: {t.text3}; }}
-QPushButton#big {{ background: {t.accent}; border: none; color: {t.on_accent}; font-weight: 600; font-size: 11pt;
-    padding: 10px 26px; border-radius: 12px; }}
+QPushButton#big {{ background: {t.accent}; border: none; color: {t.on_accent}; font-size: 11pt;
+    padding: 0 26px; min-height: 46px; border-radius: {R['md']}px; }}
 QPushButton#big:hover {{ background: {t.accent_hover}; }}
+QPushButton#big:pressed {{ background: {t.accent_pressed}; }}
 QPushButton#big:disabled {{ background: {t.hover}; color: {t.text3}; }}
-QPushButton#destructive {{ background: {t.red_soft}; border: none; color: {t.red}; font-weight: 600; }}
-QPushButton#positive {{ background: {t.green_soft}; border: none; color: {t.green}; font-weight: 600; }}
-QPushButton#plain, QToolButton#plain {{ background: transparent; border: none; color: {t.accent}; padding: 5px 8px;
-    font-weight: 600; }}
+QPushButton#mark {{ background: {t.mark}; border: 1px solid {t.markLine}; color: {t.text}; }}
+QPushButton#mark:checked {{ background: {t.markLine}; border-color: {t.markLine}; color: {t.text}; }}
+QPushButton:checked {{ background: {t.accent_soft}; border-color: {t.accent}; }}
+QPushButton#mark:hover {{ border-color: {t.text3}; background: {t.mark}; }}
+QPushButton#danger {{ background: {t.red}; border: none; color: {t.on_red}; }}
+QPushButton#danger:hover {{ background: {mix(t.red, t.text, 0.12)}; }}
+QPushButton#destructive {{ background: {t.red_soft}; border: none; color: {t.red_text}; }}
+QPushButton#positive {{ background: {t.green_soft}; border: none; color: {t.green}; }}
+QPushButton#plain, QToolButton#plain {{ background: transparent; border: none; color: {t.accent_text}; padding: 0 8px;
+    min-height: 32px; }}
 QPushButton#plain:hover, QToolButton#plain:hover {{ background: {t.accent_soft}; }}
-QPushButton#back {{ background: transparent; border: none; color: {t.accent}; padding: 4px 8px 4px 2px; font-weight: 600; }}
+QPushButton#back {{ background: transparent; border: none; color: {t.accent_text}; padding: 0 8px 0 2px; min-height: 32px; }}
 QPushButton#back:hover {{ background: {t.accent_soft}; }}
-QToolButton#icon {{ background: transparent; border: none; border-radius: 9px; padding: 5px; }}
+QToolButton#icon {{ background: transparent; border: none; border-radius: {R['md']}px; padding: 0; min-height: 0; }}
 QToolButton#icon:hover {{ background: {t.hover}; }}
 QToolButton#icon:checked {{ background: {t.accent_soft}; }}
 QToolButton#icon::menu-indicator, QPushButton::menu-indicator {{ image: none; width: 0; }}
 
 /* --- listy / tekst --- */
 QListWidget, QListView, QTextBrowser, QPlainTextEdit {{ background: {t.surface}; border: 1px solid {t.separator};
-    border-radius: 14px; padding: 6px; selection-background-color: {t.accent_soft}; selection-color: {t.text}; }}
+    border-radius: {R['lg']}px; padding: 6px; selection-background-color: {t.accent_soft}; selection-color: {t.text}; }}
 QListWidget#lectureList, QListWidget#outline {{ background: transparent; border: none; padding: 0; }}
-QListWidget#outline::item {{ border-radius: 8px; padding: 5px 8px; color: {t.text2}; }}
+QListWidget#outline::item {{ border-radius: {R['sm']}px; padding: 5px 8px; color: {t.text2}; }}
 QListWidget#outline::item:hover {{ background: {t.hover}; color: {t.text}; }}
 QListWidget#outline::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
 QListWidget#thumbs {{ background: transparent; border: none; padding: 0; }}
-QListWidget::item:selected {{ background: {t.accent_soft}; color: {t.text}; border-radius: 10px; }}
+QListWidget::item:selected {{ background: {t.accent_soft}; color: {t.text}; border-radius: {R['md']}px; }}
 QTextBrowser#reader {{ padding: 0; }}
 QPlainTextEdit {{ padding: 10px; }}
 
-QProgressBar {{ background: {t.track}; border: none; border-radius: 3px; max-height: 6px; min-height: 6px; }}
-QProgressBar::chunk {{ background: {t.accent}; border-radius: 3px; }}
-QSlider::groove:horizontal {{ height: 4px; background: {t.track}; border-radius: 2px; }}
+QProgressBar {{ background: {t.separator}; border: none; border-radius: 2px; max-height: 4px; min-height: 4px; }}
+QProgressBar::chunk {{ background: {t.accent}; border-radius: 2px; }}
+QSlider::groove:horizontal {{ height: 4px; background: {t.separator}; border-radius: 2px; }}
 QSlider::sub-page:horizontal {{ background: {t.accent}; border-radius: 2px; }}
-QSlider::handle:horizontal {{ background: {t.surface}; border: 1px solid {t.selected}; width: 18px; height: 18px;
+QSlider::handle:horizontal {{ background: {t.surface}; border: 1px solid {t.line2}; width: 18px; height: 18px;
     margin: -8px 0; border-radius: 9px; }}
 
-QScrollBar:vertical {{ background: transparent; width: 11px; margin: 3px 2px; }}
-QScrollBar::handle:vertical {{ background: {t.selected}; border-radius: 3px; min-height: 36px; margin: 0 2px; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: {t.line2}; border-radius: 3px; min-height: 40px; margin: 0 1px; }}
 QScrollBar::handle:vertical:hover {{ background: {t.text3}; }}
-QScrollBar:horizontal {{ background: transparent; height: 11px; margin: 2px 3px; }}
-QScrollBar::handle:horizontal {{ background: {t.selected}; border-radius: 3px; min-width: 36px; margin: 2px 0; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {t.line2}; border-radius: 3px; min-width: 40px; margin: 1px 0; }}
 QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ height: 0; width: 0; background: none; }}
 
-QMenu {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: 12px; padding: 6px; }}
-QMenu::item {{ padding: 7px 24px 7px 12px; border-radius: 7px; }}
+QMenu {{ background: {t.surface}; border: 1px solid {t.separator}; border-radius: {R['md']}px; padding: 6px; }}
+QMenu::item {{ padding: 8px 24px 8px 12px; border-radius: {R['sm']}px; }}
 QMenu::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
 QMenu::item:disabled {{ color: {t.text3}; }}
 QMenu::separator {{ height: 1px; background: {t.separator}; margin: 5px 8px; }}
-QToolTip {{ background: {t.surface}; color: {t.text}; border: 1px solid {t.separator}; padding: 6px 9px; border-radius: 8px; }}
+QToolTip {{ background: {t.surface}; color: {t.text}; border: 1px solid {t.separator}; padding: 6px 9px;
+    border-radius: {R['sm']}px; }}
 QSplitter::handle {{ background: transparent; }}
 QFrame#footerBar {{ background: {t.surface}; border: none; border-top: 1px solid {t.separator}; }}
 QFrame#vline {{ background: {t.separator}; border: none; }}
@@ -509,25 +602,36 @@ QWidget#listPane {{ background: {t.window}; }}
 QMessageBox {{ background: {t.window}; }}
 
 /* --- odpowiedzi w egzaminie --- */
-QPushButton#option {{ text-align: left; padding: 12px 16px; border-radius: 12px; background: {t.surface2};
-    border: 1px solid {t.separator}; font-size: 10.5pt; }}
+QPushButton#option {{ text-align: left; padding: 12px 16px; border-radius: {R['md']}px; background: {t.surface};
+    border: 1px solid {t.separator}; font-size: 10.75pt; font-weight: 400; }}
 QPushButton#option:hover {{ border-color: {t.accent}; background: {t.accent_soft}; }}
 QPushButton#option[state="correct"] {{ background: {t.green_soft}; border: 2px solid {t.green}; }}
 QPushButton#option[state="wrong"] {{ background: {t.red_soft}; border: 2px solid {t.red}; }}
 
 /* --- kontrolka segmentowa (pigułki) --- */
-QFrame#segTrack {{ background: {t.track}; border-radius: 10px; border: none; }}
-QPushButton#seg {{ background: transparent; border: none; border-radius: 8px; padding: 5px 16px; min-height: 18px;
-    color: {t.text2}; font-weight: 600; }}
+QFrame#segTrack {{ background: {t.track}; border-radius: {R['md']}px; border: none; }}
+QPushButton#seg {{ background: transparent; border: none; border-radius: {R['sm']}px; padding: 0 16px; min-height: 34px;
+    color: {t.text2}; }}
 QPushButton#seg:hover {{ background: transparent; color: {t.text}; }}
 QPushButton#seg:checked {{ background: {t.surface}; color: {t.text}; border: 1px solid {t.separator}; }}
 QPushButton#seg:disabled {{ color: {t.text3}; }}
 
-/* --- zakładki (podkreślenie) --- */
+/* --- zakładki (podkreślenie 2 px) --- */
 QFrame#tabTrack {{ background: transparent; border: none; border-bottom: 1px solid {t.separator}; }}
 QPushButton#tab {{ background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
-    padding: 8px 4px 9px 4px; margin: 0 10px 0 0; min-height: 18px; color: {t.text2}; font-weight: 600; }}
+    padding: 8px 0 10px 0; margin: 0 24px 0 0; min-height: 22px; color: {t.text2}; font-weight: 500; }}
+QPushButton#tab[dense="true"] {{ margin: 0 12px 0 0; }}
 QPushButton#tab:hover {{ color: {t.text}; background: transparent; }}
-QPushButton#tab:checked {{ color: {t.text}; border-bottom: 2px solid {t.accent}; }}
+QPushButton#tab:checked {{ color: {t.text}; border-bottom: 2px solid {t.accent}; font-weight: 600; }}
 QPushButton#tab:disabled {{ color: {t.text3}; }}
 """
+
+
+def note_css(t: Tokens | None = None) -> str:
+    """Domyślny arkusz treści notatki (QTextDocument)."""
+    t = t or T()
+    return TK.note_css({**t.d, "fontUi": UI_FAMILY, "fontDisplay": DISPLAY_FAMILY})
+
+
+def note_box(kind: str, label: str, html: str, t: Tokens | None = None) -> str:
+    return TK.note_box((t or T()).d, kind, label, html)

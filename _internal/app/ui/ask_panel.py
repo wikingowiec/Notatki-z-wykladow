@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QStackedWidge
 from .. import qa
 from .controls import EmptyState, label, set_icon
 from .reader import Reader
-from .theme import DISPLAY_FAMILY, T
+from . import theme as _th
+from .theme import T
 from .widgets import run_async
 
 HINT = ("Odpowiedzi pochodzą wyłącznie z notatki. Jeśli czegoś w niej nie ma, zobaczysz to wprost – AI nie zgaduje. "
@@ -22,6 +23,8 @@ HINT_LIVE = ("W trakcie wykładu AI szuka odpowiedzi w gotowych fragmentach nota
 
 class AskPanel(QStackedWidget):
     internal_link = Signal(str)
+    seek_requested = Signal(float)
+    answered = Signal()
 
     def __init__(self, settings, live: bool = False, busy_hint: Optional[Callable[[], bool]] = None):
         super().__init__()
@@ -31,11 +34,14 @@ class AskPanel(QStackedWidget):
         self.get_md: Optional[Callable[[], str]] = None
         self.history_path: Optional[Path] = None
         self.num_ctx = 0
+        self.anchor_times: dict = {}      # kotwica tematu → sekunda nagrania (link „▶ 44:58”)
+        self.compact = False
         self._asking = False
         self._token = 0
 
         self.view = Reader(max_width=760, pad=28)
         self.view.internal_link.connect(self.internal_link.emit)
+        self.view.seek_requested.connect(self.seek_requested.emit)
         self.input = QLineEdit()
         self.input.setObjectName("askInput")
         self.input.setPlaceholderText("Zadaj pytanie, np. „Jak brzmi twierdzenie o wartości średniej?”")
@@ -85,7 +91,7 @@ class AskPanel(QStackedWidget):
                      "Wpisz pytanie z zadania lub ćwiczeń. Odpowiedź powstaje tylko na podstawie tej notatki "
                      "i zawsze pokazuje cytat, na którym się opiera.")
             self.view.setHtml(
-                f"<div style='color:{t.text2}; line-height:160%'><p style='font-family:\"{DISPLAY_FAMILY}\"; "
+                f"<div style='color:{t.text2}; line-height:160%'><p style='font-family:\"{_th.DISPLAY_FAMILY}\"; "
                 f"font-size:16pt; font-weight:600; color:{t.text}'>Zapytaj notatkę</p>"
                 f"<p>{intro}</p><p>Przykłady: <i>„Czym jest całka oznaczona?”</i>, "
                 "<i>„Jakie warunki musi spełniać funkcja…?”</i></p></div>")
@@ -101,15 +107,20 @@ class AskPanel(QStackedWidget):
         parts = []
         for a in items:
             color, name = badge.get(a.get("status"), (t.text2, a.get("status", "")))
-            parts.append(f"<p style='margin:22px 0 6px 0; font-family:\"{DISPLAY_FAMILY}\"; font-size:13pt; "
+            parts.append(f"<p style='margin:22px 0 6px 0; font-family:\"{_th.DISPLAY_FAMILY}\"; font-size:13pt; "
                          f"font-weight:600'>{html.escape(a['question'])}</p>")
             parts.append(f"<p style='margin:0 0 6px 0'><span style='color:{color}; font-weight:600'>● {name}</span></p>")
             st = a.get("status")
             if st in ("odpowiedz", "czesciowo") and a.get("answer"):
                 parts.append(f"<p style='margin:0 0 8px 0'>{html.escape(a['answer'])}</p>")
                 for q in a.get("quotes", []):
+                    tm = self.anchor_times.get(q["anchor"])
+                    play = ""
+                    if tm is not None:
+                        from ..storage import fmt_time
+                        play = f" · <a {link} href='seek:{tm}'>▶ {fmt_time(tm)}</a>"
                     parts.append(f"<p style='margin:0 0 6px 16px; color:{t.text2}'><i>„{html.escape(q['text'])}”</i> "
-                                 f"— <a {link} href='#{q['anchor']}'>{html.escape(q['title'])}</a></p>")
+                                 f"— <a {link} href='#{q['anchor']}'>{html.escape(q['title'])}</a>{play}</p>")
             elif st == "brak":
                 parts.append("<p style='margin:0 0 6px 0'>Tej informacji nie ma w notatce, więc nie podaję odpowiedzi.</p>")
             elif st == "niepewne":
@@ -124,12 +135,19 @@ class AskPanel(QStackedWidget):
                 links = " · ".join(f"<a {link} href='#{r['anchor']}'>{html.escape(r['title'])}</a>" for r in a["related"])
                 parts.append(f"<p style='margin:0 0 6px 0; color:{t.text2}'>Najbliższe tematy w notatce: {links}</p>")
         if pending:
-            parts.append(f"<p style='margin:22px 0 6px 0; font-family:\"{DISPLAY_FAMILY}\"; font-size:13pt; "
+            parts.append(f"<p style='margin:22px 0 6px 0; font-family:\"{_th.DISPLAY_FAMILY}\"; font-size:13pt; "
                          f"font-weight:600'>{html.escape(pending)}</p>"
                          f"<p style='color:{t.text2}'>Szukam odpowiedzi w notatce…</p>")
         self.view.setHtml(f"<body style='color:{t.text}; line-height:160%'>{''.join(parts)}</body>")
         sb = self.view.verticalScrollBar()
         QTimer.singleShot(0, lambda: sb.setValue(sb.maximum()))
+
+    def history(self) -> list[dict]:
+        return qa.load_history(self.history_path) if self.history_path else []
+
+    def ask_text(self, q: str):
+        self.input.setText(q)
+        self.ask()
 
     def ask(self):
         q = self.input.text().strip()
@@ -171,6 +189,7 @@ class AskPanel(QStackedWidget):
             self.input.clear()
             self.render(history)
             self.input.setFocus()
+            self.answered.emit()
 
         def failed(e):
             done(qa.to_dict(qa.Answer(question=q, status="blad", answer=f"Nie udało się: {e}")))

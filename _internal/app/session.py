@@ -61,6 +61,9 @@ class RecordingSession:
         self.whisper_error: Optional[str] = None
         self.needs_file_transcription = False
         self.open_mark: Optional[dict] = None
+        self.paused = False
+        self._pause_at = 0.0
+        self._paused_total = 0.0
         self._loader: Optional[threading.Thread] = None
 
     @property
@@ -202,9 +205,36 @@ class RecordingSession:
         marks.sort(key=lambda x: x["start"])
         self.lecture.save_marks(marks)
 
+    # ------------------------------------------------------------------ pauza
+    def pause(self) -> None:
+        """Wstrzymuje dźwięk, transkrypcję i slajdy; czas stoi. Otwarte zaznaczenie się kończy."""
+        if self.paused:
+            return
+        if self.open_mark:
+            self.end_mark()
+        self.paused = True
+        self._pause_at = time.monotonic()
+        if self.recorder:
+            self.recorder.pause()
+        if self.slide_rec:
+            self.slide_rec.pause()
+
+    def resume(self) -> None:
+        if not self.paused:
+            return
+        self._paused_total += time.monotonic() - self._pause_at
+        self.paused = False
+        if self.recorder:
+            self.recorder.resume()
+        if self.slide_rec:
+            self.slide_rec.resume()
+
     # ------------------------------------------------------------------
     def elapsed(self) -> float:
-        return time.monotonic() - self.t0 if self.t0 else 0.0
+        if not self.t0:
+            return 0.0
+        now = self._pause_at if self.paused else time.monotonic()
+        return now - self.t0 - self._paused_total
 
     def level_db(self) -> float:
         return self.recorder.level_db if self.recorder else -90.0
@@ -216,6 +246,8 @@ class RecordingSession:
     def stop(self) -> None:
         """Blokujące – wywoływać w wątku roboczym."""
         self.on_status("Zatrzymywanie nagrywania…")
+        if self.paused:
+            self.resume()
         if self.open_mark:
             self.end_mark()
         if self.live_notes:

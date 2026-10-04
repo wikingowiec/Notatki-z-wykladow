@@ -113,6 +113,14 @@ class ExamTab(QWidget):
         l.addWidget(w)
         return box
 
+    def preselect(self, folder: str):
+        """Zakres = jeden wykład (przycisk „Przygotuj egzamin” w bibliotece)."""
+        self.stack.setCurrentIndex(0)
+        self.refresh()
+        i = self.scope.findData(("lecture", folder))
+        if i >= 0:
+            self.scope.setCurrentIndex(i)
+
     def refresh(self):
         cur = self.scope.currentData()
         lectures = [l for l in list_lectures(self.settings.library_path()) if l.notes_path.exists()]

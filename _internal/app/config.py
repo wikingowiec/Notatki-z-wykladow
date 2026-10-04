@@ -60,7 +60,8 @@ class Settings:
     vision_model: str = "qwen3-vl:8b-instruct"
 
     # Wygląd: system / light / dark
-    theme: str = "system"
+    theme: str = "system"                   # tryb: system / light / dark
+    theme_name: str = "zeszyt"               # motyw: zeszyt / atrament / akademia
     window_geometry: str = ""                # położenie i rozmiar okna (zapamiętane przy zamknięciu)
     window_maximized: bool = False
     # Notatki na telefon: PDF do folderu synchronizowanego z chmurą (Dysk Google / iCloud / OneDrive)
@@ -72,6 +73,8 @@ class Settings:
 
     # Ostatnio użyte
     last_subject: str = ""
+    last_rec: dict = field(default_factory=dict)  # „nagraj jak ostatnio”: rodzaj, dźwięk, ekran, obszar slajdu
+    daily_goal: int = 20                     # cel dzienny fiszek
 
     @classmethod
     def path(cls) -> Path:

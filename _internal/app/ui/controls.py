@@ -62,7 +62,7 @@ def icon_button(name: str, tooltip: str, role: str = "text2", size: int = 18) ->
     b.setToolTip(tooltip)
     b.setAccessibleName(tooltip)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
-    b.setFixedSize(36, 34)
+    b.setFixedSize(40, 40)
     set_icon(b, name, role, size)
     return b
 
@@ -139,6 +139,8 @@ class AdaptiveBox(QWidget):
 def paint_shadow(p: QPainter, r: QRectF, radius: float, strength: float = 1.0):
     """Miękki cień pod kartą (kilka półprzezroczystych warstw – tanio, bez QGraphicsEffect)."""
     t = T()
+    if not t.shadows:          # Akademia: zamiast cieni ramka 1 px (rysuje ją sama karta)
+        return
     base = 0.9 if t.dark else 0.55
     p.save()
     p.setPen(Qt.PenStyle.NoPen)
@@ -154,15 +156,21 @@ class Sheet(QFrame):
     """Arkusz papieru: zaokrąglona karta z cieniem; opcjonalnie pasek koloru i linie jak na fiszce."""
     PAD = 12
 
-    def __init__(self, radius: float = 18, ruled: bool = False, parent=None):
+    def __init__(self, radius: float | None = None, ruled: bool = False, parent=None):
         super().__init__(parent)
-        self.radius = radius
+        self._radius = radius
+
         self.ruled = ruled
         self.strip = ""
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.lay = QVBoxLayout(self)
         p = self.PAD
         self.lay.setContentsMargins(p, p - 4, p, p + 4)
+
+
+    @property
+    def radius(self) -> float:
+        return T().r("xl") if self._radius is None else self._radius
 
     def set_strip(self, color: str):
         self.strip = color
@@ -242,7 +250,7 @@ class ToggleSwitch(QAbstractButton):
             self._pos = 1.0 if self.isChecked() else 0.0
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        off = qcolor(t.selected)
+        off = qcolor(t.line2)
         on = qcolor(t.accent)
         c = QColor(
             int(off.red() + (on.red() - off.red()) * self._pos),
@@ -256,7 +264,7 @@ class ToggleSwitch(QAbstractButton):
         x = 2.5 + self._pos * 17
         p.setBrush(QColor(0, 0, 0, 45))
         p.drawEllipse(QRectF(x, 3.3, 20, 20))
-        p.setBrush(QColor("#FFFFFF"))
+        p.setBrush(qcolor(t.surface if not t.dark else t.ink))
         p.drawEllipse(QRectF(x, 2.5, 20, 20))
         p.end()
 
@@ -273,7 +281,10 @@ class SegmentedControl(QFrame):
         lay = QHBoxLayout(self)
         m = 0 if tabs else 3
         lay.setContentsMargins(m, m, m, m)
-        lay.setSpacing(12 if tabs else 2)
+        lay.setSpacing(0 if tabs else 2)
+        self.tabs = tabs
+        self.short: dict[str, str] = {}      # krótsze nazwy zakładek, gdy brakuje miejsca
+        self._dense = None
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
         self.buttons = []
@@ -298,6 +309,49 @@ class SegmentedControl(QFrame):
 
     def current(self) -> int:
         return self.group.checkedId()
+
+    def set_text(self, i: int, text: str):
+        """Zmienia nazwę zakładki (np. z liczbą: „Slajdy 3”) – z zachowaniem dopasowania do szerokości."""
+        b = self.buttons[i]
+        b.setProperty("full", text)
+        b.setText(text)
+        self._fit(force=True)
+
+    def minimumSizeHint(self):
+        from PySide6.QtCore import QSize
+        return QSize(60, super().minimumSizeHint().height()) if self.tabs else super().minimumSizeHint()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.tabs:
+            self._fit()
+
+    def _fit(self, force: bool = False):
+        """Zakładki: normalne odstępy → ciaśniej → krótsze nazwy. Tekst nigdy nie jest ucinany."""
+        fm = QFontMetrics(self.buttons[0].font())
+        full = [b.property("full") or b.text() for b in self.buttons]
+        for b, f in zip(self.buttons, full):
+            b.setProperty("full", f)
+
+        def need(names, gap):
+            return sum(fm.horizontalAdvance(n) + 12 + gap for n in names)
+        w = self.width()
+        if need(full, 24) <= w:
+            mode, names = "normal", full
+        elif need(full, 12) <= w:
+            mode, names = "dense", full
+        else:
+            mode, names = "short", [self.short.get(n.split(" ")[0], n) + (" " + n.split(" ", 1)[1] if " " in n and
+                                    n.split(" ")[0] in self.short else "") for n in full]
+        if mode == self._dense and not force:
+            return
+        self._dense = mode
+        for b, n in zip(self.buttons, names):
+            b.setText(n)
+            b.setToolTip(b.property("full") if n != b.property("full") else "")
+            b.setProperty("dense", mode != "normal")
+            b.style().unpolish(b)
+            b.style().polish(b)
 
     def set_current(self, i: int, emit: bool = False):
         if 0 <= i < len(self.buttons):
@@ -676,7 +730,12 @@ class EmptyState(QWidget):
         self.text = label(text, "secondary", wrap=True)
         self.text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.text.setMaximumWidth(440)
-        lay.addWidget(self.text, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.text.setMinimumWidth(240)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.text, 4)
+        row.addStretch(1)
+        lay.addLayout(row)
         if button is not None:
             lay.addSpacing(10)
             lay.addWidget(button, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -685,59 +744,81 @@ class EmptyState(QWidget):
 
 # ---------------------------------------------------------------------------
 class LectureDelegate(QStyledItemDelegate):
-    """Wiersz listy wykładów: pasek koloru przedmiotu, tytuł, data · czas · przedmiot, znacznik statusu."""
+    """Wiersz listy wykładów: kwadracik przedmiotu, tytuł, data · czas · fiszki, status („Gotowe”, „AI 55%”
+    z cienkim paskiem, „Bez notatek”). Wiersz z kluczem „header” to nagłówek grupy („Ten tydzień”)."""
     ROLE = Qt.ItemDataRole.UserRole + 1   # dict z danymi
 
     def sizeHint(self, option, index):
-        return QSize(260, 70)
+        d = index.data(self.ROLE) or {}
+        return QSize(260, 34 if d.get("header") else 72)
 
     def paint(self, p: QPainter, option, index):
         from .theme import subject_color
         t = T()
         d = index.data(self.ROLE) or {}
-        r = QRectF(option.rect).adjusted(6, 3, -6, -3)
-        sel = bool(option.state & QStyle.StateFlag.State_Selected)
         p.save()
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        font = QFont(option.font)
+        if d.get("header"):
+            f = QFont(font)
+            f.setPointSizeF(font.pointSizeF() - 2.2)
+            f.setWeight(QFont.Weight.Bold)
+            f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+            p.setFont(f)
+            p.setPen(qcolor(t.text3))
+            p.drawText(QRectF(option.rect).adjusted(16, 10, -8, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       d["header"].upper())
+            p.restore()
+            return
+        r = QRectF(option.rect).adjusted(6, 3, -6, -3)
+        sel = bool(option.state & QStyle.StateFlag.State_Selected)
         if sel:
-            paint_shadow(p, r, 12, 0.7)
+            paint_shadow(p, r, t.r("md"), 0.7)
             p.setPen(QPen(qcolor(t.separator), 1))
             p.setBrush(qcolor(t.surface))
-            p.drawRoundedRect(r, 12, 12)
+            p.drawRoundedRect(r, t.r("md"), t.r("md"))
         elif option.state & QStyle.StateFlag.State_MouseOver:
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.hover))
-            p.drawRoundedRect(r, 12, 12)
+            p.drawRoundedRect(r, t.r("md"), t.r("md"))
         color = subject_color(d.get("subject") or "")
-        bar = QRectF(r.left() + 10, r.top() + 13, 4, r.height() - 26)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(qcolor(color))
-        p.drawRoundedRect(bar, 2, 2)
-        font = QFont(option.font)
+        p.drawRoundedRect(QRectF(r.left() + 12, r.top() + 18, 9, 9), 2, 2)
         pill_w = 0.0
         if d.get("pill"):
             text, kind = d["pill"]
             pill_w = draw_pill(p, r.right() - 12, r.top() + 22, text, kind, font) + 8
         f1 = QFont(font)
         f1.setWeight(QFont.Weight.DemiBold)
-        f1.setPointSizeF(font.pointSizeF() + 0.5)
+        f1.setPointSizeF(font.pointSizeF() + 0.3)
         p.setFont(f1)
         p.setPen(qcolor(t.text))
-        x0 = r.left() + 24
+        x0 = r.left() + 30
         title_rect = QRectF(x0, r.top() + 11, r.right() - 12 - x0 - pill_w, 22)
         p.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    p.fontMetrics().elidedText(d.get("title", ""), Qt.TextElideMode.ElideRight, int(title_rect.width())))
         f2 = QFont(font)
-        f2.setPointSizeF(font.pointSizeF() - 1)
+        f2.setPointSizeF(font.pointSizeF() - 1.2)
         p.setFont(f2)
         p.setPen(qcolor(t.text2))
         sub_rect = QRectF(x0, r.top() + 35, r.right() - 12 - x0, 18)
         p.drawText(sub_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                    p.fontMetrics().elidedText(d.get("sub", ""), Qt.TextElideMode.ElideRight, int(sub_rect.width())))
+        prog = d.get("progress")
+        if prog is not None:
+            bar = QRectF(x0, r.bottom() - 9, r.right() - 12 - x0, 3)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(qcolor(t.separator))
+            p.drawRoundedRect(bar, 1.5, 1.5)
+            if prog >= 0:
+                p.setBrush(qcolor(t.accent))
+                p.drawRoundedRect(QRectF(bar.left(), bar.top(), max(3.0, bar.width() * min(1.0, prog)), 3), 1.5, 1.5)
         p.restore()
 
 
-def rounded_pixmap(pix, radius: float = 10):
+def rounded_pixmap(pix, radius: float | None = None):
+    radius = T().r("md") if radius is None else radius
     from PySide6.QtGui import QPixmap
     out = QPixmap(pix.size())
     out.setDevicePixelRatio(pix.devicePixelRatio())
@@ -818,12 +899,12 @@ class ModeCard(QAbstractButton):
             paint_shadow(p, r, 16, 1.0 if on else 0.6)
         p.setPen(QPen(qcolor(t.accent if on else t.separator), 2 if on else 1))
         p.setBrush(qcolor(t.surface))
-        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 16, 16)
+        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), T().r("lg"), T().r("lg"))
         tile = 44
         tx, ty = (r.left() + 16, r.top() + 16) if self.vertical else (r.left() + 16, r.top() + (r.height() - tile) / 2)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(qcolor(soft(color)))
-        p.drawRoundedRect(QRectF(tx, ty, tile, tile), 12, 12)
+        p.drawRoundedRect(QRectF(tx, ty, tile, tile), T().r("md"), T().r("md"))
         pm = icon_pixmap(self.icon_name, color, 24, self.devicePixelRatioF())
         p.drawPixmap(int(tx + (tile - 24) / 2), int(ty + (tile - 24) / 2), pm)
         if on:       # znaczek w rogu
@@ -899,7 +980,7 @@ class _ChoiceDelegate(QStyledItemDelegate):
         if sel:
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.accent_soft))
-            p.drawRoundedRect(r, 8, 8)
+            p.drawRoundedRect(r, T().r("sm"), T().r("sm"))
         color = index.data(C_COLOR)
         x = r.left() + 12
         if color:
@@ -918,7 +999,7 @@ class _ChoiceDelegate(QStyledItemDelegate):
             tr = QRectF(r.right() - tw - 8, r.center().y() - 10, tw, 20)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.hover))
-            p.drawRoundedRect(tr, 10, 10)
+            p.drawRoundedRect(tr, T().r("md"), T().r("md"))
             p.setPen(qcolor(t.text2))
             p.drawText(tr, Qt.AlignmentFlag.AlignCenter, tag)
         p.setFont(option.font)
@@ -1002,7 +1083,7 @@ class ChoiceCombo(QComboBox):
             tr = QRectF(r.right() - tw, r.center().y() - 10, tw, 20)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.hover))
-            p.drawRoundedRect(tr, 10, 10)
+            p.drawRoundedRect(tr, T().r("md"), T().r("md"))
             p.setPen(qcolor(t.text2))
             p.drawText(tr, Qt.AlignmentFlag.AlignCenter, tag)
         p.setFont(self.font())

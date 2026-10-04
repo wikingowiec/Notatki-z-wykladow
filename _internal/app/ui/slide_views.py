@@ -60,7 +60,7 @@ class _ThumbDelegate(QStyledItemDelegate):
         ir = self._img_rect(r)
         hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         path = QPainterPath()
-        path.addRoundedRect(ir, 10, 10)
+        path.addRoundedRect(ir, T().r("md"), T().r("md"))
         pm = index.data(PIX)
         p.fillPath(path, qcolor(t.hover))
         if isinstance(pm, QPixmap) and not pm.isNull():
@@ -74,14 +74,14 @@ class _ThumbDelegate(QStyledItemDelegate):
             p.setClipping(False)
         p.setPen(QPen(qcolor(t.accent if hover else t.separator), 2 if hover else 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(ir.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
-        if self.view.deletable:
+        p.drawRoundedRect(ir.adjusted(0.5, 0.5, -0.5, -0.5), T().r("md"), T().r("md"))
+        if self.view.deletable and hover:          # „×” tylko po najechaniu
             xr = self.x_rect(r)
             over_x = hover and xr.contains(self.view.viewport().mapFromGlobal(self.view.cursor().pos()).toPointF())
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(0, 0, 0, 170) if not over_x else qcolor(t.red))
             p.drawEllipse(xr)
-            pen = QPen(QColor("white"), 2)
+            pen = QPen(qcolor(t.logoPaper), 2)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(pen)
             c = xr.center()
@@ -99,7 +99,8 @@ class _ThumbDelegate(QStyledItemDelegate):
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
-            if self.view.deletable and self.x_rect(option.rect).contains(event.position()):
+            if self.view.deletable and self.x_rect(option.rect).contains(event.position()) and \
+                    option.state & QStyle.StateFlag.State_MouseOver:
                 self.view.delete_requested.emit(int(index.data(INDEX)))
             else:
                 self.view.open_requested.emit(int(index.data(INDEX)))

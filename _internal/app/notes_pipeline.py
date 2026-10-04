@@ -585,7 +585,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     prog("Zapisywanie…", 0.97)
     lecture.summary_path.write_text(summary + "\n", encoding="utf-8")
     lecture.save_flashcards(cards)
-    lecture.notes_path.write_text(assemble_markdown(lecture, sections, notes, summary, marked_notes, exam_items),
+    lecture.notes_path.write_text(assemble_markdown(lecture, sections, notes, summary, marked_notes, exam_items, marks),
                                   encoding="utf-8")
     lecture.meta.notes_model = model
     lecture.meta.edited = False
@@ -595,8 +595,43 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     prog("Gotowe", 1.0)
 
 
+def _first_line(md: str, limit: int = 240) -> str:
+    """Pierwsza treściwa linia notatki (bez znaczników Markdown) – do ramki „zaznaczone przez Ciebie”."""
+    for line in (md or "").splitlines():
+        t = line.strip()
+        if not t or t.startswith("#") or t.startswith("!["):
+            continue
+        t = re.sub(r"^(?:(?:[-*]|\d+\.)\s+|>\s*)+", "", t)
+        t = re.sub(r"^\*\*[^*]{2,30}:\*\*\s*", "", t).strip()
+        if len(t) > 8:
+            return t if len(t) <= limit else t[:limit].rsplit(" ", 1)[0] + "…"
+    return ""
+
+
+def mark_boxes(marks: list[dict], marked_notes: Optional[list], start: float, end: float, lang: str) -> list[str]:
+    """Ramki „Ważne · zaznaczone przez Ciebie 31:40” dla zaznaczeń w zakresie [start, end)."""
+    from .notes_style import LABELS
+    names = mark_names(lang)
+    bodies = {id(mk): body for mk, body in (marked_notes or [])}
+    by_id = {mk.get("id"): body for mk, body in (marked_notes or [])}
+    out = []
+    for mk in sorted(marks or [], key=lambda x: x.get("start", 0)):
+        t = float(mk.get("start", 0))
+        if not (start <= t < end):
+            continue
+        name = names.get(mk.get("kind"), "") or ""
+        label = name if name.lower() in LABELS and LABELS[name.lower()] == "important" else (
+            "Important" if lang == "en" else "Ważne")
+        who = "marked by you" if lang == "en" else "zaznaczone przez Ciebie"
+        extra = f" ({name})" if name and name != label else ""
+        body = _first_line(bodies.get(id(mk)) or by_id.get(mk.get("id")) or "")
+        out += [f"> **{label}:** *{who}{extra} · {fmt_time(t)}*" + (f" — {body}" if body else ""), ""]
+    return out
+
+
 def assemble_markdown(lecture: Lecture, sections: list[Section], notes: list[str], summary: str,
-                      marked_notes: Optional[list] = None, exam_items: Optional[list] = None) -> str:
+                      marked_notes: Optional[list] = None, exam_items: Optional[list] = None,
+                      marks: Optional[list] = None) -> str:
     lang = lecture_lang(lecture)
     T = texts(lang)
     names = mark_names(lang)
@@ -655,5 +690,7 @@ def assemble_markdown(lecture: Lecture, sections: list[Section], notes: list[str
                     out.append("")
             elif f:
                 out += [f"*({T.revisit} {sl.get('index')})*", ""]
+        if marks:
+            out += mark_boxes(marks, marked_notes, sec.start, sec.end if i < len(sections) else 1e12, lang)
         out += [body or T.no_speech, ""]
     return "\n".join(out).strip() + "\n"
