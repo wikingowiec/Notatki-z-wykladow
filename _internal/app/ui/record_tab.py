@@ -13,11 +13,11 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QLab
                                QMessageBox, QPushButton, QScrollArea, QSplitter, QStackedWidget,
                                QVBoxLayout, QWidget)
 
-from ..audio_capture import list_audio_sources
 from ..screen_capture import VideoSourceInfo, list_monitors, list_windows, make_grabber
 from ..session import RecordingSession
 from ..storage import Lecture, fmt_time, list_lectures
 from .ask_panel import AskPanel
+from .audio_picker import AudioSourcePicker
 from .reader import Reader
 from .controls import (show_if, ModeCard, SegmentedControl, GroupSection, LevelMeter, PulseDot, RecordButton, ToggleSwitch, hbox, icon_button, label,
                        rounded_pixmap, set_icon)
@@ -83,9 +83,9 @@ def greeting() -> str:
 
 
 def short_audio(label: str) -> str:
-    """„Microsoft Teams  (gra teraz)  [PID 4412]” → „Teams”."""
+    """„Microsoft Teams  (gra teraz)  [PID 4412]” → „Teams” (stare etykiety miały też emoji na początku)."""
     import re as _re
-    t = _re.split(r"\s{2,}|\(|\[", label or "")[0].strip()
+    t = _re.split(r"\s{2,}|\(|\[", (label or "").lstrip("🔊🖥🎤 "))[0].strip()
     for pre in ("Microsoft ", "Google "):
         if t.startswith(pre) and len(t) > len(pre) + 2:
             t = t[len(pre):]
@@ -121,7 +121,6 @@ class RecordTab(QWidget):
         self.settings = settings
         self.session: RecordingSession | None = None
         self.rois: dict[str, tuple] = {}
-        self._audio_sources = []
         self._video_sources = []
         self._preview_img: np.ndarray | None = None
 
@@ -218,12 +217,8 @@ class RecordTab(QWidget):
         self.g_lecture = g1
 
         # Źródła
-        self.audio_combo = QComboBox()
-        self.audio_combo.setMinimumWidth(200)
-        self.audio_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.audio_combo.setMinimumContentsLength(30)
-        self.btn_refresh_audio = icon_button("refresh", "Odśwież listę aplikacji")
-        self.btn_refresh_audio.clicked.connect(self.refresh_audio)
+        self.audio_picker = AudioSourcePicker()
+        self.audio_picker.loaded.connect(self._apply_audio)
         self.video_combo = QComboBox()
         self.video_combo.setMinimumWidth(200)
         self.video_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -252,9 +247,10 @@ class RecordTab(QWidget):
         self.preview_box = prev_box
 
         self.g_audio = GroupSection("Dźwięk", "Dźwięk nagrywa się tylko z wybranej aplikacji – inne programy (np. muzyka "
-                                              "w tle) nie trafią do nagrania. Aplikacja z wykładem pojawi się na górze "
-                                              "listy, gdy zacznie grać. Na zajęciach stacjonarnych wybierz mikrofon.")
-        self.row_audio = self.g_audio.add_row("Źródło dźwięku", hbox(self.audio_combo, self.btn_refresh_audio, spacing=4))
+                                              "w tle) nie trafią do nagrania. Aplikacja z wykładem sama pojawi się na "
+                                              "górze listy, gdy zacznie grać. Na zajęciach stacjonarnych wybierz mikrofon.")
+        self.row_audio = self.g_audio.add_row("Źródło dźwięku")
+        self.g_audio.add(self.audio_picker)
         self.g_slides = GroupSection("Slajdy")
         self.row_video = self.g_slides.add_row("Ekran lub okno", hbox(self.video_combo, self.btn_refresh_video, spacing=4))
         # uwaga pod polem, gdy ostatnio użytego źródła teraz nie ma (Ctrl+Shift+R)
@@ -262,7 +258,7 @@ class RecordTab(QWidget):
             r.subtitle.setObjectName("fieldWarn")
         self._want_audio: dict | None = None
         self._want_video: dict | None = None
-        self.audio_combo.activated.connect(lambda _i: self._forget_want("audio"))
+        self.audio_picker.picked.connect(lambda: self._forget_want("audio"))
         self.video_combo.activated.connect(lambda _i: self._forget_want("video"))
         self.g_slides.add(prev_box)
         self._build_files()
@@ -1035,33 +1031,11 @@ class RecordTab(QWidget):
 
     def refresh_audio(self):
         """Lista źródeł dźwięku jest zbierana w tle (wyliczanie sesji audio Windows potrafi trwać)."""
-        self.btn_refresh_audio.setEnabled(False)
+        self.audio_picker.refresh()
 
-        def work():
-            try:
-                import comtypes
-                comtypes.CoInitialize()
-            except Exception:
-                pass
-            return list_audio_sources()
-
-        def fail(_e):
-            self.btn_refresh_audio.setEnabled(True)
-        run_async(work, self._apply_audio, fail)
-
-    def _apply_audio(self, sources):
-        self.btn_refresh_audio.setEnabled(True)
-        prev = self.audio_combo.currentText()
-        self._audio_sources = sources
-        self.audio_combo.clear()
-        for s in self._audio_sources:
-            self.audio_combo.addItem(s.label.replace("🔊 ", "").replace("🖥 ", "").replace("🎤 ", ""))
-        idx = self.audio_combo.findText(prev)
-        if idx < 0:
-            idx = next((i for i, s in enumerate(self._audio_sources) if s.kind == "process" and s.active), 0)
-        self.audio_combo.setCurrentIndex(idx)
+    def _apply_audio(self):
         self._match_want_audio()
-        active = sum(1 for s in self._audio_sources if s.active)
+        active = sum(1 for s in self.audio_picker.sources if s.kind == "process" and s.active)
         self.setup_status.setText("Nagrywanie możesz zakończyć w dowolnym momencie." if active else
                                   "Żadna aplikacja teraz nie gra – włącz dźwięk wykładu i odśwież listę.")
 
@@ -1225,7 +1199,7 @@ class RecordTab(QWidget):
     def quick_label(self) -> str:
         """„Teams + Monitor 1” – co wypełni Ctrl+Shift+R (pusty tekst, gdy jeszcze nic nie nagrywano)."""
         lr = self.settings.last_rec or {}
-        parts = [x.get("label", "") for x in (lr.get("audio"), lr.get("video")) if x]
+        parts = [x.get("label", "").lstrip("🔊🖥🎤 ") for x in (lr.get("audio"), lr.get("video")) if x]
         return " + ".join(p for p in parts if p)
 
     def quick_prepare(self):
@@ -1268,7 +1242,7 @@ class RecordTab(QWidget):
             self._field_warn(self.row_audio, "")
             return
         idx = -1
-        for i, s_ in enumerate(self._audio_sources):
+        for i, s_ in enumerate(self.audio_picker.sources):
             if s_.kind != want.get("kind"):
                 continue
             if s_.kind == "process" and (s_.exe or "").lower() != (want.get("exe") or "").lower():
@@ -1279,7 +1253,7 @@ class RecordTab(QWidget):
             if s_.active:
                 break
         if idx >= 0:
-            self.audio_combo.setCurrentIndex(idx)
+            self.audio_picker.set_current(idx)
             self._field_warn(self.row_audio, "")
         else:
             name = want.get("label") or "ostatnie źródło dźwięku"
@@ -1309,11 +1283,11 @@ class RecordTab(QWidget):
         mode = self.mode
         audio = None
         if mode in ("av", "audio"):
-            i = self.audio_combo.currentIndex()
-            if not (0 <= i < len(self._audio_sources)):
+            audio = self.audio_picker.current()
+            if audio is None:
                 QMessageBox.warning(self, "Nagrywanie", "Wybierz źródło dźwięku.")
                 return
-            audio = self._audio_sources[i]
+            self.audio_picker.stop_monitor()      # zwolnij mikrofon, zanim otworzy go nagrywanie
         video = self._current_video() if mode in ("av", "slides") else None
         if video and video.kind == "none":
             video = None
@@ -1384,6 +1358,8 @@ class RecordTab(QWidget):
             else:
                 shutil.rmtree(lecture.folder, ignore_errors=True)
             QMessageBox.critical(self, "Nie udało się rozpocząć nagrywania", str(e))
+            if self.audio_picker.isVisible():
+                self.audio_picker.start_monitor()
             return
         self.session = sess
         self._last_sound = 0.0
@@ -1400,7 +1376,7 @@ class RecordTab(QWidget):
         self.rec_label.setText("NAGRYWANIE")
         self._marks_count = 0
         self.live_title.setText(lecture.meta.title + (f"  ·  część {sess.part_index}" if sess.is_continuation else ""))
-        src = self.audio_combo.currentText() if audio else ""
+        src = audio.label if audio else ""
         self.live_sub.setText(" · ".join(x for x in [subject, f"dźwięk: {src}" if audio else "bez dźwięku",
                                                       f"slajdy: {self.video_combo.currentText()}" if video else "bez slajdów"] if x))
         if audio is None:
