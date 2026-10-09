@@ -22,7 +22,7 @@ from .reader import Reader
 from .controls import (show_if, ModeCard, SegmentedControl, GroupSection, LevelMeter, PulseDot, RecordButton, ToggleSwitch, hbox, icon_button, label,
                        rounded_pixmap, set_icon)
 from .theme import T, qcolor, theme
-from .widgets import RoiDialog, bgr_to_qpixmap, run_async
+from .widgets import RoiDialog, ask_video_roi, bgr_to_qpixmap, run_async
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ class RecordTab(QWidget):
     status_signal = Signal(str)
     video_status_signal = Signal(str)
     stopped_signal = Signal(object, bool)
-    files_requested = Signal(object, list, list, bool)   # wykład, nagrania, zdjęcia, prostowanie
+    files_requested = Signal(object, list, list, bool, dict)   # wykład, nagrania, zdjęcia, prostowanie, obszary slajdów
     notes_update_signal = Signal()
     notes_status_signal = Signal(str)
     recording_finished = Signal(object, bool)      # do MainWindow
@@ -404,13 +404,22 @@ class RecordTab(QWidget):
         b_del_a.setObjectName("plain")
         b_del_a.clicked.connect(lambda: [self.audio_files.takeItem(self.audio_files.row(i))
                                          for i in self.audio_files.selectedItems()])
+        self.btn_file_roi = QPushButton("Obszar slajdu…")
+        self.btn_file_roi.setObjectName("plain")
+        set_icon(self.btn_file_roi, "crop", "text2", 14)
+        self.btn_file_roi.setToolTip("Zaznacz, w której części filmu jest slajd (bez kamerki prowadzącego i czatu)")
+        self.btn_file_roi.clicked.connect(lambda: self._edit_file_roi(self.audio_files.currentItem()))
+        self.btn_file_roi.setEnabled(False)
+        self.audio_files.currentItemChanged.connect(
+            lambda it, _p: self.btn_file_roi.setEnabled(it is not None and self._is_video_item(it)))
+        self.audio_files.itemDoubleClicked.connect(self._edit_file_roi)
         ga = GroupSection("Nagranie", "Dyktafon z iPhone'a (.m4a), mp3, wav albo wideo (mp4, mov). Kilka plików = kolejne "
                                       "części jednego wykładu (w podanej kolejności). Pliki możesz też przeciągnąć tutaj.")
         wa = QWidget()
         la = QVBoxLayout(wa)
         la.setContentsMargins(12, 10, 12, 10)
         la.addWidget(self.audio_files)
-        la.addWidget(hbox(b_add_a, b_del_a, "stretch"))
+        la.addWidget(hbox(b_add_a, b_del_a, "stretch", self.btn_file_roi))
         ga.add(wa)
         # zdjęcia slajdów
         self.photo_files = QListWidget()
@@ -458,6 +467,7 @@ class RecordTab(QWidget):
     def _add_audio(self, paths):
         from pathlib import Path as _P
         existing = {self.audio_files.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.audio_files.count())}
+        videos = []
         for p in paths:
             if p in existing:
                 continue
@@ -465,6 +475,38 @@ class RecordTab(QWidget):
             it.setData(Qt.ItemDataRole.UserRole, p)
             it.setToolTip(p)
             self.audio_files.addItem(it)
+            if self._is_video_item(it):
+                videos.append(it)
+        if videos:      # krok „Zaznacz obszar slajdu” – po zamknięciu okna wyboru / upuszczeniu plików
+            QTimer.singleShot(0, lambda: self._ask_file_rois(videos))
+
+    _ROI_ROLE = Qt.ItemDataRole.UserRole + 1
+
+    @staticmethod
+    def _is_video_item(it) -> bool:
+        from pathlib import Path as _P
+        from ..jobs import VIDEO_EXT
+        return _P(it.data(Qt.ItemDataRole.UserRole) or "").suffix.lower() in VIDEO_EXT
+
+    def _ask_file_rois(self, items):
+        for k, it in enumerate(items, 1):
+            title = "Zaznacz obszar slajdu" + (f" ({k}/{len(items)})" if len(items) > 1 else "")
+            try:
+                if not self._edit_file_roi(it, title):
+                    break
+            except RuntimeError:          # pozycja usunięta z listy
+                continue
+
+    def _edit_file_roi(self, it, title: str = "") -> bool:
+        if it is None or not self._is_video_item(it):
+            return False
+        from pathlib import Path as _P
+        path = it.data(Qt.ItemDataRole.UserRole)
+        ok, roi = ask_video_roi(self, path, it.data(self._ROI_ROLE), title)
+        if ok:
+            it.setData(self._ROI_ROLE, tuple(roi) if roi else None)
+            it.setText(_P(path).name + ("  ·  slajd: zaznaczony obszar" if roi else "  ·  slajd: cały obraz"))
+        return ok
 
     def _pick_photos(self):
         from pathlib import Path as _P
@@ -555,6 +597,11 @@ class RecordTab(QWidget):
     def create_from_files(self):
         audio = [self.audio_files.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.audio_files.count())]
         photos = [self.photo_files.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.photo_files.count())]
+        rois = {}
+        for i in range(self.audio_files.count()):
+            it = self.audio_files.item(i)
+            if it.data(self._ROI_ROLE):
+                rois[it.data(Qt.ItemDataRole.UserRole)] = tuple(it.data(self._ROI_ROLE))
         if not audio and not photos:
             QMessageBox.information(self, "Nowa notatka", "Dodaj nagranie albo zdjęcia slajdów.")
             return
@@ -570,7 +617,7 @@ class RecordTab(QWidget):
             if lang not in ("", "auto"):
                 lecture.meta.language = lang
             lecture.save_meta()
-        self.files_requested.emit(lecture, audio, photos, self.straighten_cb.isChecked())
+        self.files_requested.emit(lecture, audio, photos, self.straighten_cb.isChecked(), rois)
         self.audio_files.clear()
         self.photo_files.clear()
         self.title.clear()
@@ -792,7 +839,14 @@ class RecordTab(QWidget):
         cs = QVBoxLayout(self.col_s)
         cs.setContentsMargins(0, 0, 0, 0)
         cs.setSpacing(8)
-        h, self.slides_title = col_head("SLAJDY · 0")
+        self.btn_live_roi = QPushButton("Zmień obszar slajdu")
+        self.btn_live_roi.setObjectName("plain")
+        self.btn_live_roi.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_icon(self.btn_live_roi, "crop", "text2", 14)
+        self.btn_live_roi.setToolTip("Zaznacz na nowo, gdzie na ekranie jest slajd – nagrywanie trwa dalej, "
+                                     "złapane slajdy zostają")
+        self.btn_live_roi.clicked.connect(self._change_live_roi)
+        h, self.slides_title = col_head("SLAJDY · 0", self.btn_live_roi)
         cs.addLayout(h)
         cs.addWidget(self.cur_slide)
         cs.addWidget(self.dup_hint)
@@ -1132,6 +1186,35 @@ class RecordTab(QWidget):
                 self.rois.pop(key, None)
             self._render_preview()
 
+    def _change_live_roi(self):
+        """W trakcie nagrywania: nowy obszar slajdu na aktualnej klatce – nagranie się nie przerywa."""
+        sess = self.session
+        if sess is None or sess.slide_rec is None:
+            return
+        img = sess.current_frame()
+        if img is None:
+            QMessageBox.information(self, "Obszar slajdu", "Nie ma jeszcze zrzutu ekranu – spróbuj za chwilę.")
+            return
+        dlg = RoiDialog(img, sess.roi, self)
+        if not dlg.exec() or self.session is not sess:
+            return
+        roi = dlg.result_roi()
+        if (tuple(roi) if roi else None) == (tuple(sess.roi) if sess.roi else None):
+            return
+        sess.set_roi(roi)
+        key = getattr(self, "_live_roi_key", None)
+        if key:                        # zapamiętaj na następne nagranie z tego źródła
+            if roi:
+                self.rois[key] = tuple(roi)
+            else:
+                self.rois.pop(key, None)
+        lr = self.settings.last_rec or {}
+        if lr.get("video") and lr["video"].get("key") == key:
+            lr["roi"] = list(roi) if roi else None
+            self.settings.save()
+        self.video_status.setText("Obszar slajdu zmieniony – kolejne slajdy będą wykrywane w nowym obszarze."
+                                  if roi else "Slajdy są teraz wykrywane na całym obrazie.")
+
     def _clear_roi(self):
         info = self._current_video()
         if info:
@@ -1272,6 +1355,7 @@ class RecordTab(QWidget):
         self.slides_title.setText("SLAJDY · 0")
         self.video_status.setText("")
         self.meter.reset()
+        self._live_roi_key = self._video_key(video) if video else None
         sess = RecordingSession(
             lecture, self.settings, audio, video, roi, live_transcription=self.live_cb.isChecked(),
             on_segments=self.segments_signal.emit,
@@ -1326,6 +1410,7 @@ class RecordTab(QWidget):
                              "Nagrywanie – transkrypcja zrobi się po zakończeniu.")
         for w_ in (self.meter, self.btn_mark, self.btn_mark_kind):
             w_.setVisible(audio is not None)
+        show_if(self.btn_live_roi, sess.slide_rec is not None)
         self._has_text = False
         if continuing:            # pokaż dotychczasową transkrypcję – nowa część dopisze się pod nią
             self._titems = [dict(x, kind="seg") for x in lecture.load_segments()[-40:]]

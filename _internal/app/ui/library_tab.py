@@ -30,7 +30,7 @@ from .controls import (show_if, AdaptiveBox, EmptyState, LectureDelegate, Segmen
 from .theme import T, theme
 from .ask_panel import AskPanel
 from .reader import Reader
-from .widgets import JobRunner, run_async
+from .widgets import JobRunner, ask_video_roi, run_async
 
 log = logging.getLogger(__name__)
 
@@ -1539,6 +1539,9 @@ class LibraryTab(QWidget):
             "Audio/Wideo (*.mp3 *.m4a *.wav *.flac *.ogg *.opus *.aac *.wma *.mp4 *.mkv *.webm *.mov *.avi);;Wszystkie (*.*)")
         if not path:
             return
+        ok, roi = ask_video_roi(self, path)
+        if not ok:
+            return
         title, ok = QInputDialog.getText(self, "Importuj nagranie", "Tytuł wykładu:", text=Path(path).stem)
         if not ok:
             return
@@ -1550,7 +1553,7 @@ class LibraryTab(QWidget):
         s = self.settings
 
         def fn(prog, cancel, tok):
-            jobs.import_file(path, lec, s, prog, cancel)
+            jobs.import_file(path, lec, s, prog, cancel, roi=roi)
             if s.auto_generate_notes and not cancel.is_set():
                 jobs.generate_notes(lec, s, prog, cancel, tok)
         if self._run("Import nagrania", fn, lec):
