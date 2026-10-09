@@ -496,6 +496,7 @@ QLabel#cardQ {{ font-family: {FONT_DISPLAY}; font-size: {pt('question')}; font-w
 QLabel#cardA {{ font-size: 14pt; color: {t.text}; }}
 QLabel#cardHint {{ color: {t.text3}; font-size: {pt('caption')}; }}
 QLabel#errorText {{ color: {t.red_text}; }}
+QLabel#fieldWarn {{ color: {t.red_text}; font-size: {pt('small')}; }}
 QLabel#recLabel {{ color: {t.red_text}; font-size: {pt('overline')}; font-weight: 700; }}
 
 /* --- grupy i karty --- */
