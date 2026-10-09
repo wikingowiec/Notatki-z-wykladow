@@ -57,7 +57,8 @@ def transcribe_lecture(lecture: Lecture, settings: Settings, progress: Progress,
         engine.unload()
 
 
-def import_file(path: str, lecture: Lecture, settings: Settings, progress: Progress, cancel: threading.Event) -> None:
+def import_file(path: str, lecture: Lecture, settings: Settings, progress: Progress, cancel: threading.Event,
+                roi=None) -> None:
     """Import gotowego nagrania (audio lub wideo): zapis audio, wykrycie slajdów (jeśli wideo), transkrypcja."""
     import soundfile as sf
     from .audio_decode import decode_audio
@@ -79,7 +80,7 @@ def import_file(path: str, lecture: Lecture, settings: Settings, progress: Progr
     if has_video and not cancel.is_set():
         from .slides import SlideStore, detect_slides_in_video
         store = SlideStore(lecture, ocr=settings.ocr_enabled)
-        n = detect_slides_in_video(path, store, settings.slide_sensitivity,
+        n = detect_slides_in_video(path, store, settings.slide_sensitivity, roi=roi,
                                    progress=lambda f: progress("Wykrywanie slajdów w wideo…", f), cancel=cancel)
         lecture.meta.video_source = f"Plik: {Path(path).name} ({n} slajdów)"
         lecture.save_meta()
@@ -136,14 +137,17 @@ def generate_notes(lecture: Lecture, settings: Settings, progress: Progress, can
 # ---------------------------------------------------------------------------
 AUDIO_EXT = (".m4a", ".mp3", ".wav", ".aac", ".ogg", ".opus", ".flac", ".wma", ".amr", ".caf", ".3gp",
              ".mp4", ".mov", ".mkv", ".webm", ".avi")
+VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".3gp", ".m4v", ".wmv")
 
 
 def import_files(lecture: Lecture, audio_files: list[str], photo_files: list[str], settings: Settings,
-                 progress: Progress, cancel: threading.Event, straighten: bool = True) -> None:
+                 progress: Progress, cancel: threading.Event, straighten: bool = True,
+                 rois: Optional[dict] = None) -> None:
     """Dokłada do notatki kolejne części nagrania i zdjęcia slajdów, potem robi transkrypcję.
 
     Czas zdjęć: z EXIF (godzina zrobienia) względem godziny nagrania z metadanych pliku; gdy się nie da –
-    dopasowanie po treści (tekst slajdu ↔ transkrypcja); gdy i to zawiedzie – w kolejności równomiernie."""
+    dopasowanie po treści (tekst slajdu ↔ transkrypcja); gdy i to zawiedzie – w kolejności równomiernie.
+    rois: {ścieżka wideo: (x, y, w, h)} – obszar slajdu w filmie (brak = cały obraz)."""
     import soundfile as sf
     from .audio_decode import decode_audio
     from .photos import audio_start_time
@@ -183,6 +187,7 @@ def import_files(lecture: Lecture, audio_files: list[str], photo_files: list[str
         if has_video and not cancel.is_set():
             from .slides import SlideStore, detect_slides_in_video
             detect_slides_in_video(path, SlideStore(lecture, ocr=settings.ocr_enabled), settings.slide_sensitivity,
+                                   roi=(rois or {}).get(path),
                                    progress=lambda f: progress("Wykrywanie slajdów w wideo…", f), cancel=cancel,
                                    offset=offset)
     if names:

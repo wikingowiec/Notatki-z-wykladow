@@ -671,12 +671,12 @@ class MainWindow(QMainWindow):
         self.record.open_files_mode()
         self._select_key(("record", None))
 
-    def _import_files(self, lecture, audio: list, photos: list, straighten: bool):
+    def _import_files(self, lecture, audio: list, photos: list, straighten: bool, rois: dict | None = None):
         from .. import jobs
         s = self.settings
 
         def fn(prog, cancel, tok):
-            jobs.import_files(lecture, audio, photos, s, prog, cancel, straighten)
+            jobs.import_files(lecture, audio, photos, s, prog, cancel, straighten, rois=rois)
             if s.auto_generate_notes and not cancel.is_set():
                 jobs.generate_notes(lecture, s, prog, cancel, tok, use_cache=True)
         self.rebuild_nav()

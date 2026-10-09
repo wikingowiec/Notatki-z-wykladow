@@ -161,6 +161,23 @@ class SlideDetector:
         self.current_index = len(self.saved)
         return SlideEvent(t_change, self.current_index, True, img)
 
+    def rebase(self, img: np.ndarray) -> bool:
+        """Zmiana obszaru slajdu: nowy kadr staje się bieżącym slajdem bez zdarzenia „nowy slajd”.
+        Zwraca False, gdy kadr jest pusty/czarny – wtedy trzeba spróbować na następnej klatce."""
+        if img is None or img.size == 0:
+            return False
+        s = small_gray(img)
+        if float(s.std()) < 4.0:
+            return False
+        self.prev = s
+        self.current = s
+        self.history.clear()                 # maska ruchu dotyczyła starego kadru
+        self.stable_since = None
+        self.change_started = None
+        if self.current_index:
+            self.saved[self.current_index - 1] = s
+        return True
+
     def merge(self, new_local: int, target_local: int, replace: bool) -> None:
         """Magazyn uznał „nowy” slajd za duplikat (powrót / animacja) – scal go z wcześniejszym."""
         if new_local == len(self.saved) and 1 <= target_local < new_local:
@@ -426,6 +443,13 @@ class SlideRecorder:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self.t0 = 0.0
+        self.last_frame: Optional[np.ndarray] = None   # ostatni pełny zrzut (do wyboru obszaru w trakcie)
+        self._pending_roi: Optional[list] = None       # [roi] – nowy obszar czekający na kolejną klatkę
+        self._rebase = False
+
+    def set_roi(self, roi) -> None:
+        """Zmiana obszaru w trakcie nagrywania – zadziała od następnej klatki, bez przerywania nagrania."""
+        self._pending_roi = [tuple(roi) if roi else None]
 
     def start(self, t0: float):
         self.t0 = t0
@@ -471,8 +495,19 @@ class SlideRecorder:
                     self.on_status(status)
                     last_status = status
                 if img is not None:
+                    self.last_frame = img
+                    pending = self._pending_roi
+                    if pending is not None:
+                        self._pending_roi = None
+                        self.roi = pending[0]
+                        self._rebase = True
                     img = crop_roi(img, self.roi)
-                    ev = self.detector.process(img, now - self.t0)
+                    if self._rebase:
+                        # nowy kadr nie może od razu dać „nowego slajdu” – przyjmij go jako bieżący
+                        self._rebase = not self.detector.rebase(img)
+                        ev = None
+                    else:
+                        ev = self.detector.process(img, now - self.t0)
                     if ev:
                         path = self.store.add(ev)
                         if ev.merge_local:
@@ -486,6 +521,39 @@ class SlideRecorder:
                 self.grabber.close()
             except Exception:
                 pass
+
+
+def video_duration(path: str) -> Optional[float]:
+    """Długość filmu w sekundach albo None, gdy plik nie ma obrazu (np. samo audio, okładka w m4a)."""
+    import av
+    try:
+        with av.open(path) as c:
+            if not c.streams.video or (c.streams.video[0].frames or 0) == 1:
+                return None
+            if c.duration:
+                return float(c.duration) / 1_000_000
+            st = c.streams.video[0]
+            return float(st.duration * st.time_base) if st.duration else 0.0
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def video_frame_at(path: str, t: float) -> Optional[np.ndarray]:
+    """Klatka (BGR) z okolic sekundy `t` – najbliższa klatka kluczowa przed nią (szybko)."""
+    import av
+    with av.open(path) as c:
+        if not c.streams.video:
+            return None
+        st = c.streams.video[0]
+        st.codec_context.skip_frame = "NONKEY"
+        if t > 0:
+            try:
+                c.seek(int(t * 1_000_000), any_frame=False, backward=True)
+            except Exception:  # noqa: BLE001
+                pass
+        for frame in c.decode(st):
+            return frame.to_ndarray(format="bgr24")
+    return None
 
 
 def detect_slides_in_video(path: str, store: SlideStore, sensitivity: float, roi=None,

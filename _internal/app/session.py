@@ -123,6 +123,16 @@ class RecordingSession:
             self._loader = threading.Thread(target=self._load_whisper, daemon=True)
             self._loader.start()
 
+    def set_roi(self, roi) -> None:
+        """Nowy obszar slajdu w trakcie nagrywania (złapane slajdy zostają)."""
+        self.roi = tuple(roi) if roi else None
+        if self.slide_rec is not None:
+            self.slide_rec.set_roi(self.roi)
+
+    def current_frame(self):
+        """Ostatni pełny zrzut ekranu ze źródła slajdów (None, gdy jeszcze żadnego nie było)."""
+        return self.slide_rec.last_frame if self.slide_rec is not None else None
+
     def delete_slide(self, index: int) -> bool:
         """Usuwa złapany slajd (np. kamerkę) – także w trakcie nagrywania."""
         if self.slide_rec is not None:
