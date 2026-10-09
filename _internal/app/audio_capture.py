@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import threading
 import time
@@ -32,7 +33,33 @@ class AudioSourceInfo:
     pid: int = 0
     device_index: int = -1
     exe: str = ""
-    active: bool = False
+    active: bool = False     # właśnie słychać dźwięk (miernik Windows > 0)
+    detail: str = ""         # druga linijka na liście: „gra na: Słuchawki …”, „domyślny” …
+    hidden: bool = False     # pod „Pokaż wszystkie” (uśpione aplikacje, okna bez dźwięku, wirtualne mikrofony)
+
+
+PLAYING = 0.002              # szczyt miernika (0–1), od którego uznajemy, że źródło gra
+
+# procesy systemowe – nie ma sensu ich nagrywać, nie pokazujemy ich nawet pod „Pokaż wszystkie”
+_SYSTEM_EXES = {
+    "audiodg.exe", "svchost.exe", "explorer.exe", "dwm.exe", "csrss.exe", "winlogon.exe", "lsass.exe", "services.exe",
+    "sihost.exe", "ctfmon.exe", "runtimebroker.exe", "taskhostw.exe", "textinputhost.exe", "searchhost.exe",
+    "searchapp.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "applicationframehost.exe",
+    "systemsettings.exe", "lockapp.exe", "smartscreen.exe", "securityhealthsystray.exe", "rtkauduservice64.exe",
+    "nvcontainer.exe", "nvidia share.exe", "widgets.exe", "phoneexperiencehost.exe", "gamebar.exe",
+    "wykłady.exe",
+}
+# wirtualne urządzenia (Steam, kable audio) – schowane pod „Pokaż wszystkie”
+_VIRTUAL_DEVICES = ("steam streaming", "vb-audio", "cable output", "voicemeeter", "virtual")
+
+
+def source_key(info: AudioSourceInfo) -> str:
+    """Klucz źródła w słowniku poziomów (LevelMonitor.levels)."""
+    if info.kind == "process":
+        return f"process:{info.pid}"
+    if info.kind == "mic":
+        return f"mic:{info.device_index}"
+    return "system"
 
 
 def _root_pid(pid: int) -> int:
@@ -55,6 +82,14 @@ def _root_pid(pid: int) -> int:
         return pid
 
 
+def _exe(pid: int) -> str:
+    try:
+        import psutil
+        return psutil.Process(pid).name()
+    except Exception:
+        return ""
+
+
 def _pretty(exe: str) -> str:
     names = {
         "chrome.exe": "Google Chrome", "msedge.exe": "Microsoft Edge", "firefox.exe": "Firefox",
@@ -66,85 +101,303 @@ def _pretty(exe: str) -> str:
     return names.get(exe.lower(), exe[:-4] if exe.lower().endswith(".exe") else exe)
 
 
-def list_audio_sources() -> list[AudioSourceInfo]:
-    """Zwraca listę: aplikacje z dźwiękiem, inne aplikacje z oknami, dźwięk systemowy, mikrofony."""
-    out: list[AudioSourceInfo] = []
-    seen_roots: set[int] = set()
-    seen_exes: set[str] = set()
+def _clean_device(name: str) -> str:
+    """„Mikrofon (9 — Arctis Nova Pro Wireless)” → „Arctis Nova Pro Wireless”."""
+    import re
+    m = re.match(r"^[^()]*\((.+)\)\s*$", name or "")
+    inner = m.group(1) if m else (name or "")
+    return re.sub(r"^\d+\s*[—–-]\s*", "", inner).strip() or name
 
-    # 1) aplikacje, które mają sesję audio (pycaw)
+
+def _peak(meter) -> float:
     try:
-        from pycaw.pycaw import AudioUtilities
-        sessions = AudioUtilities.GetAllSessions()
-        items = []
-        for s in sessions:
-            try:
-                if not s.Process:
+        return float(meter.GetPeakValue())
+    except Exception:
+        return 0.0
+
+
+def _device_enumerator():
+    import comtypes
+    from pycaw.api.mmdeviceapi import IMMDeviceEnumerator
+    from pycaw.constants import CLSID_MMDeviceEnumerator
+    return comtypes.CoCreateInstance(CLSID_MMDeviceEnumerator, IMMDeviceEnumerator, comtypes.CLSCTX_INPROC_SERVER)
+
+
+def _render_sessions(names: bool = True) -> list[tuple[int, str, object]]:
+    """Sesje audio aplikacji ze WSZYSTKICH aktywnych wyjść: [(pid, nazwa wyjścia, miernik)].
+
+    pycaw.GetAllSessions patrzy tylko na domyślne wyjście – aplikacja grająca np. na monitor albo
+    na drugie słuchawki by zniknęła. Pomija sesję „Dźwięki systemowe”. Wymaga CoInitialize w wątku."""
+    import comtypes
+    from pycaw.pycaw import AudioUtilities, IAudioMeterInformation, IAudioSessionControl2, IAudioSessionManager2
+    out = []
+    coll = _device_enumerator().EnumAudioEndpoints(0, 1)        # wyjścia, tylko aktywne
+    for i in range(coll.GetCount()):
+        try:
+            dev = coll.Item(i)
+            name = (AudioUtilities.CreateDevice(dev).FriendlyName or "") if names else ""
+            mgr = dev.Activate(IAudioSessionManager2._iid_, comtypes.CLSCTX_ALL, None).QueryInterface(IAudioSessionManager2)
+            se = mgr.GetSessionEnumerator()
+            for j in range(se.GetCount()):
+                c = se.GetSession(j).QueryInterface(IAudioSessionControl2)
+                pid = c.GetProcessId()
+                if not pid or c.IsSystemSoundsSession() == 0:    # 0 (S_OK) = „Dźwięki systemowe”
                     continue
-                root = _root_pid(s.Process.pid)
-                try:
-                    import psutil
-                    exe = psutil.Process(root).name()
-                except Exception:
-                    exe = s.Process.name()
-                try:
-                    active = (s.State == 1)
-                except Exception:
-                    active = False
-                items.append((exe, root, active))
-            except Exception:
+                out.append((pid, name, c.QueryInterface(IAudioMeterInformation)))
+        except Exception:
+            log.exception("sesje audio wyjścia %d", i)
+    return out
+
+
+def _default_output() -> tuple[str, object]:
+    """(nazwa, miernik) domyślnego wyjścia – poziom „całego dźwięku systemowego” bez nagrywania."""
+    import comtypes
+    from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
+    dev = _device_enumerator().GetDefaultAudioEndpoint(0, 1)    # eRender, eMultimedia
+    meter = dev.Activate(IAudioMeterInformation._iid_, comtypes.CLSCTX_ALL, None).QueryInterface(IAudioMeterInformation)
+    try:
+        name = AudioUtilities.CreateDevice(dev).FriendlyName or ""
+    except Exception:
+        name = ""
+    return name, meter
+
+
+def list_audio_sources() -> list[AudioSourceInfo]:
+    """Najpierw aplikacje, które właśnie grają, potem urządzenia (dźwięk systemu, mikrofony).
+    Reszta (uśpione aplikacje, okna bez dźwięku, wirtualne mikrofony) ma hidden=True. Wymaga CoInitialize w wątku."""
+    own = os.getpid()
+    apps: dict[int, dict] = {}            # pid główny → exe, wyjścia, szczyt
+
+    # 1) aplikacje z sesją audio – kilka odczytów miernika, bo mowa ma przerwy
+    try:
+        sessions = _render_sessions()
+        peaks = [0.0] * len(sessions)
+        for _ in range(6):
+            for k, (_pid, _dev, meter) in enumerate(sessions):
+                peaks[k] = max(peaks[k], _peak(meter))
+            time.sleep(0.05)
+        for (pid, dev, _m), pk in zip(sessions, peaks):
+            root = _root_pid(pid)
+            exe = _exe(root) or _exe(pid)
+            if not exe or own in (pid, root) or exe.lower() in _SYSTEM_EXES:
                 continue
-        # aktywne na górze
-        items.sort(key=lambda x: (not x[2], _pretty(x[0]).lower()))
-        for exe, root, active in items:
-            if root in seen_roots:
-                continue
-            seen_roots.add(root)
-            seen_exes.add(exe.lower())
-            label = f"🔊 {_pretty(exe)}" + ("  (gra teraz)" if active else "") + f"  [PID {root}]"
-            out.append(AudioSourceInfo("process", label, pid=root, exe=exe, active=active))
+            a = apps.setdefault(root, {"exe": exe, "devs": [], "peak": 0.0})
+            if dev and dev not in a["devs"]:
+                a["devs"].append(dev)
+            a["peak"] = max(a["peak"], pk)
     except Exception:
         log.exception("pycaw")
 
-    # 2) pozostałe aplikacje z widocznymi oknami (mogą zacząć grać później)
+    playing, idle = [], []
+    exe_count: dict[str, int] = {}
+    for a in apps.values():
+        exe_count[a["exe"].lower()] = exe_count.get(a["exe"].lower(), 0) + 1
+    for root, a in sorted(apps.items(), key=lambda x: _pretty(x[1]["exe"]).lower()):
+        on = a["peak"] >= PLAYING
+        where = ", ".join(_clean_device(d) for d in a["devs"])
+        detail = ("gra teraz" if on else "teraz cisza") + (f" · {where}" if where else "")
+        if exe_count[a["exe"].lower()] > 1:           # dwa osobne okna tej samej aplikacji
+            detail += f" · PID {root}"
+        info = AudioSourceInfo("process", _pretty(a["exe"]), pid=root, exe=a["exe"], active=on,
+                               detail=detail, hidden=not on)
+        (playing if on else idle).append(info)
+
+    # 2) aplikacje z oknami, bez sesji audio (mogą zacząć grać później) – schowane
+    windows = []
     try:
         from .screen_capture import list_windows
-        import psutil
+        seen_exes = {a["exe"].lower() for a in apps.values()}
         for w in list_windows():
-            try:
-                exe = psutil.Process(w.pid).name()
-            except Exception:
-                continue
-            if exe.lower() in seen_exes or exe.lower() in ("explorer.exe", "textinputhost.exe", "python.exe", "pythonw.exe"):
+            exe = _exe(w.pid)
+            if not exe or exe.lower() in seen_exes or exe.lower() in _SYSTEM_EXES:
                 continue
             root = _root_pid(w.pid)
-            if root in seen_roots:
+            if root in apps or root == own:
                 continue
-            seen_roots.add(root)
             seen_exes.add(exe.lower())
-            out.append(AudioSourceInfo("process", f"{_pretty(exe)}  [PID {root}]", pid=root, exe=exe))
+            windows.append(AudioSourceInfo("process", _pretty(exe), pid=root, exe=exe,
+                                           detail="jeszcze nic nie grała", hidden=True))
     except Exception:
         log.exception("okna")
+    windows.sort(key=lambda s: s.label.lower())
 
     # 3) cały dźwięk systemowy + mikrofony
-    out.append(AudioSourceInfo("system", "🖥 Cały dźwięk systemowy (wszystko co słychać)"))
+    devices: list[AudioSourceInfo] = []
+    try:
+        out_name, meter = _default_output()
+        sys_on = max(_peak(meter) for _ in range(3)) >= PLAYING
+    except Exception:
+        out_name, sys_on = "", False
+    devices.append(AudioSourceInfo("system", "Cały dźwięk systemowy", active=sys_on,
+                                   detail="wszystko, co słychać" + (f" · {_clean_device(out_name)}" if out_name else "")))
     try:
         import pyaudiowpatch as pyaudio
         p = pyaudio.PyAudio()
         try:
             wasapi = p.get_host_api_info_by_type(pyaudio.paWASAPI)
             default_in = wasapi.get("defaultInputDevice", -1)
+            seen_mics: set[str] = set()
             for i in range(p.get_device_count()):
                 d = p.get_device_info_by_index(i)
                 if d.get("hostApi") != wasapi["index"] or d.get("isLoopbackDevice") or d.get("maxInputChannels", 0) < 1:
                     continue
-                star = " (domyślny)" if i == default_in else ""
-                out.append(AudioSourceInfo("mic", f"🎤 Mikrofon: {d['name']}{star}", device_index=i))
+                name = _clean_device(d["name"])
+                virtual = any(v in d["name"].lower() for v in _VIRTUAL_DEVICES)
+                dup = name.lower() in seen_mics
+                seen_mics.add(name.lower())
+                detail = "domyślny" if i == default_in else ("urządzenie wirtualne" if virtual else "")
+                devices.append(AudioSourceInfo("mic", f"Mikrofon: {name}", device_index=i, detail=detail,
+                                               hidden=(virtual or dup) and i != default_in))
         finally:
             p.terminate()
     except Exception:
         log.exception("mikrofony")
-    return out
+    devices.sort(key=lambda s: (s.kind != "system", s.hidden, s.detail != "domyślny"))
+    return playing + devices + idle + windows
+
+
+class LevelMonitor:
+    """Poziomy dźwięku na żywo dla listy źródeł – bez nagrywania, z mierników Windows (wątek w tle).
+
+    Mikrofon mierzy się tylko jeden – wybrany: odczyt wymaga otwarcia strumienia, a Windows pokazuje wtedy
+    „aplikacja używa mikrofonu”. `new_playing` – aplikacje, które zaczęły grać, a nie ma ich na liście."""
+
+    def __init__(self):
+        self.levels: dict[str, float] = {}
+        self.new_playing: set[int] = set()
+        self._known: set[int] = set()
+        self._mic = -1
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def set_known(self, pids):
+        self._known = set(pids)
+        self.new_playing = set()
+
+    def set_mic(self, device_index: int):
+        self._mic = device_index
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def start(self):
+        if self.running:
+            return
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, args=(self._stop,), name="LevelMonitor", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(1.5)
+        self._thread = None
+        self.levels = {}
+
+    def _run(self, stop: threading.Event):
+        try:
+            import comtypes
+            comtypes.CoInitialize()
+        except Exception:
+            pass
+        own = os.getpid()
+        sessions: list = []
+        roots: dict[int, int] = {}
+        system_exe: dict[int, bool] = {}
+        speakers = None
+        next_scan = 0.0
+        mic_src, mic_dev, mic_peak = None, -1, [0.0]
+
+        def on_mic(arr, _rate):
+            mic_peak[0] = max(mic_peak[0], float(np.abs(arr).max()) if arr.size else 0.0)
+
+        try:
+            while not stop.is_set():
+                now = time.monotonic()
+                if now >= next_scan:               # nowe aplikacje / zmiana wyjścia – co 1,5 s
+                    try:
+                        sessions = _render_sessions(names=False)
+                        speakers = _default_output()[1]
+                    except Exception:
+                        log.exception("LevelMonitor: sesje")
+                    next_scan = now + 1.5
+                lv: dict[str, float] = {}
+                for pid, _d, meter in sessions:
+                    root = roots.get(pid)
+                    if root is None:
+                        root = roots[pid] = _root_pid(pid)
+                    k = f"process:{root}"
+                    pk = _peak(meter)
+                    lv[k] = max(lv.get(k, 0.0), pk)
+                    if pk >= PLAYING and root not in self._known and root != own:
+                        if root not in system_exe:
+                            system_exe[root] = (_exe(root) or "").lower() in _SYSTEM_EXES
+                        if not system_exe[root]:
+                            self.new_playing.add(root)
+                if speakers is not None:
+                    lv["system"] = _peak(speakers)
+                if self._mic != mic_dev:           # zmiana wybranego mikrofonu
+                    if mic_src is not None:
+                        mic_src.stop()
+                        mic_src = None
+                    mic_dev = self._mic
+                    if mic_dev >= 0:
+                        try:
+                            mic_src = _PyAudioSource(on_mic, device_index=mic_dev, loopback=False)
+                            mic_src.start()
+                        except Exception:
+                            log.exception("LevelMonitor: mikrofon %d", mic_dev)
+                            mic_src = None
+                if mic_src is not None:
+                    lv[f"mic:{mic_dev}"] = mic_peak[0]
+                    mic_peak[0] = 0.0
+                self.levels = lv
+                stop.wait(0.06)
+        finally:
+            if mic_src is not None:
+                try:
+                    mic_src.stop()
+                except Exception:
+                    log.exception("LevelMonitor: zamykanie mikrofonu")
+
+
+def record_preview(info: AudioSourceInfo, seconds: float = 4.0, backend: str = "auto") -> tuple[np.ndarray, int]:
+    """Nagrywa kilka sekund z wybranego źródła (przycisk „Odsłuchaj”). Zwraca ((n, kanały) float32, częstotliwość).
+    Odtwarzanie jest dopiero PO nagraniu – dzięki temu nie ma sprzężenia nawet przy „całym dźwięku systemowym”."""
+    try:
+        import comtypes
+        comtypes.CoInitialize()
+    except Exception:
+        pass
+    chunks: list[np.ndarray] = []
+    rate = [48000]
+
+    def cb(arr, r):
+        chunks.append(np.asarray(arr, dtype=np.float32).copy())
+        rate[0] = r
+
+    src = open_source(info, cb, backend)
+    try:
+        time.sleep(seconds)
+    finally:
+        src.stop()
+    if not chunks:
+        return np.zeros((0, 1), dtype=np.float32), rate[0]
+    width = chunks[0].shape[1] if chunks[0].ndim == 2 else 1
+    chunks = [c.reshape(-1, width) for c in chunks if c.size % width == 0]
+    return np.concatenate(chunks), rate[0]
+
+
+def play_preview(audio: np.ndarray, rate: int):
+    """Odtwarza nagrany podgląd na domyślnym wyjściu (czeka do końca)."""
+    import tempfile
+    import winsound
+
+    import soundfile as sf
+    path = Path(tempfile.gettempdir()) / "wyklady_odsluch.wav"
+    sf.write(str(path), np.clip(audio, -1.0, 1.0), rate, subtype="PCM_16")
+    winsound.PlaySound(str(path), winsound.SND_FILENAME)
 
 
 # ---------------------------------------------------------------------------

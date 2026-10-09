@@ -287,6 +287,7 @@ _ICONS = {
     "screen-audio": '<rect x="2.5" y="4" width="13" height="10" rx="1.8"/><path d="M6 18h6M9 14v4"/><path d="M18.5 8.5a3.5 3.5 0 0 1 0 5M20.8 6.3a6.6 6.6 0 0 1 0 9.4"/>',
     "photos": '<rect x="6.5" y="3" width="15" height="12" rx="2"/><path d="M3 7.5v10A2.5 2.5 0 0 0 5.5 20h11"/><circle cx="11" cy="7.3" r="1.3"/><path d="M21.5 12l-4-4-6 6"/>',
     "speaker": '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+    "headphones": '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3.5" y="13.5" width="4.5" height="7" rx="1.8"/><rect x="16" y="13.5" width="4.5" height="7" rx="1.8"/>',
     "pause": '<rect x="7" y="5.5" width="3.5" height="13" rx="1" fill="currentColor"/><rect x="13.5" y="5.5" width="3.5" height="13" rx="1" fill="currentColor"/>',
     "flag": '<path d="M5.5 21V4.5M5.5 4.5h11l-2.5 4 2.5 4h-11"/>',
     "edit": '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
@@ -567,6 +568,7 @@ QToolButton#icon::menu-indicator, QPushButton::menu-indicator {{ image: none; wi
 QListWidget, QListView, QTextBrowser, QPlainTextEdit {{ background: {t.surface}; border: 1px solid {t.separator};
     border-radius: {R['lg']}px; padding: 6px; selection-background-color: {t.accent_soft}; selection-color: {t.text}; }}
 QListWidget#lectureList, QListWidget#outline {{ background: transparent; border: none; padding: 0; }}
+QListWidget#sourceList {{ background: transparent; border: none; padding: 0; outline: none; }}
 QListWidget#outline::item {{ border-radius: {R['sm']}px; padding: 5px 8px; color: {t.text2}; }}
 QListWidget#outline::item:hover {{ background: {t.hover}; color: {t.text}; }}
 QListWidget#outline::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
