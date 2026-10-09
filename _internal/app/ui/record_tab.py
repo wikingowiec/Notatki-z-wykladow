@@ -254,9 +254,16 @@ class RecordTab(QWidget):
         self.g_audio = GroupSection("Dźwięk", "Dźwięk nagrywa się tylko z wybranej aplikacji – inne programy (np. muzyka "
                                               "w tle) nie trafią do nagrania. Aplikacja z wykładem pojawi się na górze "
                                               "listy, gdy zacznie grać. Na zajęciach stacjonarnych wybierz mikrofon.")
-        self.g_audio.add_row("Źródło dźwięku", hbox(self.audio_combo, self.btn_refresh_audio, spacing=4))
+        self.row_audio = self.g_audio.add_row("Źródło dźwięku", hbox(self.audio_combo, self.btn_refresh_audio, spacing=4))
         self.g_slides = GroupSection("Slajdy")
-        self.g_slides.add_row("Ekran lub okno", hbox(self.video_combo, self.btn_refresh_video, spacing=4))
+        self.row_video = self.g_slides.add_row("Ekran lub okno", hbox(self.video_combo, self.btn_refresh_video, spacing=4))
+        # uwaga pod polem, gdy ostatnio użytego źródła teraz nie ma (Ctrl+Shift+R)
+        for r in (self.row_audio, self.row_video):
+            r.subtitle.setObjectName("fieldWarn")
+        self._want_audio: dict | None = None
+        self._want_video: dict | None = None
+        self.audio_combo.activated.connect(lambda _i: self._forget_want("audio"))
+        self.video_combo.activated.connect(lambda _i: self._forget_want("video"))
         self.g_slides.add(prev_box)
         self._build_files()
 
@@ -999,6 +1006,7 @@ class RecordTab(QWidget):
         if idx < 0:
             idx = next((i for i, s in enumerate(self._audio_sources) if s.kind == "process" and s.active), 0)
         self.audio_combo.setCurrentIndex(idx)
+        self._match_want_audio()
         active = sum(1 for s in self._audio_sources if s.active)
         self.setup_status.setText("Nagrywanie możesz zakończyć w dowolnym momencie." if active else
                                   "Żadna aplikacja teraz nie gra – włącz dźwięk wykładu i odśwież listę.")
@@ -1012,6 +1020,7 @@ class RecordTab(QWidget):
             self.video_combo.addItem(s.label.replace("🖥 ", "").replace("🪟 ", "Okno: "))
         idx = self.video_combo.findText(prev)
         self.video_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._match_want_video()
         self.video_combo.blockSignals(False)
         self._video_changed()
 
@@ -1131,57 +1140,81 @@ class RecordTab(QWidget):
 
     # ------------------------------------------------------------------ nagraj jak ostatnio
     def quick_label(self) -> str:
-        """„Teams + Monitor 1” – co nagra Ctrl+Shift+R (pusty tekst, gdy jeszcze nic nie nagrywano)."""
+        """„Teams + Monitor 1” – co wypełni Ctrl+Shift+R (pusty tekst, gdy jeszcze nic nie nagrywano)."""
         lr = self.settings.last_rec or {}
         parts = [x.get("label", "") for x in (lr.get("audio"), lr.get("video")) if x]
         return " + ".join(p for p in parts if p)
 
-    def quick_start(self) -> str:
-        """Nagrywa z ostatnio użytym dźwiękiem i ekranem. Zwraca „” albo powód, dla którego się nie da."""
+    def quick_prepare(self):
+        """Wypełnia formularz nowej notatki ostatnimi ustawieniami. Nagrywanie startuje dopiero po „Start”.
+        Źródło, którego teraz nie ma, jest opisane pod swoim polem (i wybierze się samo po odświeżeniu listy)."""
         if self.session is not None:
-            return "Nagrywanie już trwa."
-        lr = self.settings.last_rec or {}
-        if not lr.get("mode"):
-            return "Najpierw nagraj coś raz zwykłym sposobem – potem ten przycisk powtórzy te ustawienia."
-        mode = lr["mode"]
-        if mode == "files":
-            return "Ostatnio była notatka z plików."
-        self.continue_lecture = None
-        self.modes[mode].setChecked(True)
-        want_a = lr.get("audio")
-        if want_a and mode in ("av", "audio"):
-            try:
-                import comtypes
-                comtypes.CoInitialize()
-            except Exception:
-                pass
-            self._apply_audio(list_audio_sources())
-            idx = -1
-            for i, s_ in enumerate(self._audio_sources):
-                if s_.kind != want_a.get("kind"):
-                    continue
-                if s_.kind == "process" and (s_.exe or "").lower() != (want_a.get("exe") or "").lower():
-                    continue
-                if s_.kind == "mic" and want_a.get("device", -1) >= 0 and s_.device_index != want_a["device"]:
-                    continue
-                idx = i
-                if s_.active:
-                    break
-            if idx < 0:
-                return f"{want_a.get('label') or 'Ostatnie źródło dźwięku'} teraz nie gra – włącz wykład i spróbuj ponownie."
-            self.audio_combo.setCurrentIndex(idx)
-        want_v = lr.get("video")
-        if want_v and mode in ("av", "slides"):
-            self.refresh_video()
-            idx = next((i for i, v in enumerate(self._video_sources) if self._video_key(v) == want_v.get("key")), -1)
-            if idx < 0:
-                return f"Nie znaleziono: {want_v.get('label') or 'ostatni ekran'}."
-            self.video_combo.setCurrentIndex(idx)
-            if lr.get("roi"):
-                self.rois[want_v["key"]] = tuple(lr["roi"])
+            return
+        self.cancel_continue()
         self.title.clear()
-        self.start()
-        return "" if self.session is not None else "Nie udało się rozpocząć nagrywania."
+        lr = self.settings.last_rec or {}
+        mode = lr.get("mode")
+        if mode not in self.modes:
+            self._set_status("Najpierw nagraj coś raz zwykłym sposobem – potem Ctrl+Shift+R wypełni te same ustawienia.")
+            return
+        self.modes[mode].setChecked(True)
+        self.subject.setEditText(lr.get("subject", self.settings.last_subject) or "")
+        want_v = lr.get("video") if mode in ("av", "slides") else None
+        if want_v and lr.get("roi"):
+            self.rois[want_v["key"]] = tuple(lr["roi"])
+        self._want_audio = lr.get("audio") if mode in ("av", "audio") else None
+        self._want_video = want_v
+        if self._want_audio:
+            self._match_want_audio()       # od razu z obecnej listy, potem jeszcze raz po odświeżeniu w tle
+            self.refresh_audio()
+        if self._want_video:
+            self.refresh_video()
+
+    def _forget_want(self, which: str):
+        """Ręczny wybór na liście – zapomnij o „jak ostatnio” i schowaj uwagę pod polem."""
+        setattr(self, f"_want_{which}", None)
+        self._field_warn(self.row_audio if which == "audio" else self.row_video, "")
+
+    def _field_warn(self, row, text: str):
+        row.subtitle.setText(text)
+        show_if(row.subtitle, text)
+
+    def _match_want_audio(self):
+        want = self._want_audio
+        if not want:
+            self._field_warn(self.row_audio, "")
+            return
+        idx = -1
+        for i, s_ in enumerate(self._audio_sources):
+            if s_.kind != want.get("kind"):
+                continue
+            if s_.kind == "process" and (s_.exe or "").lower() != (want.get("exe") or "").lower():
+                continue
+            if s_.kind == "mic" and want.get("device", -1) >= 0 and s_.device_index != want["device"]:
+                continue
+            idx = i
+            if s_.active:
+                break
+        if idx >= 0:
+            self.audio_combo.setCurrentIndex(idx)
+            self._field_warn(self.row_audio, "")
+        else:
+            name = want.get("label") or "ostatnie źródło dźwięku"
+            self._field_warn(self.row_audio, f"Ostatnio było „{name}”, teraz nie gra – włącz wykład i odśwież listę.")
+
+    def _match_want_video(self):
+        want = self._want_video
+        if not want:
+            self._field_warn(self.row_video, "")
+            return
+        idx = next((i for i, v in enumerate(self._video_sources) if self._video_key(v) == want.get("key")), -1)
+        if idx >= 0:
+            self.video_combo.setCurrentIndex(idx)
+            self._field_warn(self.row_video, "")
+        else:
+            name = want.get("label") or "ostatni ekran"
+            todo = "otwórz to okno" if str(want.get("key", "")).startswith("window:") else "podłącz ten ekran"
+            self._field_warn(self.row_video, f"Ostatnio było „{name}”, teraz jest niedostępne – {todo} i odśwież listę.")
 
     # ------------------------------------------------------------------ nagrywanie
     def is_recording(self) -> bool:
@@ -1213,8 +1246,12 @@ class RecordTab(QWidget):
                        "device": audio.device_index} if audio else None),
             "video": ({"key": self._video_key(video), "label": short_video(video)} if video else None),
             "roi": list(roi) if roi else None,
+            "subject": subject,
         }
         self.settings.save()
+        self._want_audio = self._want_video = None
+        self._field_warn(self.row_audio, "")
+        self._field_warn(self.row_video, "")
         self.last_rec_changed.emit()
         continuing = self.continue_lecture is not None
         if continuing:

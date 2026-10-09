@@ -593,20 +593,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ nagraj jak ostatnio
     def _update_quick(self):
         q = self.record.quick_label()
-        self.btn_mic.setToolTip("Nagraj jak ostatnio (Ctrl+Shift+R)" + (f" – {q}" if q else ""))
-        self.quick_caption.setText(f"Ctrl Shift R — nagraj jak ostatnio ({q})" if q else
-                                   "Ctrl Shift R — nagraj jak ostatnio")
+        self.btn_mic.setToolTip("Nowa notatka z ostatnimi ustawieniami (Ctrl+Shift+R)" + (f" – {q}" if q else "")
+                                + "\nNagrywanie zacznie się dopiero po kliknięciu przycisku nagrywania.")
+        self.quick_caption.setText(f"Ctrl Shift R — ustawienia jak ostatnio ({q})" if q else
+                                   "Ctrl Shift R — ustawienia jak ostatnio")
         self.quick_caption.setVisible(not self._rail and not self.record.is_recording())
 
     def quick_record(self):
-        if self.record.is_recording():
-            self._select_key(("record", None))
-            return
+        """Otwiera nową notatkę z ostatnimi ustawieniami – start dopiero po „Start” (w trakcie: wraca do nagrywania)."""
         self._select_key(("record", None))
-        why = self.record.quick_start()
-        if why:
-            self.record._set_status(why)
-            QMessageBox.information(self, "Nagraj jak ostatnio", why)
+        if not self.record.is_recording():
+            self.record.quick_prepare()
 
     # ------------------------------------------------------------------ szybkie przejście (Ctrl+K)
     def quick_jump(self):
