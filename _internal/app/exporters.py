@@ -42,7 +42,8 @@ def export_html(lecture: Lecture) -> Path:
     md, maths = protect(with_toc(lecture.read_text(lecture.notes_path)))
     body = style_web(md_to_html(mark_highlights(md)))
     body = restore(body, maths, lecture.folder / "math", "#1f2328", src_prefix="math/")
-    lang = lecture.meta.language or "pl"
+    from .notes_pipeline import notes_lang
+    lang = notes_lang(lecture)
     doc = (f"<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>"
            f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
            f"<title>{html.escape(lecture.meta.title)}</title><style>{WEB_CSS}</style></head>"

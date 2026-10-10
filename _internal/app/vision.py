@@ -68,13 +68,13 @@ def parse_vision(raw: str) -> dict:
 
 
 def describe_slide(llm, model: str, path, lang: str = "pl", subject: str = "", cancel=None,
-                   keep_alive: str = "5m") -> Optional[dict]:
+                   keep_alive: str = "5m", src: str = "") -> Optional[dict]:
     from .prompts import texts
     b64 = encode_image(path)
     if not b64:
         return None
     subj = f" ({subject})" if subject else ""
-    prompt = texts(lang).vision.format(subject=subj)
+    prompt = texts(lang, src).vision.format(subject=subj)
     raw = llm.chat(model, [{"role": "user", "content": prompt, "images": [b64]}], num_ctx=8192, temperature=0.1,
                    json_mode=True, cancel=cancel, keep_alive=keep_alive)
     return parse_vision(raw)
@@ -82,11 +82,15 @@ def describe_slide(llm, model: str, path, lang: str = "pl", subject: str = "", c
 
 def describe_slides(lecture: Lecture, llm, model: str, lang: str = "pl",
                     progress: Optional[Callable[[str, float], None]] = None,
-                    cancel: Optional[threading.Event] = None) -> int:
-    """Opisuje wszystkie slajdy wykładu, których jeszcze nie opisano tym modelem. Zwraca liczbę nowych opisów."""
+                    cancel: Optional[threading.Event] = None, src: str = "") -> int:
+    """Opisuje wszystkie slajdy wykładu, których jeszcze nie opisano tym modelem w tym języku (lang – język notatek,
+    src – język wykładu). Zwraca liczbę nowych opisów."""
     data = lecture.load_slides()
     slides = data.get("slides", [])
-    todo = [s for s in slides if (s.get("vision") or {}).get("model") != model and s.get("file")]
+
+    def stale(v: dict) -> bool:          # starsze opisy nie mają „lang” – powstały w języku wykładu
+        return v.get("model") != model or v.get("lang", src or lang) != lang
+    todo = [s for s in slides if stale(s.get("vision") or {}) and s.get("file")]
     done = 0
     for k, sl in enumerate(todo, 1):
         if cancel is not None and cancel.is_set():
@@ -97,7 +101,7 @@ def describe_slides(lecture: Lecture, llm, model: str, lang: str = "pl",
         if not path.exists():
             continue
         try:
-            res = describe_slide(llm, model, path, lang, lecture.meta.subject, cancel)
+            res = describe_slide(llm, model, path, lang, lecture.meta.subject, cancel, src=src)
         except Exception as e:  # noqa: BLE001
             from .llm import Cancelled
             if isinstance(e, Cancelled):
@@ -108,7 +112,7 @@ def describe_slides(lecture: Lecture, llm, model: str, lang: str = "pl",
             continue
         if res is None:
             continue
-        sl["vision"] = {"model": model, **res}
+        sl["vision"] = {"model": model, "lang": lang, **res}
         done += 1
         if done % 4 == 0:
             lecture.save_slides(data)

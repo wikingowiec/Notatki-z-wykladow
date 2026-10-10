@@ -51,6 +51,7 @@ class LectureMeta:
     error: str = ""
     parts: list = field(default_factory=list)   # [{"file","offset","duration"}] – kolejne części jednego wykładu
     language: str = ""           # język wykładu (wykryty przez Whisper), np. "pl", "en"
+    notes_language: str = ""     # język notatek ("" = jak wykład), np. wykład "en" → notatki "pl"
     edited: bool = False         # notatki poprawione ręcznie
     kind: str = "av"             # rodzaj notatki: av (dźwięk+slajdy) / audio / slides / files
     phone_pdf: str = ""          # gdzie leży PDF wysłany na telefon (folder chmury)

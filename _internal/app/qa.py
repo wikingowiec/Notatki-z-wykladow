@@ -177,8 +177,12 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
             f"\n\nPYTANIE STUDENTA: {question.strip()}\n\n"
             "Odpowiedz zgodnie z zasadami. Jeśli odpowiedzi nie ma we fragmentach, zwróć status \"brak\".")
     system = SYSTEM_QA
-    if lang and lang != "pl":
-        system += (f"\n\nThe notes are in another language ({lang}). Answer in the language of the question; "
+    if lang and lang != "pl":           # odpowiedź w języku notatek (klucze JSON zostają te same)
+        from .prompts import LANG_EN
+        name = LANG_EN.get(lang, lang)
+        system = system.replace("7. Pisz po polsku, zwięźle i konkretnie.",
+                                f"7. Pisz w języku notatek ({name}), zwięźle i konkretnie.")
+        system += (f"\n\nThe notes are in {name}. Write \"odpowiedz\" and \"brakuje\" in {name}; "
                    "quotes must be copied verbatim from the notes.")
     raw = llm.chat(model, [{"role": "system", "content": system}, {"role": "user", "content": user}],
                    num_ctx=num_ctx, temperature=0.0, json_mode=True, cancel=cancel, keep_alive=keep_alive)

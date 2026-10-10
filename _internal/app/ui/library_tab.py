@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QStyledItemDelegate, Q
 from .. import jobs
 from ..exporters import anchorize, export_anki, export_html, export_pdf, md_to_html
 from ..notes_doc import with_toc
+from ..notes_pipeline import lecture_lang, notes_lang
 from ..storage import Lecture, card_stats, fmt_time, list_lectures, notes_lower, slides_info
 from .controls import (show_if, AdaptiveBox, EmptyState, LectureDelegate, SegmentedControl, StatusPill, SubjectChip, hbox,
                        icon_button, label, set_icon)
@@ -413,6 +414,8 @@ class LibraryTab(QWidget):
         self.btn_more = icon_button("more", "Więcej")
         mm = QMenu(self)
         self.act_regen = mm.addAction("Generuj ponownie", lambda: self.generate_notes())
+        self.menu_regen_lang = mm.addMenu("Generuj ponownie w języku")
+        self.menu_regen_lang.aboutToShow.connect(self._fill_regen_lang)
         mm.addSeparator()
         mm.addAction("Kontynuuj nagrywanie (kolejna część)", lambda: self.current and
                      self.continue_requested.emit(self.current))
@@ -943,8 +946,16 @@ class LibraryTab(QWidget):
         parts = [lecture_date(lec), fmt_time(m.duration) if m.duration else "",
                  (f"{n_slides} slajdów" if n_slides != 1 else "1 slajd") if n_slides else "",
                  (f"{n_topics} tematów" if n_topics != 1 else "1 temat") if n_topics else ""]
+        src, dst = lecture_lang(lec), notes_lang(lec)
+        cross = bool(m.notes_language and m.language and src != dst)
+        if cross:                                               # np. „EN → PL” (wykład po angielsku, notatki po polsku)
+            parts.append(f"{src.upper()} → {dst.upper()}")
         self.meta.setText(" · ".join(x for x in parts if x))
-        self.meta.setToolTip(f"Model notatek: {m.notes_model}" if m.notes_model else "")
+        tips = [f"Model notatek: {m.notes_model}" if m.notes_model else ""]
+        if cross:
+            from ..prompts import LANG_PL
+            tips.append(f"Wykład: {LANG_PL.get(src, src)}, notatki: {LANG_PL.get(dst, dst)}")
+        self.meta.setToolTip("\n".join(t for t in tips if t))
         self.error.setText(f"Ostatnia próba nie powiodła się: {m.error}" if m.error and not busy_here else "")
         show_if(self.error, self.error.text())
         # główny przycisk: nauka z fiszek; bez notatek – generowanie
@@ -955,6 +966,8 @@ class LibraryTab(QWidget):
         self.btn_notes.setEnabled(not self.runner.busy)
         self.act_regen.setText("Generuj ponownie" if has_notes else "Generuj notatki")
         self.act_regen.setEnabled(not self.runner.busy)
+        self.menu_regen_lang.setTitle("Generuj ponownie w języku" if has_notes else "Generuj notatki w języku")
+        self.menu_regen_lang.setEnabled(not self.runner.busy)
         self.notes_empty_btn.setEnabled(not self.runner.busy)
         self.banner.setVisible(busy_here)
         names = ["Notatki", "Ściąga", "Zapytaj", f"Slajdy {n_slides}" if n_slides else "Slajdy", "Transkrypcja",
@@ -1187,7 +1200,7 @@ class LibraryTab(QWidget):
         self.side_ask.anchor_times = {a: times[n][0] for n, _t, a, _tm in sections_of(md) if n in times} \
             if lec.audio_parts() else {}
         self.side_ask.set_source(lambda: lec.read_text(lec.notes_path), lec.folder / "qa.json",
-                                 self.settings.ollama_ctx)
+                                 self.settings.ollama_ctx, lang=lambda: notes_lang(lec))
         self._side_actions_state()
         self.qa_status.setText("")
         self._update_place()
@@ -1422,7 +1435,7 @@ class LibraryTab(QWidget):
         lec = self.current
         if lec.notes_path.exists():
             self.ask_panel.set_source(lambda: lec.read_text(lec.notes_path), lec.folder / "qa.json",
-                                      self.settings.ollama_ctx)
+                                      self.settings.ollama_ctx, lang=lambda: notes_lang(lec))
         else:
             self.ask_panel.set_source(None, None, 0)
 
@@ -1494,7 +1507,26 @@ class LibraryTab(QWidget):
             return False
         return True
 
-    def generate_notes(self, lecture: Lecture | None = None, use_cache: bool = False):
+    def _fill_regen_lang(self):
+        """Podmenu „Generuj ponownie w języku ▸”: Jak wykład / Polski / Angielski / … (zaznaczony obecny)."""
+        from ..prompts import LANG_PL, NOTES_LANGS
+        menu = self.menu_regen_lang
+        menu.clear()
+        lec = self.current
+        if not lec:
+            return
+        src = lecture_lang(lec) if lec.meta.language else ""
+        same = f"Jak wykład ({LANG_PL.get(src, src)})" if src else "Jak wykład"
+        cur = lec.meta.notes_language or ""
+        for code, name in [("", same)] + NOTES_LANGS:
+            a = menu.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(code == cur)
+            a.triggered.connect(lambda _c=False, c=code: self.generate_notes(notes_language=c))
+
+    def generate_notes(self, lecture: Lecture | None = None, use_cache: bool = False,
+                       notes_language: str | None = None):
+        """notes_language: nowy język notatek tego wykładu ("" = jak wykład; None = bez zmian)."""
         lec = lecture if isinstance(lecture, Lecture) else self.current
         if not lec:
             return
@@ -1512,6 +1544,9 @@ class LibraryTab(QWidget):
             QMessageBox.warning(self, "Notatki", "Ten wykład nie ma jeszcze transkrypcji. "
                                                  "Użyj „Więcej → Transkrybuj ponownie z nagrania”.")
             return
+        if notes_language is not None and notes_language != (lec.meta.notes_language or ""):
+            lec.meta.notes_language = notes_language
+            lec.save_meta()
         s = self.settings
         self.ai_log.clear()
         self._run("Generowanie notatek",

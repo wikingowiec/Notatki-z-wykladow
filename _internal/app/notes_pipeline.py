@@ -183,9 +183,20 @@ _LABEL_RE = re.compile(r"^\s*(?:[-*]\s+)?\*\*(" + "|".join(sorted(map(re.escape,
                        + r")\s*:?\s*\*\*\s*:?", re.IGNORECASE)
 
 
+def _latex_dollars(md: str) -> str:
+    """Wzory zapisane przez model jako \\(…\\) i \\[…\\] → $…$ i $$…$$ (tylko taki zapis rozumie czytnik).
+    Wzór w ramce na kilka linii („> \\[”, „> wzór”, „> \\]”) ląduje w jednej linii ramki."""
+    def disp(m):
+        inner = re.sub(r"\n[ \t]*>?[ \t]*", " ", m.group(1)).strip()
+        return f"$${inner}$$"
+    md = re.sub(r"(?<!\\)\\\[(.+?)(?<!\\)\\\]", disp, md, flags=re.DOTALL)      # \\[2pt] w wzorze zostaje
+    return re.sub(r"(?<!\\)\\\((.+?)(?<!\\)\\\)", lambda m: f"${m.group(1).strip()}$", md)
+
+
 def tidy_note(md: str, max_marks: int = 4) -> str:
     """Porządkuje odpowiedź modelu: nagłówki, ramki (> **Definicja:** …) w osobnych akapitach,
     najwyżej kilka zakreśleń ==…==, bez pustych ramek i podwójnych pustych linii."""
+    md = _latex_dollars(md)
     md = _normalize_headings(md)
     out: list[str] = []
     for line in md.splitlines():
@@ -219,6 +230,7 @@ def tidy_note(md: str, max_marks: int = 4) -> str:
         return m.group(0) if count <= max_marks else m.group(1)
     md = re.sub(r"==(?=\S)(.+?)(?<=\S)==", hl, md)
     md = re.sub(r"^>[ \t]*\*\*[^*\n]+:\*\*[ \t]*(?:\n(?!>)|\Z)", "", md, flags=re.MULTILINE)   # pusta ramka
+    md = re.sub(r"^==(?:zakreśleni[ae]|highlight)==[ \t]*$", "", md, flags=re.MULTILINE | re.IGNORECASE)  # echo wzoru
     md = re.sub(r"\n{3,}", "\n\n", md)
     return md.strip()
 
@@ -233,11 +245,22 @@ def attach_marks(sections: list[Section], marks: list[dict]) -> None:
 
 
 def lecture_lang(lecture: Lecture) -> str:
+    """Język wykładu (transkrypcji)."""
     return (lecture.meta.language or "pl").lower()[:2]
 
 
-def section_prompt(sec: Section, i: int, n: int, title: str, subject: str, lang: str = "pl") -> str:
-    T = texts(lang)
+def notes_lang(lecture: Lecture) -> str:
+    """Język notatek: wybrany dla wykładu albo – domyślnie – język wykładu."""
+    return (getattr(lecture.meta, "notes_language", "") or lecture_lang(lecture)).lower()[:2]
+
+
+def lang_key(lang: str, src: str = "") -> str:
+    """Język do klucza pamięci podręcznej: „pl”, a przy wykładzie w innym języku „en>pl”."""
+    return f"{src}>{lang}" if src and src != lang else lang
+
+
+def section_prompt(sec: Section, i: int, n: int, title: str, subject: str, lang: str = "pl", src: str = "") -> str:
+    T = texts(lang, src)
     frag = (f"{T.fragment_of} {i}/{n}" if n else f"{T.fragment_of} {i}")
     parts = [f"{T.subject}: {subject or '—'}", f"{T.lecture}: {title}",
              f"{frag} ({T.time} {fmt_time(sec.start)}–{fmt_time(sec.end)}).", ""]
@@ -255,12 +278,12 @@ def section_prompt(sec: Section, i: int, n: int, title: str, subject: str, lang:
     return "\n".join(parts)
 
 
-def flashcards_prompt(notes: str, k: int, lang: str = "pl") -> str:
-    return texts(lang).flashcards.format(k=k, notes=notes)
+def flashcards_prompt(notes: str, k: int, lang: str = "pl", src: str = "") -> str:
+    return texts(lang, src).flashcards.format(k=k, notes=notes)
 
 
-def summary_prompt(notes: str, title: str, subject: str, lang: str = "pl") -> str:
-    T = texts(lang)
+def summary_prompt(notes: str, title: str, subject: str, lang: str = "pl", src: str = "") -> str:
+    T = texts(lang, src)
     subj = (f" ({T.subject.lower()}: {subject})" if subject else "")
     return T.summary.format(title=title, subject=subj, notes=notes)
 
@@ -286,6 +309,15 @@ def _json_any(text: str):
     return None
 
 
+_TEX_ESC = {"\t": "\\t", "\f": "\\f", "\b": "\\b", "\r": "\\r"}
+
+
+def _fix_tex_escapes(s: str) -> str:
+    """LaTeX w JSON-ie bez podwójnego \\: „\\to”, „\\frac”, „\\beta” czyta się jako tabulator, \\f, \\b + litery.
+    Przywracamy ukośnik (tabulatorów ani tych znaków w fiszkach i tak nie ma)."""
+    return re.sub(r"[\t\f\b\r](?=[A-Za-z])", lambda m: _TEX_ESC[m.group(0)], s)
+
+
 def parse_flashcards(text: str) -> list[dict]:
     data = _json_any(text)
     if data is None:
@@ -306,8 +338,8 @@ def parse_flashcards(text: str) -> list[dict]:
         if not isinstance(it, dict):
             continue
         low = {str(k).lower(): v for k, v in it.items()}
-        q = next((str(low[k]).strip() for k in _Q_KEYS if k in low and low[k]), "")
-        a = next((str(low[k]).strip() for k in _A_KEYS if k in low and low[k]), "")
+        q = _fix_tex_escapes(next((str(low[k]).strip() for k in _Q_KEYS if k in low and low[k]), ""))
+        a = _fix_tex_escapes(next((str(low[k]).strip() for k in _A_KEYS if k in low and low[k]), ""))
         if q and a:
             out.append({"q": q, "a": a})
     return out
@@ -321,6 +353,7 @@ def _est_tokens(text: str) -> int:
 # Pamięć podręczna notatek fragmentów (notatki zrobione na żywo nie są liczone drugi raz)
 # ---------------------------------------------------------------------------
 def section_key(sec: Section, model: str, lang: str = "pl") -> str:
+    """lang: język notatek, a gdy wykład był w innym języku – „en>pl” (patrz lang_key)."""
     import hashlib
     vis = "|".join(it.get("desc", "") for _i, it in sec.visuals)
     return hashlib.sha1(f"v2\n{model}\n{lang}\n{','.join(sec.marks)}\n{sec.text}\n{sec.ocr}\n{vis}"
@@ -342,13 +375,35 @@ def save_cache(lecture: Lecture, cache: dict) -> None:
 
 
 def section_note(llm, model: str, sec: Section, i: int, n: int, title: str, subject: str, num_ctx: int,
-                 cancel=None, on_token=None, keep_alive: str = "10m", lang: str = "pl") -> str:
+                 cancel=None, on_token=None, keep_alive: str = "10m", lang: str = "pl", src: str = "") -> str:
     if sec.words < 15 and not sec.ocr:
         return ""
-    raw = llm.chat(model, [{"role": "system", "content": texts(lang).system},
-                           {"role": "user", "content": section_prompt(sec, i, n, title, subject, lang)}],
+    raw = llm.chat(model, [{"role": "system", "content": texts(lang, src).system},
+                           {"role": "user", "content": section_prompt(sec, i, n, title, subject, lang, src)}],
                    num_ctx=num_ctx, cancel=cancel, on_token=on_token, keep_alive=keep_alive)
-    return tidy_note(raw)
+    note = tidy_note(raw)
+    return localize_labels(note, lang) if src and src != lang else note
+
+
+# etykiety ramek w języku notatek (wykład w innym języku – model czasem bierze etykiety z oryginału)
+BOX_LABELS = {
+    "pl": {"def": "Definicja", "formula": "Wzór", "example": "Przykład", "important": "Ważne",
+           "slide": "Na slajdzie", "lead": "W skrócie"},
+    "en": {"def": "Definition", "formula": "Formula", "example": "Example", "important": "Important",
+           "slide": "On the slide", "lead": "In short"},
+}
+
+
+def localize_labels(md: str, lang: str) -> str:
+    """> **Example:** → > **Przykład:** (i odwrotnie) – etykiety ramek i „W skrócie” w języku notatek."""
+    names = BOX_LABELS.get(lang)
+    if not names:
+        return md
+
+    def fix(m):
+        kind = CALLOUT_LABELS.get(m.group(2).lower())
+        return f"{m.group(1)}**{names[kind]}:**" if kind in names else m.group(0)
+    return re.sub(r"^(\s*(?:>\s*)?)\*\*([^*\n]{2,20}?)\s*:\s*\*\*", fix, md, flags=re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------
@@ -380,14 +435,16 @@ def exam_snippets(segments: list[dict], marks: list[dict], lang: str) -> list[tu
 
 
 def extract_exam_info(llm, model: str, segments: list[dict], marks: list[dict], lang: str, num_ctx: int,
-                      cancel=None) -> list[str]:
-    snippets = exam_snippets(segments, marks, lang)
+                      cancel=None, src: str = "") -> list[str]:
+    """lang – język notatek (odpowiedź), src – język wykładu (słowa-klucze szukane w transkrypcji)."""
+    snippets = exam_snippets(segments, marks, src or lang)
     if not snippets:
         return []
     block = "\n\n".join(f"[{fmt_time(t)}] {txt}" for t, txt in snippets)
     block = block[: int(num_ctx * 0.5 * 3)]
-    raw = llm.chat(model, [{"role": "system", "content": texts(lang).system},
-                           {"role": "user", "content": texts(lang).exam_extract.format(snippets=block)}],
+    T = texts(lang, src)
+    raw = llm.chat(model, [{"role": "system", "content": T.system},
+                           {"role": "user", "content": T.exam_extract.format(snippets=block)}],
                    num_ctx=num_ctx, cancel=cancel, json_mode=True, temperature=0.1)
     data = _json_any(raw)
     items = []
@@ -399,6 +456,43 @@ def extract_exam_info(llm, model: str, segments: list[dict], marks: list[dict], 
     elif isinstance(data, list):
         items = data
     return [x.strip() for x in items if isinstance(x, str) and x.strip()][:20]
+
+
+_HEAD_RE = re.compile(r"^\s*###\s+(.+?)[ \t]*(?:\n|$)")
+
+
+def translate_titles(llm, model: str, notes: list[str], lang: str, src: str, num_ctx: int,
+                     cancel=None) -> list[str]:
+    """Nagłówki ### fragmentów w języku notatek (model czasem przepisuje tytuł slajdu w oryginale).
+    Jedno krótkie wywołanie na cały wykład; przy niepewnej odpowiedzi notatki zostają bez zmian."""
+    from .prompts import LANG_EN, LANG_PL
+    heads = [(i, m.group(1)) for i, n in enumerate(notes) if n and (m := _HEAD_RE.match(n))]
+    if not heads:
+        return notes
+    listing = "\n".join(f"{k}. {t}" for k, (_i, t) in enumerate(heads, 1))
+    if lang == "pl":
+        prompt = (f"Poniżej nagłówki tematów z notatek do wykładu prowadzonego w języku: {LANG_PL.get(src, src)}.\n"
+                  f"{listing}\n\nKażdy nagłówek ma być po polsku: przetłumacz te, które są w innym języku "
+                  "(przyjętą polską terminologią), a polskie zostaw bez zmian. Zachowaj liczbę i kolejność.\n"
+                  'Zwróć wyłącznie JSON: {"naglowki": ["…", "…"]}')
+    else:
+        name = LANG_EN.get(lang, lang)
+        prompt = (f"Below are topic headings of notes from a lecture given in {LANG_EN.get(src, src)}.\n"
+                  f"{listing}\n\nEvery heading must be in {name}: translate the ones in another language "
+                  f"(established {name} terminology) and keep the {name} ones unchanged. Keep the number and order.\n"
+                  'Return JSON only: {"headings": ["…", "…"]}')
+    raw = llm.chat(model, [{"role": "user", "content": prompt}], num_ctx=num_ctx, json_mode=True,
+                   temperature=0.1, cancel=cancel)
+    data = _json_any(raw)
+    items = next((v for v in data.values() if isinstance(v, list)), []) if isinstance(data, dict) else data
+    if not isinstance(items, list) or len(items) != len(heads):
+        return notes
+    out = list(notes)
+    for (i, old), new in zip(heads, items):
+        new = re.sub(r"^\s*(?:\d+[.)]\s*|#+\s*)", "", str(new)).strip()
+        if new and len(new) <= 120 and "\n" not in new:
+            out[i] = _HEAD_RE.sub(lambda _m: f"### {new}\n", out[i], count=1)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -415,15 +509,16 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
             progress(msg, frac)
 
     title, subject = lecture.meta.title, lecture.meta.subject
-    lang = lecture_lang(lecture)
-    T = texts(lang)
+    src, lang = lecture_lang(lecture), notes_lang(lecture)     # język wykładu i język notatek
+    lk = lang_key(lang, src)
+    T = texts(lang, src)
     names = mark_names(lang)
     segments = lecture.load_segments()
     # --- opisy slajdów (obrazy, schematy, wykresy) modelem widzącym obrazy ---
     if vision_model and lecture.load_slides().get("slides"):
         from .vision import describe_slides
         try:
-            describe_slides(lecture, llm, vision_model, lang,
+            describe_slides(lecture, llm, vision_model, lang, src=src,
                             progress=lambda m, f: prog(m, 0.01 + 0.14 * max(0.0, f)), cancel=cancel)
         except Exception as e:  # noqa: BLE001
             if cancel is not None and cancel.is_set():
@@ -447,11 +542,11 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     new_cache: dict = dict(load_cache(lecture))
     notes: list[str] = []
     for i, sec in enumerate(sections, 1):
-        key = section_key(sec, model, lang)
+        key = section_key(sec, model, lk)
         if key in cache:
             notes.append(cache[key])
             continue
-        alt = next((cache[k] for k in (section_key(sec, m, lang) for m in (reuse_models or []) if m != model)
+        alt = next((cache[k] for k in (section_key(sec, m, lk) for m in (reuse_models or []) if m != model)
                     if k in cache), None)
         if alt:
             notes.append(alt)
@@ -459,13 +554,23 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
         prog(f"Notatki: fragment {i}/{n}", 0.15 + 0.40 * (i - 1) / n)
         if on_token:
             on_token(f"\n\n— fragment {i}/{n} —\n")
-        note = section_note(llm, model, sec, i, n, title, subject, num_ctx, cancel, on_token, lang=lang)
+        note = section_note(llm, model, sec, i, n, title, subject, num_ctx, cancel, on_token, lang=lang, src=src)
         notes.append(note)
         new_cache[key] = note
         try:
             save_cache(lecture, new_cache)
         except OSError:
             pass
+
+    # --- wykład w innym języku: nagłówki tematów, które model zostawił w oryginale, w języku notatek ---
+    if src != lang:
+        prog("Nagłówki tematów w języku notatek…", 0.555)
+        try:
+            notes = translate_titles(llm, model, notes, lang, src, num_ctx, cancel)
+        except Exception as e:  # noqa: BLE001
+            if cancel is not None and cancel.is_set():
+                raise
+            log.warning("tłumaczenie nagłówków: %s", e)
 
     # --- zaznaczone fragmenty ---
     marked_notes: list[tuple[dict, str]] = []
@@ -486,7 +591,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     # --- informacje o egzaminie ---
     prog("Szukam informacji o egzaminie…", 0.58)
     try:
-        exam_items = extract_exam_info(llm, model, segments, marks, lang, num_ctx, cancel)
+        exam_items = extract_exam_info(llm, model, segments, marks, lang, num_ctx, cancel, src=src)
     except Exception as e:  # noqa: BLE001
         if cancel is not None and cancel.is_set():
             raise
@@ -539,7 +644,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
         share = max(sec.words, 60) / total_words
         k = max(1, min(cards_per_section, round(target * share))) + (1 if sec.marks else 0)
         try:
-            raw = chat(flashcards_prompt(note, k, lang), json_mode=True, temperature=0.2)
+            raw = chat(flashcards_prompt(note, k, lang, src), json_mode=True, temperature=0.2)
         except Exception as e:  # noqa: BLE001
             if cancel is not None and cancel.is_set():
                 raise
@@ -582,7 +687,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
             prog(f"Podsumowanie: skracanie części {j}/{len(chunks)}", 0.86 + 0.06 * j / len(chunks))
             condensed.append(chat(condense_prompt(ch, lang)))
         all_notes = "\n\n".join(condensed)
-    summary = chat(summary_prompt(all_notes, title, subject, lang), on_token=on_token)
+    summary = chat(summary_prompt(all_notes, title, subject, lang, src), on_token=on_token)
     summary = re.sub(r"^```(?:markdown|md)?\s*|\s*```$", "", summary.strip()).strip()
     summary = re.sub(r"^#\s+[^\n]*\n+", "", summary)       # tytuł dopisany przez model
     summary = re.sub(r"^###\s+", "## ", summary, flags=re.MULTILINE)
@@ -609,12 +714,27 @@ def _first_line(md: str, limit: int = 240) -> str:
             continue
         t = re.sub(r"^(?:(?:[-*]|\d+\.)\s+|>\s*)+", "", t)
         t = re.sub(r"^\*\*[^*]{2,30}:\*\*\s*", "", t).strip()
+        if re.match(r"(?i)((oto|poniżej|here is|below is)\b.*:|o czym (to|jest)\b.{0,30}\?)$", t):   # wstęp modelu
+            continue
         if len(t) > 8:
             return t if len(t) <= limit else t[:limit].rsplit(" ", 1)[0] + "…"
     return ""
 
 
-def mark_boxes(marks: list[dict], marked_notes: Optional[list], start: float, end: float, lang: str) -> list[str]:
+_QUOTE_RE = re.compile(r"^\s*>\s*\**\s*([„\"“«][^\n]{8,}?[”\"»])", re.MULTILINE)
+
+
+def _orig_quote(md: str, limit: int = 220) -> str:
+    """Cytat w języku wykładu (linia > „…” w notatce zaznaczenia) – do ramki „zaznaczone przez Ciebie”."""
+    m = _QUOTE_RE.search(md or "")
+    if not m:
+        return ""
+    q = m.group(1).strip()
+    return q if len(q) <= limit else q[:limit].rsplit(" ", 1)[0] + "…”"
+
+
+def mark_boxes(marks: list[dict], marked_notes: Optional[list], start: float, end: float, lang: str,
+               src: str = "") -> list[str]:
     """Ramki „Ważne · zaznaczone przez Ciebie 31:40” dla zaznaczeń w zakresie [start, end)."""
     from .notes_style import LABELS
     names = mark_names(lang)
@@ -630,15 +750,20 @@ def mark_boxes(marks: list[dict], marked_notes: Optional[list], start: float, en
             "Important" if lang == "en" else "Ważne")
         who = "marked by you" if lang == "en" else "zaznaczone przez Ciebie"
         extra = f" ({name})" if name and name != label else ""
-        body = _first_line(bodies.get(id(mk)) or by_id.get(mk.get("id")) or "")
-        out += [f"> **{label}:** *{who}{extra} · {fmt_time(t)}*" + (f" — {body}" if body else ""), ""]
+        note = bodies.get(id(mk)) or by_id.get(mk.get("id")) or ""
+        body = _first_line(note)
+        out.append(f"> **{label}:** *{who}{extra} · {fmt_time(t)}*" + (f" — {body}" if body else ""))
+        quote = _orig_quote(note) if src and src != lang else ""      # słowa prowadzącego w języku wykładu
+        if quote:
+            out += [">", f"> *{quote}*"]
+        out.append("")
     return out
 
 
 def assemble_markdown(lecture: Lecture, sections: list[Section], notes: list[str], summary: str,
                       marked_notes: Optional[list] = None, exam_items: Optional[list] = None,
                       marks: Optional[list] = None) -> str:
-    lang = lecture_lang(lecture)
+    src, lang = lecture_lang(lecture), notes_lang(lecture)
     T = texts(lang)
     names = mark_names(lang)
     m = lecture.meta
@@ -697,6 +822,6 @@ def assemble_markdown(lecture: Lecture, sections: list[Section], notes: list[str
             elif f:
                 out += [f"*({T.revisit} {sl.get('index')})*", ""]
         if marks:
-            out += mark_boxes(marks, marked_notes, sec.start, sec.end if i < len(sections) else 1e12, lang)
+            out += mark_boxes(marks, marked_notes, sec.start, sec.end if i < len(sections) else 1e12, lang, src)
         out += [body or T.no_speech, ""]
     return "\n".join(out).strip() + "\n"
