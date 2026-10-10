@@ -34,6 +34,7 @@ class AskPanel(QStackedWidget):
         self.get_md: Optional[Callable[[], str]] = None
         self.history_path: Optional[Path] = None
         self.num_ctx = 0
+        self.lang: Callable[[], str] | str = ""     # język notatek – w nim odpowiada model
         self.anchor_times: dict = {}      # kotwica tematu → sekunda nagrania (link „▶ 44:58”)
         self.compact = False
         self._asking = False
@@ -73,9 +74,10 @@ class AskPanel(QStackedWidget):
         self.addWidget(self.empty)
 
     # ------------------------------------------------------------------
-    def set_source(self, get_md: Optional[Callable[[], str]], history_path: Optional[Path], num_ctx: int):
+    def set_source(self, get_md: Optional[Callable[[], str]], history_path: Optional[Path], num_ctx: int,
+                   lang: Callable[[], str] | str = ""):
         self._token += 1
-        self.get_md, self.history_path, self.num_ctx = get_md, history_path, num_ctx
+        self.get_md, self.history_path, self.num_ctx, self.lang = get_md, history_path, num_ctx, lang
         self._asking = False
         self.btn.setEnabled(True)
         self.input.setEnabled(True)
@@ -157,6 +159,7 @@ class AskPanel(QStackedWidget):
         self.btn.setEnabled(False)
         self.input.setEnabled(False)
         path, token, get_md, ctx = self.history_path, self._token, self.get_md, self.num_ctx
+        lang = self.lang() if callable(self.lang) else self.lang
         history = qa.load_history(path) if path else []
         self.render(history, pending=q)
         s = self.settings
@@ -170,7 +173,7 @@ class AskPanel(QStackedWidget):
                 a = qa.Answer(question=q, status="blad", answer="Ollama nie działa – uruchom ją i spróbuj ponownie.")
             else:
                 a = qa.ask(get_md(), q, llm, s.ollama_model, num_ctx=ctx,
-                           keep_alive="30m" if self.live else "10m")
+                           keep_alive="30m" if self.live else "10m", lang=lang)
             return qa.to_dict(a)
 
         def done(ans: dict):

@@ -254,8 +254,8 @@ class SettingsTab(QWidget):
         b_gpu = QPushButton("Sprawdź")
         b_gpu.clicked.connect(self._check_gpu)
         g = GroupSection("Transkrypcja", "Rozpoznawanie mowy (Whisper) działa lokalnie na komputerze.")
-        g.add_row("Język wykładów", self.lang, "Notatki, fiszki i podsumowanie powstają w języku wykładu – "
-                                              "wykład po angielsku da notatki po angielsku.")
+        g.add_row("Język wykładów", self.lang, "Język, w którym mówi prowadzący. Transkrypcja zawsze zostaje w tym "
+                                              "języku – język notatek ustawisz w „Notatki AI”.")
         g.add_row("Model", self.w_model, "Dokładniejszy model = lepszy tekst, ale większe obciążenie karty.")
         g.add_row("Dokładność", self.beam, "„Szybko” rozpoznaje mowę ok. 2× szybciej kosztem drobnych pomyłek.")
         g.add_row("Urządzenie", self.w_device)
@@ -337,6 +337,12 @@ class SettingsTab(QWidget):
         g = GroupSection("Notatki AI", "Notatki tworzy lokalny model w programie Ollama – bez internetu i bez opłat. "
                                        "Polecane: " + "; ".join(d for _m, d in RECOMMENDED_MODELS) + ".")
         g.add_row("Stan", hbox(self.ai_dot, self.ai_text, b_ai, spacing=8), stretch=True)
+        from ..prompts import NOTES_LANGS
+        self.notes_lang = combo([("", "Jak wykład")] + NOTES_LANGS, self.s.notes_language or "")
+        g.add_row("Język notatek", self.notes_lang,
+                  "Domyślny język notatek, fiszek i podsumowania. „Jak wykład” – w języku, w którym mówi prowadzący. "
+                  "Inny język: terminy fachowe dostaną oryginał w nawiasie, a cytaty i definicje słowo w słowo "
+                  "zostaną w oryginale. Możesz to zmienić przy każdej notatce.")
         self.model_row = g.add_row("Model notatek (po wykładzie)", hbox(self.model, self.btn_pull, spacing=6))
         self.model_row.subtitle.setText("Mocniejszy model – pełna notatka, podsumowanie, fiszki, pytania i egzaminy.")
         self.model_row.subtitle.show()
@@ -399,7 +405,7 @@ class SettingsTab(QWidget):
             w.toggled.connect(self.save)
         self.vision_model.currentIndexChanged.connect(self.save)
         self.vision_model.editTextChanged.connect(self.save)
-        for w in (self.w_model, self.lang, self.w_device, self.audio_backend, self.ctx, self.beam):
+        for w in (self.w_model, self.lang, self.notes_lang, self.w_device, self.audio_backend, self.ctx, self.beam):
             w.currentIndexChanged.connect(self.save)
         for w in (self.chunk, self.cards):
             w.valueChanged.connect(self.save)
@@ -785,6 +791,7 @@ class SettingsTab(QWidget):
         s.whisper_model = self.w_model.currentData()
         s.whisper_device = self.w_device.currentData()
         s.language = self.lang.currentData()
+        s.notes_language = self.notes_lang.currentData() or ""
         s.live_chunk_seconds = float(self.chunk.value())
         s.whisper_beam = int(self.beam.currentData())
         s.reuse_live_notes = self.reuse.isChecked()

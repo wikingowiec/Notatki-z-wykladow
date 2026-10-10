@@ -10,8 +10,8 @@ import logging
 import threading
 from typing import Callable, Optional
 
-from .notes_pipeline import (assemble_markdown, attach_marks, build_sections, lecture_lang, load_cache, save_cache,
-                             section_key, section_note)
+from .notes_pipeline import (assemble_markdown, attach_marks, build_sections, lang_key, lecture_lang, load_cache,
+                             notes_lang, save_cache, section_key, section_note)
 from .prompts import texts
 from .storage import Lecture
 
@@ -81,7 +81,8 @@ class LiveNotes:
         slides = self.lecture.load_slides()
         sections = build_sections(segs, slides, segs[-1]["end"])
         attach_marks(sections, self.lecture.load_marks())
-        lang = lecture_lang(self.lecture)
+        src, lang = lecture_lang(self.lecture), notes_lang(self.lecture)   # język wykładu i notatek
+        lk = lang_key(lang, src)
         closed = sections if final else sections[:-1]
         if sections and not final:
             with self._lock:
@@ -92,29 +93,29 @@ class LiveNotes:
         for i, sec in enumerate(closed, 1):
             if self._stop.is_set():
                 break
-            key = section_key(sec, self.model, lang)
+            key = section_key(sec, self.model, lk)
             if key in self.cache:
                 continue
             self.busy = True
             self.on_status(f"Notatki na żywo: piszę fragment {i}…")
             try:
                 note = section_note(self.llm, self.model, sec, i, 0, title, subject, self.ctx,
-                                    cancel=self._stop, keep_alive="30m", lang=lang)
+                                    cancel=self._stop, keep_alive="30m", lang=lang, src=src)
             finally:
                 self.busy = False
             self.cache[key] = note
             save_cache(self.lecture, self.cache)
             changed = True
-            self._write(closed, lang)
+            self._write(closed, lang, lk)
         if changed:
-            self.done_sections = sum(1 for s in closed if section_key(s, self.model, lang) in self.cache)
+            self.done_sections = sum(1 for s in closed if section_key(s, self.model, lk) in self.cache)
             self.on_status(f"Notatki na żywo: gotowe fragmenty – {self.done_sections}. "
                            "Następny po zmianie slajdu albo po kilku minutach.")
             self.on_update()
         return changed
 
-    def _write(self, closed, lang: str):
-        notes = [self.cache.get(section_key(s, self.model, lang), "") for s in closed]
+    def _write(self, closed, lang: str, lk: str):
+        notes = [self.cache.get(section_key(s, self.model, lk), "") for s in closed]
         md = assemble_markdown(self.lecture, closed, notes, texts(lang).live_banner, marks=self.lecture.load_marks())
         tmp = self.lecture.notes_path.with_suffix(".tmp")
         tmp.write_text(md, encoding="utf-8")

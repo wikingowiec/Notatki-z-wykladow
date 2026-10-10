@@ -272,7 +272,15 @@ class RecordTab(QWidget):
             self.lang_combo.addItem(name, code)
         i = self.lang_combo.findData(self.settings.language)
         self.lang_combo.setCurrentIndex(max(0, i))
-        g3.add_row("Język wykładu", self.lang_combo, "Notatki powstaną w tym języku.")
+        g3.add_row("Język wykładu", self.lang_combo, "Język, w którym mówi prowadzący – w nim powstanie transkrypcja.")
+        from ..prompts import NOTES_LANGS
+        self.notes_lang_combo = QComboBox()
+        for code, name in [("", "Jak wykład")] + NOTES_LANGS:
+            self.notes_lang_combo.addItem(name, code)
+        self.set_notes_lang(self.settings.notes_language)
+        g3.add_row("Język notatek", self.notes_lang_combo,
+                   "Notatki, fiszki i podsumowanie powstaną w tym języku – np. wykład po angielsku, notatki po polsku. "
+                   "Terminy fachowe dostaną oryginał w nawiasie.")
         self.row_live = g3.add_row("Transkrypcja na żywo", self.live_cb,
                    "Tekst pojawia się w trakcie wykładu. Wyłącz, by odciążyć kartę graficzną – transkrypcja zrobi się po zakończeniu.")
         self.live_notes_cb = ToggleSwitch(self.settings.live_notes)
@@ -612,6 +620,7 @@ class RecordTab(QWidget):
             lang = self.lang_combo.currentData()
             if lang not in ("", "auto"):
                 lecture.meta.language = lang
+            lecture.meta.notes_language = self._remember_notes_lang()
             lecture.save_meta()
         self.files_requested.emit(lecture, audio, photos, self.straighten_cb.isChecked(), rois)
         self.audio_files.clear()
@@ -1195,6 +1204,20 @@ class RecordTab(QWidget):
             self.rois.pop(self._video_key(info), None)
             self._render_preview()
 
+    # ------------------------------------------------------------------ język notatek
+    def set_notes_lang(self, code: str):
+        i = self.notes_lang_combo.findData(code or "")
+        self.notes_lang_combo.setCurrentIndex(max(0, i))
+
+    def _remember_notes_lang(self) -> str:
+        """Wybrany język notatek ("" = jak wykład) – zapamiętany w last_rec na następny raz."""
+        code = self.notes_lang_combo.currentData() or ""
+        lr = self.settings.last_rec or {}
+        lr["notes_language"] = code
+        self.settings.last_rec = lr
+        self.settings.save()
+        return code
+
     # ------------------------------------------------------------------ nagraj jak ostatnio
     def quick_label(self) -> str:
         """„Teams + Monitor 1” – co wypełni Ctrl+Shift+R (pusty tekst, gdy jeszcze nic nie nagrywano)."""
@@ -1216,6 +1239,7 @@ class RecordTab(QWidget):
             return
         self.modes[mode].setChecked(True)
         self.subject.setEditText(lr.get("subject", self.settings.last_subject) or "")
+        self.set_notes_lang(lr.get("notes_language", self.settings.notes_language))
         want_v = lr.get("video") if mode in ("av", "slides") else None
         if want_v and lr.get("roi"):
             self.rois[want_v["key"]] = tuple(lr["roi"])
@@ -1304,6 +1328,7 @@ class RecordTab(QWidget):
             "video": ({"key": self._video_key(video), "label": short_video(video)} if video else None),
             "roi": list(roi) if roi else None,
             "subject": subject,
+            "notes_language": self.notes_lang_combo.currentData() or "",
         }
         self.settings.save()
         self._want_audio = self._want_video = None
@@ -1319,6 +1344,7 @@ class RecordTab(QWidget):
         else:
             lecture = Lecture.create(self.settings.library_path(), self.title.text(), subject)
             lecture.meta.kind = mode
+            lecture.meta.notes_language = self.notes_lang_combo.currentData() or ""
             lecture.save_meta()
         self.transcript.clear()
         self.slides.clear()
@@ -1432,7 +1458,9 @@ class RecordTab(QWidget):
             segs = lec.load_segments()     # bez notatek na żywo – pytania do samej transkrypcji
             from ..live_notes import LIVE_HEADING
             return f"# {lec.meta.title}\n\n## {LIVE_HEADING}\n\n" + " ".join(x["text"] for x in segs[-400:])
-        self.live_ask.set_source(get_md, lec.folder / "qa.json", int(self.settings.live_ctx))
+        from ..notes_pipeline import notes_lang
+        self.live_ask.set_source(get_md, lec.folder / "qa.json", int(self.settings.live_ctx),
+                                 lang=lambda: notes_lang(lec))
         if self._live_mode == "narrow":
             self._narrow_tab(0 if sess.audio_info is not None else 1)
 

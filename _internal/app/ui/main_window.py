@@ -376,6 +376,7 @@ class MainWindow(QMainWindow):
         self._rec_timer.setInterval(1000)
         self._rec_timer.timeout.connect(self._update_rec_item)
         self._lib_dir = settings.library_dir
+        self._notes_lang = settings.notes_language
 
         self.rebuild_nav()
         self._update_quick()
@@ -743,6 +744,9 @@ class MainWindow(QMainWindow):
     def _settings_saved(self):
         if not self.record.is_recording():
             self.record.live_notes_cb.setChecked(self.settings.live_notes)
+        if self.settings.notes_language != self._notes_lang:      # nowy domyślny język notatek → formularz
+            self._notes_lang = self.settings.notes_language
+            self.record.set_notes_lang(self._notes_lang)
         if self.settings.library_dir != self._lib_dir:
             self._lib_dir = self.settings.library_dir
             self.rebuild_nav()

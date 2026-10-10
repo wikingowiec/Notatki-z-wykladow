@@ -34,7 +34,7 @@ class Settings:
     # Transkrypcja (faster-whisper)
     whisper_model: str = "large-v3"          # large-v3 / large-v3-turbo / medium / small
     whisper_device: str = "auto"             # auto / cuda / cpu
-    language: str = "auto"                   # "auto" (wykryj), "pl", "en", … – notatki powstają w języku wykładu
+    language: str = "auto"                   # "auto" (wykryj), "pl", "en", … – język, w którym mówi prowadzący
     live_chunk_seconds: float = 20.0         # co ile sekund transkrybować na żywo
     whisper_beam: int = 5                    # 1 = najszybciej, 5 = najdokładniej
     whisper_batch: int = 8                   # ile fragmentów naraz przy transkrypcji pliku
@@ -63,6 +63,7 @@ class Settings:
     live_ctx: int = 8192                     # kontekst modelu w trakcie nagrywania (mniej pamięci GPU)
     reuse_live_notes: bool = False           # po wykładzie zostaw fragmenty napisane na żywo (szybciej)
     flashcards_per_section: int = 4
+    notes_language: str = ""                 # domyślny język notatek: "" = jak wykład, "pl", "en", …
     describe_slides: bool = True             # opisuj obrazy/schematy/wykresy na slajdach (model widzący obrazy)
     vision_model: str = "qwen3-vl:8b-instruct"
 
