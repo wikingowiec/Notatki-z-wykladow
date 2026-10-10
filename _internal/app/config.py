@@ -1,8 +1,7 @@
-"""Ustawienia aplikacji (zapisywane w %APPDATA%/WykladyAI/settings.json)."""
+"""Ustawienia aplikacji (settings.json w %APPDATA%/WykladyAI, na Macu w ~/Library/Application Support/WykladyAI)."""
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
@@ -11,10 +10,8 @@ APP_ID = "WykladyAI"
 
 
 def _appdata_dir() -> Path:
-    base = os.environ.get("APPDATA")
-    p = Path(base) / APP_ID if base else Path.home() / f".{APP_ID.lower()}"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    from .system import data_dir
+    return data_dir()
 
 
 def _default_library() -> str:
@@ -38,6 +35,7 @@ class Settings:
     live_chunk_seconds: float = 20.0         # co ile sekund transkrybować na żywo
     whisper_beam: int = 5                    # 1 = najszybciej, 5 = najdokładniej
     whisper_batch: int = 8                   # ile fragmentów naraz przy transkrypcji pliku
+    whisper_backend: str = "faster-whisper"  # silnik mowy; na Macu w przyszłości "mlx" (mlx-whisper na GPU Apple)
 
     # Wydajność: profil sprzętu (lekki / zrownowazony / pelna, "" = własne) i wynik wykrywania sprzętu
     hw_profile: str = ""
@@ -47,7 +45,7 @@ class Settings:
     slide_interval: float = 1.0              # co ile sekund sprawdzać ekran
     slide_sensitivity: float = 0.05          # ułamek zmienionych pikseli uznawany za nowy slajd
     slide_stable_seconds: float = 1.5        # ile sekund obraz musi stać, żeby zapisać slajd
-    ocr_enabled: bool = True                 # OCR slajdów (Windows OCR, jeśli dostępny)
+    ocr_enabled: bool = True                 # OCR slajdów (Windows OCR / Apple Vision, jeśli dostępny)
 
     # Audio
     audio_backend: str = "auto"              # auto / proctap / native

@@ -5,6 +5,7 @@ import html
 import logging
 import shutil
 import threading
+from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
@@ -13,18 +14,46 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QLab
                                QMessageBox, QPushButton, QScrollArea, QSplitter, QStackedWidget,
                                QVBoxLayout, QWidget)
 
-from ..screen_capture import VideoSourceInfo, list_monitors, list_windows, make_grabber
-from ..session import RecordingSession
 from ..storage import Lecture, fmt_time, list_lectures
+from ..system import IS_MAC, LIVE_RECORDING
 from .ask_panel import AskPanel
-from .audio_picker import AudioSourcePicker
 from .reader import Reader
 from .controls import (show_if, ModeCard, SegmentedControl, GroupSection, LevelMeter, PulseDot, RecordButton, ToggleSwitch, hbox, icon_button, label,
                        rounded_pixmap, set_icon)
 from .theme import T, qcolor, theme
 from .widgets import RoiDialog, ask_video_roi, bgr_to_qpixmap, run_async
 
+if TYPE_CHECKING:     # moduły nagrywania (WASAPI / Core Audio, zrzuty ekranu) ładują się tylko z nagrywaniem na żywo
+    from ..screen_capture import VideoSourceInfo
+    from ..session import RecordingSession
+
 log = logging.getLogger(__name__)
+SOON_TIP = ("Nagrywanie na żywo na Macu wymaga macOS 14.4 (Sonoma) lub nowszego. Zaktualizuj system albo dodaj "
+            "nagranie lub wideo z pliku.")
+
+
+class _NoAudioPicker(QWidget):
+    """Zamiennik wyboru dźwięku tam, gdzie nie ma nagrywania na żywo (macOS starszy niż 14.4) – nic nie wylicza
+    i nic nie nagrywa."""
+    loaded = Signal()
+    picked = Signal()
+    current_changed = Signal()
+    sources: list = []
+
+    def refresh(self):
+        pass
+
+    def current(self):
+        return None
+
+    def set_current(self, _i: int):
+        pass
+
+    def start_monitor(self):
+        pass
+
+    def stop_monitor(self):
+        pass
 
 
 class _Host(QWidget):
@@ -150,8 +179,9 @@ class RecordTab(QWidget):
         self._prev_timer.setInterval(120)
         self._prev_timer.timeout.connect(self._render_preview)
         self.refresh_subjects()
-        QTimer.singleShot(150, self.refresh_audio)
-        QTimer.singleShot(200, self.refresh_video)
+        if LIVE_RECORDING:
+            QTimer.singleShot(150, self.refresh_audio)
+            QTimer.singleShot(200, self.refresh_video)
 
     # ------------------------------------------------------------------ widok: przygotowanie
     def _build_setup(self) -> QWidget:
@@ -181,6 +211,9 @@ class RecordTab(QWidget):
         peers = list(self.modes.values())
         for c in peers:
             c.peers = peers
+        if not LIVE_RECORDING:
+            for key in ("av", "audio", "slides"):
+                self.modes[key].set_soon("Wymaga macOS 14.4", SOON_TIP)
         self.mode_grid = QGridLayout()
         self.mode_grid.setSpacing(8)
         self._mode_cols = 0
@@ -202,6 +235,14 @@ class RecordTab(QWidget):
         cb.addWidget(btn_cc)
         self.cont_banner.hide()
         v.addWidget(self.cont_banner)
+        # Mac: brakujące zgody (mikrofon, dźwięk aplikacji, ekran) z wyjaśnieniem i przyciskiem do Ustawień
+        self.perm_panel = None
+        if IS_MAC and LIVE_RECORDING:
+            from .permission_panel import PermissionPanel
+            self.perm_panel = PermissionPanel()
+            self.perm_panel.changed.connect(self._perms_changed)
+            self.perm_panel.restart_requested.connect(self._restart_app)
+            v.addWidget(self.perm_panel)
 
         # Wykład
         self.title = QLineEdit()
@@ -217,8 +258,13 @@ class RecordTab(QWidget):
         self.g_lecture = g1
 
         # Źródła
-        self.audio_picker = AudioSourcePicker()
+        if LIVE_RECORDING:
+            from .audio_picker import AudioSourcePicker
+            self.audio_picker = AudioSourcePicker()
+        else:
+            self.audio_picker = _NoAudioPicker()
         self.audio_picker.loaded.connect(self._apply_audio)
+        self.audio_picker.current_changed.connect(self._update_perms)
         self.video_combo = QComboBox()
         self.video_combo.setMinimumWidth(200)
         self.video_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -343,8 +389,9 @@ class RecordTab(QWidget):
         pl.setSpacing(0)
         pl.addWidget(scroll, 1)
         pl.addWidget(footer)
-        self.modes["av"].setChecked(True)
-        self.set_mode("av")
+        first = "av" if LIVE_RECORDING else "files"
+        self.modes[first].setChecked(True)
+        self.set_mode(first)
         return page
 
     # ------------------------------------------------------------------ układ zależny od szerokości
@@ -597,6 +644,52 @@ class RecordTab(QWidget):
         }[mode])
         if mode in ("av", "slides") and self._preview_img is None:
             QTimer.singleShot(50, self._video_changed)
+        self._update_perms()
+
+    # ------------------------------------------------------------------ zgody macOS
+    def _update_perms(self):
+        if self.perm_panel is None:
+            return
+        from ..mac_permissions import needed
+        cur = self.audio_picker.current()
+        self.perm_panel.set_needed(needed(self.mode, cur.kind if cur is not None else None))
+
+    def _perms_changed(self):
+        """Po udzieleniu zgody: lista okien i podgląd ekranu są już dostępne."""
+        if self.session is None:
+            self.refresh_video()
+
+    def _restart_app(self):
+        w = self.window()
+        if hasattr(w, "_restart_after_update"):
+            w._restart_after_update()
+
+    def _mac_permissions_ok(self, audio, video) -> bool:
+        """Przed startem nagrywania na Macu: brak zgody = nagranie ciszy albo pustego ekranu – lepiej powiedzieć od razu.
+        Gdy macOS jeszcze nie pytał, prośba pojawi się sama przy starcie."""
+        if not IS_MAC:
+            return True
+        from .. import mac_permissions as mp
+        kinds = mp.needed(self.mode, audio.kind if audio is not None else None)
+        if video is None and mp.SCREEN in kinds:
+            kinds.remove(mp.SCREEN)
+        for kind in kinds:
+            if mp.status(kind) != mp.DENIED:
+                continue
+            if kind == mp.SCREEN:
+                mp.request(kind)
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Potrzebna zgoda macOS")
+            box.setText(mp.TITLE[kind])
+            box.setInformativeText(mp.WHY[kind] + "\n\n" + mp.WHERE[kind])
+            open_btn = box.addButton("Otwórz Ustawienia systemowe", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Anuluj", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            if box.clickedButton() is open_btn:
+                mp.open_settings(kind)
+            return False
+        return True
 
     def create_from_files(self):
         audio = [self.audio_files.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.audio_files.count())]
@@ -1039,7 +1132,7 @@ class RecordTab(QWidget):
         self.subject.setEditText(cur)
 
     def refresh_audio(self):
-        """Lista źródeł dźwięku jest zbierana w tle (wyliczanie sesji audio Windows potrafi trwać)."""
+        """Lista źródeł dźwięku jest zbierana w tle (wyliczanie sesji audio potrafi trwać)."""
         self.audio_picker.refresh()
 
     def _apply_audio(self):
@@ -1050,7 +1143,11 @@ class RecordTab(QWidget):
 
     def refresh_video(self):
         prev = self.video_combo.currentText()
-        self._video_sources = list_monitors() + list_windows()
+        if LIVE_RECORDING:
+            from ..screen_capture import list_monitors, list_windows
+            self._video_sources = list_monitors() + list_windows()
+        else:
+            self._video_sources = []
         self.video_combo.blockSignals(True)
         self.video_combo.clear()
         for s in self._video_sources:
@@ -1084,6 +1181,8 @@ class RecordTab(QWidget):
         self._preview_req = getattr(self, "_preview_req", 0) + 1
         req = self._preview_req
 
+        from ..screen_capture import make_grabber
+
         def work():
             g = make_grabber(info)
             try:
@@ -1106,6 +1205,7 @@ class RecordTab(QWidget):
         info = self._current_video()
         if not info or info.kind == "none":
             return
+        from ..screen_capture import make_grabber
         g = make_grabber(info)
         img = None
         try:
@@ -1232,10 +1332,14 @@ class RecordTab(QWidget):
             return
         self.cancel_continue()
         self.title.clear()
+        if not LIVE_RECORDING:        # Mac: bez nagrywania na żywo – nowa notatka z pliku
+            self.modes["files"].setChecked(True)
+            return
         lr = self.settings.last_rec or {}
         mode = lr.get("mode")
         if mode not in self.modes:
-            self._set_status("Najpierw nagraj coś raz zwykłym sposobem – potem Ctrl+Shift+R wypełni te same ustawienia.")
+            keys = "⌘⇧R" if IS_MAC else "Ctrl+Shift+R"
+            self._set_status(f"Najpierw nagraj coś raz zwykłym sposobem – potem {keys} wypełni te same ustawienia.")
             return
         self.modes[mode].setChecked(True)
         self.subject.setEditText(lr.get("subject", self.settings.last_subject) or "")
@@ -1302,8 +1406,9 @@ class RecordTab(QWidget):
         return self.session is not None
 
     def start(self):
-        if self.session is not None:
+        if self.session is not None or not LIVE_RECORDING:
             return
+        from ..session import RecordingSession
         mode = self.mode
         audio = None
         if mode in ("av", "audio"):
@@ -1317,6 +1422,10 @@ class RecordTab(QWidget):
             video = None
         if mode == "slides" and video is None:
             QMessageBox.warning(self, "Nagrywanie", "Wybierz ekran albo okno ze slajdami.")
+            return
+        if not self._mac_permissions_ok(audio, video):
+            if self.audio_picker.isVisible():
+                self.audio_picker.start_monitor()
             return
         roi = self.rois.get(self._video_key(video)) if video else None
         subject = self.subject.currentText().strip()

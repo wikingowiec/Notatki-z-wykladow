@@ -4,12 +4,16 @@
   * process  – dźwięk tylko jednej aplikacji (Windows 10 2004+/11) – proc-tap albo własna implementacja WASAPI
   * system   – cały dźwięk systemowy (WASAPI loopback domyślnego wyjścia)
   * mic      – mikrofon (np. wykład stacjonarny)
+
+Na macOS listę źródeł, mierniki i przechwytywanie robi mac_audio.py (Core Audio process taps, zapas
+ScreenCaptureKit) – AudioRecorder, resampling i zapis pliku są wspólne.
 """
 from __future__ import annotations
 
 import logging
 import os
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -21,6 +25,7 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 TARGET_SR = 16000
+IS_MAC = sys.platform == "darwin"
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +170,9 @@ def _default_output() -> tuple[str, object]:
 def list_audio_sources() -> list[AudioSourceInfo]:
     """Najpierw aplikacje, które właśnie grają, potem urządzenia (dźwięk systemu, mikrofony).
     Reszta (uśpione aplikacje, okna bez dźwięku, wirtualne mikrofony) ma hidden=True. Wymaga CoInitialize w wątku."""
+    if IS_MAC:
+        from .mac_audio import list_audio_sources as mac_sources
+        return mac_sources()
     own = os.getpid()
     apps: dict[int, dict] = {}            # pid główny → exe, wyjścia, szczyt
 
@@ -256,7 +264,7 @@ def list_audio_sources() -> list[AudioSourceInfo]:
     return playing + devices + idle + windows
 
 
-class LevelMonitor:
+class _WinLevelMonitor:
     """Poziomy dźwięku na żywo dla listy źródeł – bez nagrywania, z mierników Windows (wątek w tle).
 
     Mikrofon mierzy się tylko jeden – wybrany: odczyt wymaga otwarcia strumienia, a Windows pokazuje wtedy
@@ -276,6 +284,14 @@ class LevelMonitor:
 
     def set_mic(self, device_index: int):
         self._mic = device_index
+
+    def set_source(self, info: Optional[AudioSourceInfo]):
+        """Wybrane źródło – mierzymy tylko wybrany mikrofon (aplikacje i system mają mierniki Windows)."""
+        self.set_mic(info.device_index if info is not None and info.kind == "mic" else -1)
+
+    def measurable(self, info: AudioSourceInfo, current: Optional[AudioSourceInfo]) -> bool:
+        """Mikrofon mierzymy tylko wybrany (inaczej Windows pokazywałby, że wszystkie są w użyciu)."""
+        return self.running and (info.kind != "mic" or info is current)
 
     @property
     def running(self) -> bool:
@@ -362,6 +378,12 @@ class LevelMonitor:
                     log.exception("LevelMonitor: zamykanie mikrofonu")
 
 
+if IS_MAC:
+    from .mac_audio import LevelMonitor
+else:
+    LevelMonitor = _WinLevelMonitor
+
+
 def record_preview(info: AudioSourceInfo, seconds: float = 4.0, backend: str = "auto") -> tuple[np.ndarray, int]:
     """Nagrywa kilka sekund z wybranego źródła (przycisk „Odsłuchaj”). Zwraca ((n, kanały) float32, częstotliwość).
     Odtwarzanie jest dopiero PO nagraniu – dzięki temu nie ma sprzężenia nawet przy „całym dźwięku systemowym”."""
@@ -392,11 +414,15 @@ def record_preview(info: AudioSourceInfo, seconds: float = 4.0, backend: str = "
 def play_preview(audio: np.ndarray, rate: int):
     """Odtwarza nagrany podgląd na domyślnym wyjściu (czeka do końca)."""
     import tempfile
-    import winsound
 
     import soundfile as sf
     path = Path(tempfile.gettempdir()) / "wyklady_odsluch.wav"
     sf.write(str(path), np.clip(audio, -1.0, 1.0), rate, subtype="PCM_16")
+    if IS_MAC:
+        from .mac_audio import play_file
+        play_file(str(path))
+        return
+    import winsound
     winsound.PlaySound(str(path), winsound.SND_FILENAME)
 
 
@@ -484,6 +510,9 @@ class _PyAudioSource:
 
 
 def open_source(info: AudioSourceInfo, cb, backend: str = "auto"):
+    if IS_MAC:
+        from .mac_audio import open_source as mac_open
+        return mac_open(info, cb, backend)
     if info.kind == "process":
         errors = []
         order = {"auto": ["proctap", "native"], "proctap": ["proctap", "native"], "native": ["native", "proctap"]}.get(backend, ["proctap", "native"])

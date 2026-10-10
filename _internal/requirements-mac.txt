@@ -1,0 +1,30 @@
+# macOS (Apple Silicon) – bez bibliotek CUDA i bibliotek dźwięku/OCR z Windows
+# Nowe w wersji 2.2.0.
+# interfejs
+PySide6>=6.6
+# obraz / slajdy z plików
+numpy
+opencv-python>=4.8,<5
+av>=12
+# dźwięk z plików
+psutil
+soundfile
+soxr
+scipy
+# transkrypcja (lokalnie, procesor – int8)
+faster-whisper>=1.1
+# OCR slajdów (Apple Vision) i nazwa aplikacji w pasku menu
+pyobjc-framework-Vision
+pyobjc-framework-Cocoa
+# nagrywanie na żywo (macOS 14.4+): zrzuty ekranu i zapasowy dźwięk (ScreenCaptureKit), lista ekranów (Quartz),
+# zgoda na mikrofon (AVFoundation); dźwięk aplikacji i mikrofon – Core Audio przez ctypes; mss – zapasowe zrzuty
+pyobjc-framework-ScreenCaptureKit>=10.3
+pyobjc-framework-Quartz
+pyobjc-framework-AVFoundation
+pyobjc-framework-CoreMedia
+mss
+# notatki / eksport
+requests
+markdown
+matplotlib
+pillow-heif

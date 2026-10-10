@@ -109,6 +109,7 @@ class AudioSourcePicker(QWidget):
 
     picked = Signal()             # wybór myszką/klawiaturą (nie przez kod)
     loaded = Signal()             # nowa lista po odświeżeniu
+    current_changed = Signal()    # zmiana wybranego źródła (także przez kod) – np. inne zgody na Macu
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -263,9 +264,9 @@ class AudioSourcePicker(QWidget):
         i = it.data(R_IDX) if it is not None else -1
         if isinstance(i, int) and i >= 0:
             self._cur = i
-        info = self.current()
-        self.monitor.set_mic(info.device_index if info is not None and info.kind == "mic" else -1)
+        self.monitor.set_source(self.current())
         self._update_buttons()
+        self.current_changed.emit()
 
     def _update_buttons(self):
         info = self.current()
@@ -278,8 +279,9 @@ class AudioSourcePicker(QWidget):
 
     # ------------------------------------------------------------------ poziomy na żywo
     def measurable(self, info) -> bool:
-        """Mikrofon mierzymy tylko wybrany (inaczej Windows pokazywałby, że wszystkie są w użyciu)."""
-        return self.monitor.running and (info.kind != "mic" or info is self.current())
+        """Windows: mikrofon tylko wybrany (inaczej system pokazywałby, że wszystkie są w użyciu).
+        Mac: tylko wybrane źródło i tylko po udzieleniu zgody (macOS nie ma mierników bez nagrywania)."""
+        return self.monitor.measurable(info, self.current())
 
     def shown_level(self, info) -> float:
         return self._levels.get(source_key(info), 0.0)
@@ -305,8 +307,7 @@ class AudioSourcePicker(QWidget):
 
     def start_monitor(self):
         if not self.monitor.running:
-            info = self.current()
-            self.monitor.set_mic(info.device_index if info is not None and info.kind == "mic" else -1)
+            self.monitor.set_source(self.current())
             self.monitor.start()
         self.timer.start()
 

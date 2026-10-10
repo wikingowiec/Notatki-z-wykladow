@@ -1,7 +1,8 @@
 """Kroki przygotowania aplikacji (w tle, bez okien konsoli): biblioteki, model mowy, Ollama, modele AI, skrót.
 
 Każdy krok sam sprawdza, czy jest potrzebny – ten sam kod robi pierwszą instalację i doinstalowanie
-bibliotek po aktualizacji. Postęp liczony jest z pobieranych bajtów (wagi = przybliżone rozmiary w GB)."""
+bibliotek po aktualizacji. Postęp liczony jest z pobieranych bajtów (wagi = przybliżone rozmiary w GB).
+Na Macu: biblioteki z requirements-mac.txt, Ollama.app do ~/Applications, bez skrótu na pulpicie."""
 from __future__ import annotations
 
 import json
@@ -21,11 +22,14 @@ from typing import Callable, Optional
 from PySide6.QtCore import QObject, Signal
 
 from . import state
+from .. import ollama_local
 from ..perf import MODEL_GB, WHISPER_GB
+from ..system import IS_MAC, mac_ssl_certs
 
 log = logging.getLogger(__name__)
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0      # CREATE_NO_WINDOW
 OLLAMA_SETUP_URL = "https://ollama.com/download/OllamaSetup.exe"
+OLLAMA_MAC_URL = "https://ollama.com/download/Ollama-darwin.zip"      # Ollama.app (podpisana przez Ollamę)
 
 
 class Cancelled(Exception):
@@ -67,11 +71,12 @@ class Installer(QObject):
             Step("whisper", "Model rozpoznawania mowy",
                  0.02 if m.get("whisper") == self.s.whisper_model else WHISPER_GB.get(self.s.whisper_model, 1.5),
                  self._whisper),
-            Step("ollama", "Ollama – lokalne AI", 0.02 if m.get("ai_done") else 1.0, self._ollama),
+            Step("ollama", "Ollama – lokalne AI", 0.02 if m.get("ai_done") else (0.2 if IS_MAC else 1.0), self._ollama),
             Step("models", "Modele AI do notatek",
                  0.02 if m.get("ai_done") else sum(self._model_gb(x) for x in models), self._models_step),
-            Step("shortcut", "Skrót na pulpicie", 0.02, self._shortcut),
         ]
+        if not IS_MAC:        # na Macu aplikacja jest w Aplikacjach / Launchpadzie
+            self.steps.append(Step("shortcut", "Skrót na pulpicie", 0.02, self._shortcut))
 
     # ------------------------------------------------------------------ sterowanie
     def start(self):
@@ -166,6 +171,7 @@ class Installer(QObject):
         return rc
 
     def _download(self, url: str, dest: Path, on_bytes: Callable[[int, int], None]):
+        mac_ssl_certs()           # certifi jest już po kroku bibliotek
         req = urllib.request.Request(url, headers={"User-Agent": "Wyklady"})
         with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
             total = int(r.headers.get("Content-Length") or 0)
@@ -222,18 +228,22 @@ class Installer(QObject):
                 self._run_proc(base + ["-r", req], on_line, cwd=str(state.BASE))
             else:
                 raise
-        try:
-            self._report(i, 0.98, "Odczyt tekstu ze slajdów (OCR)…")
-            self._run_proc(base + ["-r", str(state.BASE / "requirements-ocr.txt")], None, cwd=str(state.BASE))
-        except Exception as e:  # noqa: BLE001
-            log.warning("OCR niedostępny: %s", e)
+        if not IS_MAC:        # Windows OCR osobno – bez niego aplikacja działa (Mac: Apple Vision jest w głównej liście)
+            try:
+                self._report(i, 0.98, "Odczyt tekstu ze slajdów (OCR)…")
+                self._run_proc(base + ["-r", str(state.BASE / "requirements-ocr.txt")], None, cwd=str(state.BASE))
+            except Exception as e:  # noqa: BLE001
+                log.warning("OCR niedostępny: %s", e)
         import importlib
         importlib.invalidate_caches()
         state.save_marker(req_hash=state.req_hash())
         return "done"
 
     def _requirements(self) -> str:
-        """requirements.txt – bez bibliotek CUDA (ok. 1,4 GB), gdy w komputerze nie ma karty NVIDIA."""
+        """requirements.txt – bez bibliotek CUDA (ok. 1,4 GB), gdy w komputerze nie ma karty NVIDIA.
+        Mac: requirements-mac.txt (bez CUDA i bibliotek Windows)."""
+        if IS_MAC:
+            return str(state.BASE / "requirements-mac.txt")
         src = state.BASE / "requirements.txt"
         from ..perf import has_nvidia, hardware
         try:
@@ -294,14 +304,7 @@ class Installer(QObject):
     # ------------------------------------------------------------------ 3. Ollama
     @staticmethod
     def find_ollama() -> Optional[str]:
-        p = shutil.which("ollama")
-        if p:
-            return p
-        for c in (Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
-                  Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Ollama" / "ollama.exe"):
-            if c.exists():
-                return str(c)
-        return None
+        return ollama_local.find_ollama()
 
     def _api(self, path: str, data: Optional[dict] = None, timeout: float = 5):
         url = self.s.ollama_url.rstrip("/") + path
@@ -320,7 +323,9 @@ class Installer(QObject):
         from ..perf import ollama_env
         ollama_env()                  # zmienne przed instalacją – Ollama wystartuje już z nimi
         exe = self.find_ollama()
-        if not exe:
+        if not exe and IS_MAC:
+            exe = self._install_ollama_mac(i)
+        elif not exe:
             import tempfile
             dest = Path(tempfile.gettempdir()) / "OllamaSetup.exe"
             self._download(OLLAMA_SETUP_URL, dest, lambda d, t: self._report(
@@ -336,17 +341,30 @@ class Installer(QObject):
                 raise RuntimeError("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download.")
         if not self._ollama_up():
             self._report(i, 0.95, "Uruchamiam Ollamę…")
-            from ..perf import ollama_env
-            subprocess.Popen([exe, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=ollama_env(),
-                             creationflags=NO_WINDOW | (0x00000008 if sys.platform == "win32" else 0))
-            for _ in range(40):
-                if self._ollama_up():
-                    break
-                self._check()
-                time.sleep(0.5)
+            ollama_local.start(self.s.ollama_url, wait=20, exe=exe)
         if not self._ollama_up():
             raise RuntimeError("Ollama nie odpowiada.")
         return "done"
+
+    def _install_ollama_mac(self, i: int) -> str:
+        """Ollama.app z ollama.com do ~/Applications (bez hasła administratora). ditto zachowuje podpis i dowiązania."""
+        import tempfile
+        dest = Path(tempfile.gettempdir()) / "Ollama-darwin.zip"
+        self._download(OLLAMA_MAC_URL, dest, lambda d, t: self._report(
+            i, 0.85 * d / t if t else 0.3, f"Pobieram Ollamę · {_gb(d)}" + (f" z {_gb(t)}" if t else "")))
+        self._report(i, 0.9, "Rozpakowuję Ollamę…")
+        apps = ollama_local.MAC_APP_DIR
+        apps.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(apps / "Ollama.app", ignore_errors=True)
+        self._run_proc(["/usr/bin/ditto", "-x", "-k", str(dest), str(apps)])
+        try:
+            dest.unlink()
+        except OSError:
+            pass
+        exe = self.find_ollama()
+        if not exe:
+            raise RuntimeError("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download.")
+        return exe
 
     # ------------------------------------------------------------------ 4. modele AI
     def _models(self) -> list[str]:

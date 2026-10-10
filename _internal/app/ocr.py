@@ -1,8 +1,10 @@
-"""OCR slajdów wbudowanym silnikiem Windows (Windows.Media.Ocr). Opcjonalny – gdy brak, zwraca pusty tekst."""
+"""OCR slajdów wbudowanym silnikiem systemu: Windows.Media.Ocr, na Macu Apple Vision (ocr_mac.py).
+Opcjonalny – gdy brak, zwraca pusty tekst."""
 from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import threading
 
 import numpy as np
@@ -56,6 +58,11 @@ def _com_init():
 
 
 def ocr_image(img_bgr: np.ndarray) -> str:
+    if sys.platform == "darwin":
+        from .ocr_mac import ocr_image as vision_ocr
+        return vision_ocr(img_bgr)
+    if sys.platform != "win32":
+        return ""
     _com_init()
     engine = _get_engine()
     if engine is None or img_bgr is None:

@@ -59,6 +59,12 @@ def detect() -> list[CloudFolder]:
     cands = [Path(d) / n for d in _drive_letters() for n in names]
     cands += [home / "Google Drive" / "Mój dysk", home / "Google Drive" / "My Drive", home / "Mój dysk",
               home / "My Drive", home / "Google Drive"]
+    if sys.platform == "darwin":       # Dysk Google na Macu: ~/Library/CloudStorage/GoogleDrive-<konto>/Mój dysk
+        try:
+            for acc in sorted((home / "Library" / "CloudStorage").glob("GoogleDrive-*")):
+                cands = [acc / n for n in names] + cands
+        except OSError:
+            pass
     for c in cands:
         try:
             if c.is_dir() and not any(f.root == c for f in found):
@@ -66,10 +72,18 @@ def detect() -> list[CloudFolder]:
                 break
         except OSError:
             pass
-    for c in (home / "iCloudDrive", home / "iCloud Drive"):
+    for c in (home / "iCloudDrive", home / "iCloud Drive",
+              home / "Library" / "Mobile Documents" / "com~apple~CloudDocs"):      # iCloud Drive na Macu
         if c.is_dir():
             found.append(CloudFolder("icloud", f"iCloud Drive ({c})", c))
             break
+    if sys.platform == "darwin":       # OneDrive na Macu: ~/Library/CloudStorage/OneDrive-<konto>
+        try:
+            od = next(iter(sorted((home / "Library" / "CloudStorage").glob("OneDrive*"))), None)
+            if od is not None and od.is_dir():
+                found.append(CloudFolder("onedrive", f"OneDrive ({od})", od))
+        except OSError:
+            pass
     for env in ("OneDriveConsumer", "OneDrive", "OneDriveCommercial"):
         v = os.environ.get(env)
         if v and Path(v).is_dir() and not any(f.root == Path(v) for f in found):

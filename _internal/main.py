@@ -1,6 +1,6 @@
 """Wykłady – nagrywanie wykładów, transkrypcja, slajdy, notatki i fiszki (wszystko lokalnie).
 
-Uruchamiane przez Wykłady.exe (bez okna konsoli). Przy pierwszym uruchomieniu – albo po aktualizacji, która
+Uruchamiane przez Wykłady.exe (bez okna konsoli), na Macu przez Wykłady.app (Contents/MacOS/Wyklady). Przy pierwszym uruchomieniu – albo po aktualizacji, która
 potrzebuje nowych bibliotek – najpierw pokazuje się ekran przygotowania (notes z postępem), a potem od razu
 okno aplikacji, w tym samym procesie."""
 from __future__ import annotations
@@ -59,6 +59,8 @@ def create_app(settings):
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Wyklady.App")
         except Exception:
             pass
+    elif sys.platform == "darwin":
+        _mac_app_name(APP_NAME)
     try:        # rozmiar interfejsu (Ustawienia → Wygląd) – działa po ponownym uruchomieniu
         scale = float(getattr(settings, "ui_scale", 1.0) or 1.0)
         if abs(scale - 1.0) > 0.01 and "QT_SCALE_FACTOR" not in os.environ:
@@ -71,23 +73,40 @@ def create_app(settings):
     load_fonts()
     app.setFont(ui_font(10.5))
     icon = os.path.join(BASE, "icon.ico")
-    if os.path.exists(icon):
+    if os.path.exists(icon) and sys.platform != "darwin":     # na Macu ikona w Docku jest z Wykłady.app (icon.icns)
         app.setWindowIcon(QIcon(icon))
     theme().apply(getattr(settings, "theme_name", "zeszyt"), settings.theme)
     return app
+
+
+def _mac_app_name(name: str) -> None:
+    """Nazwa w pasku menu i w Docku zamiast „Python” (proces to Python uruchomiony ze skryptu w Wykłady.app)."""
+    try:
+        from Foundation import NSBundle
+        info = NSBundle.mainBundle().localizedInfoDictionary() or NSBundle.mainBundle().infoDictionary()
+        if info is not None:
+            info["CFBundleName"] = name
+    except Exception:  # noqa: BLE001 – pyobjc jeszcze niezainstalowane (pierwszy start)
+        pass
 
 
 def open_main_window(app, settings, fade_in: bool = False):
     """Okno aplikacji: rozmiar i układ ustalone przed pokazaniem, pasek tytułu w kolorach motywu –
     pojawia się raz, od razu gotowe (bez mignięć)."""
     log = logging.getLogger("main")
-    from app.transcriber import setup_cuda_dll_paths
-    setup_cuda_dll_paths()        # biblioteki CUDA z pakietów pip – przed importem faster_whisper
+    from app.system import IS_WIN
+    if IS_WIN:
+        from app.transcriber import setup_cuda_dll_paths
+        setup_cuda_dll_paths()    # biblioteki CUDA z pakietów pip – przed importem faster_whisper
     try:
         from app.perf import ollama_env
         ollama_env()              # flash attention i mniejsza pamięć kontekstu dla Ollamy (od jej następnego startu)
     except Exception:  # noqa: BLE001
         pass
+    if sys.platform == "darwin":  # Mac: po ponownym uruchomieniu komputera nikt inny nie uruchomi Ollamy
+        import threading
+        from app import ollama_local
+        threading.Thread(target=ollama_local.start, args=(settings.ollama_url,), name="ollama", daemon=True).start()
     from PySide6.QtNetwork import QLocalServer
     from app.ui.main_window import MainWindow
     from app.ui.theme import apply_titlebar
@@ -131,6 +150,8 @@ def main():
         sys.path.insert(0, BASE)
     _setup_logging()
     log = logging.getLogger("main")
+    from app.system import mac_ssl_certs
+    mac_ssl_certs()
     from app.config import Settings
     settings = Settings.load()
     app = create_app(settings)
