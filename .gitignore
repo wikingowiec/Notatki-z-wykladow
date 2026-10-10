@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 Wykłady.exe.old
 _internal/tools/launcher/build/
+.vs/
+CLAUDE.md
