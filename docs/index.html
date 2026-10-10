@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wykłady – pobierz</title>
+<meta name="description" content="Wykłady nagrywają wykład, łapią slajdy i same robią z tego notatki, ściągę i fiszki. Wszystko lokalnie na Twoim komputerze.">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* kolory motywu „Zeszyt” z _internal/app/ui/tokens.py */
+  :root {
+    --bg: #F4F1EA; --surface: #FFFDF8; --surface2: #F5F1E8; --line: #E1DACB; --line2: #CFC6B3;
+    --ink: #1E2320; --ink2: #4F5650; --ink3: #676C66;
+    --accent: #2F6B55; --accentHover: #255A47; --accentPressed: #1F4C3C; --accentInk: #FFFFFF;
+    --accentSoft: #DCE8E0; --accentText: #24563F;
+    --mark: #F6E1A0; --waz: #B4553A; --wazBg: #F7E7DD; --wazText: #93432C;
+    --shadow: 0 6px 20px rgba(40, 35, 20, .06);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --surface: #1B201E; --surface2: #222826; --line: #2D3431; --line2: #3D4641;
+      --ink: #E7EBE7; --ink2: #B0B8B2; --ink3: #8E9791;
+      --accent: #6DBE9A; --accentHover: #86CDAD; --accentPressed: #5AA886; --accentInk: #0D1A14;
+      --accentSoft: #203A2F; --accentText: #8DD2B2;
+      --mark: #5A4913; --waz: #E08B6E; --wazBg: #33231C; --wazText: #EDAA92;
+      --shadow: 0 1px 4px rgba(0, 0, 0, .35);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 400 16px/1.6 Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  a { color: var(--accentText); }
+  h1, h2, h3 { font-family: Fraunces, Georgia, serif; font-weight: 600; line-height: 1.2; margin: 0; }
+  h2 { font-size: 28px; margin-bottom: 8px; }
+  h3 { font-size: 19px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+  .lead { color: var(--ink2); font-size: 18px; margin: 0; }
+  .muted { color: var(--ink3); font-size: 14px; }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  section > .wrap > p.lead { margin-bottom: 28px; }
+
+  /* nagłówek */
+  header { padding: 56px 0 48px; }
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+  .brand img { width: 56px; height: 56px; }
+  .brand span { font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 600; }
+  h1 { font-size: 44px; letter-spacing: -.01em; margin-bottom: 16px; }
+  h1 mark { background: linear-gradient(transparent 55%, var(--mark) 55%); color: inherit; padding: 0 2px; }
+  .cta { margin-top: 28px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 28px;
+    border-radius: 14px; background: var(--accent); color: var(--accentInk); text-decoration: none;
+    font: 600 18px/1.2 Inter, sans-serif; border: 0; cursor: pointer; transition: background .18s;
+  }
+  .btn:hover { background: var(--accentHover); }
+  .btn:active { background: var(--accentPressed); }
+  .btn:focus-visible { outline: 3px solid var(--accentSoft); outline-offset: 3px; }
+  .btn svg { width: 22px; height: 22px; flex: none; }
+  .btn.soon { background: var(--surface2); color: var(--ink3); border: 1px dashed var(--line2); cursor: default; }
+  .meta { margin: 12px 0 0; }
+  .others { margin-top: 16px; font-size: 14px; color: var(--ink3); }
+  .others a { margin-left: 6px; }
+  .others .off { margin-left: 6px; }
+  .shot {
+    border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden;
+    background: var(--surface);
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  /* karty */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px;
+    box-shadow: var(--shadow);
+  }
+  .card .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--accentText); background: var(--accentSoft); border-radius: 8px; padding: 3px 8px; margin-bottom: 12px;
+  }
+  .card p { margin: 8px 0 0; color: var(--ink2); font-size: 15px; }
+  .card dl { margin: 16px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 14px; }
+  .card dt { color: var(--ink3); }
+  .card dd { margin: 0; }
+  .base { margin-top: 20px; }
+
+  /* instrukcje */
+  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  ol { margin: 12px 0 0; padding-left: 22px; }
+  ol li { margin: 8px 0; color: var(--ink2); }
+  ol li b { color: var(--ink); }
+  .note {
+    margin-top: 16px; padding: 12px 14px; border-radius: 11px; background: var(--wazBg);
+    border-left: 4px solid var(--waz); font-size: 14px; color: var(--ink2);
+  }
+  .note b { color: var(--wazText); }
+  kbd {
+    font: 600 13px Inter, sans-serif; background: var(--surface2); border: 1px solid var(--line2);
+    border-radius: 5px; padding: 1px 6px;
+  }
+
+  footer { padding: 32px 0 48px; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink3); }
+  footer a { margin-right: 12px; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; gap: 32px; }
+    .grid, .steps { grid-template-columns: 1fr; }
+    h1 { font-size: 34px; }
+  }
+  @media (max-width: 480px) {
+    .wrap { padding: 0 16px; }
+    header { padding: 32px 0; }
+    section { padding: 40px 0; }
+    .btn { width: 100%; justify-content: center; padding: 0 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hero">
+    <div>
+      <div class="brand"><img src="logo.png" alt=""><span>Wykłady</span></div>
+      <h1>Nagrywasz wykład, a <mark>notatki robią się same</mark></h1>
+      <p class="lead">Aplikacja nagrywa dźwięk i slajdy, rozpoznaje mowę i robi z tego notatki, ściągę, fiszki
+        i egzamin próbny. Wszystko działa na Twoim komputerze – bez kont, kluczy API i opłat.</p>
+
+      <div class="cta">
+        <a id="dl" class="btn" href="https://github.com/wikingowiec/Notatki-z-wykladow/releases/latest">
+          <span id="dl-icon"></span><span id="dl-text">Pobierz</span>
+        </a>
+        <p id="dl-meta" class="meta muted">Sprawdzam najnowszą wersję…</p>
+        <div class="others">Inne systemy:<span id="others"></span></div>
+      </div>
+    </div>
+    <div class="shot">
+      <picture>
+        <source srcset="screenshots/library_dark.png" media="(prefers-color-scheme: dark)">
+        <img src="screenshots/library.png" alt="Notatka w aplikacji Wykłady: spis treści z kategoriami w kolorach" width="1920" height="1080">
+      </picture>
+    </div>
+  </div>
+</header>
+
+<section id="wymagania">
+  <div class="wrap">
+    <h2>Wymagania sprzętowe</h2>
+    <p class="lead">Przy pierwszym uruchomieniu aplikacja sama sprawdza komputer i proponuje jeden z trzech profili.
+      Możesz go potem zmienić w Ustawieniach.</p>
+    <div class="grid">
+      <div class="card">
+        <span class="tag">Lekki</span>
+        <h3>Laptop bez mocnej karty</h3>
+        <p>Mniejsze modele, bez notatek na żywo. Notatki powstają po wykładzie – spokojnie, bez zacinania komputera.</p>
+        <dl>
+          <dt>Karta</dt><dd>niepotrzebna (z NVIDIA szybciej)</dd>
+          <dt>Pamięć</dt><dd>od 8 GB RAM, lepiej 16 GB</dd>
+          <dt>Pobieranie</dt><dd>ok. 8–10 GB</dd>
+          <dt>Mac</dt><dd>8 GB pamięci · ok. 7 GB</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <span class="tag">Zrównoważony</span>
+        <h3>NVIDIA z 8 GB pamięci</h3>
+        <p>Szybszy model mowy i notatki na żywo – po wykładzie dopisuje się tylko reszta.</p>
+        <dl>
+          <dt>Karta</dt><dd>NVIDIA, 8 GB pamięci</dd>
+          <dt>Pamięć</dt><dd>16 GB RAM</dd>
+          <dt>Pobieranie</dt><dd>ok. 19–20 GB</dd>
+          <dt>Mac</dt><dd>16–24 GB pamięci · ok. 13 GB</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <span class="tag">Pełna moc</span>
+        <h3>NVIDIA z 12 GB lub więcej</h3>
+        <p>Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów.</p>
+        <dl>
+          <dt>Karta</dt><dd>NVIDIA, 12 GB pamięci lub więcej</dd>
+          <dt>Pamięć</dt><dd>16 GB RAM lub więcej</dd>
+          <dt>Pobieranie</dt><dd>ok. 22–25 GB</dd>
+          <dt>Mac</dt><dd>32 GB pamięci lub więcej · ok. 16 GB</dd>
+        </dl>
+      </div>
+    </div>
+    <p class="base muted"><b>Windows:</b> Windows 10 (1803+) lub 11, ok. 30 GB wolnego miejsca. &nbsp;
+      <b>Mac:</b> komputer z procesorem Apple M1, M2, M3 lub M4 (Maki z Intelem nie są obsługiwane), macOS 12
+      lub nowszy (nagrywanie na żywo: macOS 14.4 lub nowszy), ok. 20 GB wolnego miejsca – profil dobiera się według pamięci (procesor i grafika dzielą ją).
+      Połączenie z internetem jest potrzebne tylko do pierwszej instalacji i aktualizacji.</p>
+  </div>
+</section>
+
+<section id="instalacja">
+  <div class="wrap">
+    <h2>Jak zainstalować</h2>
+    <p class="lead">Kilka minut klikania, potem aplikacja sama pobiera modele (to trwa dłużej – zależy od internetu).</p>
+    <div class="steps">
+      <div class="card" id="win-steps">
+        <h3>Windows</h3>
+        <ol>
+          <li>Pobierz plik <b>.zip</b> i rozpakuj go w stałym miejscu, np. <b>C:\Wykłady</b> (nie w Pobranych).</li>
+          <li>Uruchom <b>Wykłady.exe</b>.</li>
+          <li>Ekran z notesem sam pobierze Pythona, biblioteki, Ollamę i modele AI. Potem otworzy się aplikacja,
+            a na pulpicie pojawi się skrót.</li>
+        </ol>
+        <div class="note"><b>„System Windows ochronił ten komputer”</b> – aplikacja nie ma płatnego podpisu.
+          Kliknij <b>Więcej informacji → Uruchom mimo to</b> (tylko za pierwszym razem).</div>
+      </div>
+      <div class="card" id="mac-steps">
+        <h3>Mac (M1–M4)</h3>
+        <ol>
+          <li>Pobierz plik <b>.dmg</b>, otwórz go i przeciągnij <b>Wykłady</b> do folderu <b>Aplikacje</b>.</li>
+          <li>Za pierwszym razem kliknij aplikację <b>prawym przyciskiem</b> (albo z <kbd>Control</kbd>)
+            → <b>Otwórz</b> → <b>Otwórz</b>.</li>
+          <li>Jeśli Mac nadal nie pozwala: <b>Ustawienia systemowe → Prywatność i ochrona</b>, przewiń w dół
+            i kliknij <b>„Otwórz mimo to”</b> przy Wykładach.</li>
+          <li>Małe okienko pobierze Pythona, potem ekran z notesem – biblioteki, Ollamę i modele AI.</li>
+        </ol>
+        <div class="note"><b>Nagrywanie na żywo od macOS 14.4</b> – dźwięk z wybranej aplikacji, z całego
+          systemu albo z mikrofonu i slajdy z ekranu. Przy pierwszym nagrywaniu macOS zapyta o zgodę na mikrofon,
+          dźwięk systemu i nagrywanie ekranu – aplikacja pokaże, gdzie to włączyć. Na starszym macOS wykład
+          dodajesz z pliku (Dyktafon, mp3, wideo, zdjęcia slajdów).</div>
+        <div class="note"><b>Dlaczego?</b> Aplikacja nie ma podpisu Apple, więc macOS pyta o zgodę.
+          W nowszych wersjach macOS (15 Sequoia i nowsze) działa tylko sposób z Ustawień.
+          Wystarczy zrobić to raz.</div>
+      </div>
+    </div>
+    <p class="base muted">Aktualizacje: <b>Ustawienia → Aktualizacje → Sprawdź aktualizacje</b>. Notatki, nagrania
+      i ustawienia zostają bez zmian. Pełny opis funkcji:
+      <a href="https://github.com/wikingowiec/Notatki-z-wykladow/blob/main/docs/PORADNIK.md">poradnik</a>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Aplikacja stworzona przez <b>Wiktora Wystrychowskiego</b> do własnej nauki. Pamiętaj o zasadach uczelni
+      dotyczących nagrywania zajęć.</p>
+    <a href="https://github.com/wikingowiec/Notatki-z-wykladow">Kod na GitHubie</a>
+    <a href="https://github.com/wikingowiec/Notatki-z-wykladow/releases">Wszystkie wersje</a>
+    <a href="https://www.wystrychowski.pl/">Portfolio</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var REPO = "wikingowiec/Notatki-z-wykladow";
+  var RELEASES = "https://github.com/" + REPO + "/releases/latest";
+  var MAIN_ZIP = "https://github.com/" + REPO + "/archive/refs/heads/main.zip";
+  var ICONS = {
+    win: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.5v7H3zM11.5 4.3 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.3z"/></svg>',
+    mac: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.5-1-2.5-3.9zM14 5.5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.6 2.8-1.4z"/></svg>'
+  };
+  var NAMES = { win: "Windows", mac: "Maca" };
+  var SHORT = { win: "Windows", mac: "Mac" };
+
+  function detect() {
+    var p = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "").toLowerCase();
+    var ua = navigator.userAgent.toLowerCase();
+    if (/iphone|ipad|android/.test(ua) || /mac/.test(p) && navigator.maxTouchPoints > 1) return "other";
+    if (/mac/.test(p) || /mac os x/.test(ua)) return "mac";
+    if (/win/.test(p) || /windows/.test(ua)) return "win";
+    return "other";
+  }
+
+  var os = detect();
+  var current = os === "mac" ? "mac" : "win";   // inne systemy: pokazujemy Windows
+  var files = { win: null, mac: null };
+  var release = null;
+
+  function gb(bytes) { return (bytes / 1e6).toFixed(0) + " MB"; }
+
+  function render() {
+    var btn = document.getElementById("dl");
+    var f = files[current];
+    document.getElementById("dl-icon").innerHTML = ICONS[current];
+    if (f) {
+      btn.href = f.url;
+      btn.classList.remove("soon");
+      btn.removeAttribute("aria-disabled");
+      document.getElementById("dl-text").textContent = "Pobierz na " + NAMES[current];
+    } else if (current === "mac") {
+      btn.removeAttribute("href");
+      btn.classList.add("soon");
+      btn.setAttribute("aria-disabled", "true");
+      document.getElementById("dl-text").textContent = "Mac – wkrótce";
+    } else {
+      btn.href = release === false ? MAIN_ZIP : RELEASES;
+      document.getElementById("dl-text").textContent = "Pobierz na Windows";
+    }
+
+    var meta = document.getElementById("dl-meta");
+    if (current === "mac" && !f) {
+      meta.textContent = "Wersja na Maca z M1–M4 jest w przygotowaniu.";
+    } else if (release && f) {
+      var d = new Date(release.published_at).toLocaleDateString("pl-PL", { day: "numeric", month: "long", year: "numeric" });
+      meta.textContent = "Wersja " + release.tag_name.replace(/^v/i, "") + " · " + d + " · " + gb(f.size);
+    } else {
+      meta.textContent = current === "win" ? "Windows 10 lub 11" : "";
+    }
+    if (os === "other") meta.textContent += " · Na Linuksie i telefonach aplikacja nie działa.";
+
+    var other = current === "mac" ? "win" : "mac";
+    var el = document.getElementById("others");
+    el.innerHTML = "";
+    var a = document.createElement("a");
+    a.href = "#";
+    a.textContent = SHORT[other] + (other === "mac" && !files.mac ? " (wkrótce)" : "");
+    a.onclick = function (e) { e.preventDefault(); current = other; render(); };
+    el.appendChild(a);
+    var all = document.createElement("a");
+    all.href = "https://github.com/" + REPO + "/releases";
+    all.textContent = "wszystkie wersje";
+    el.appendChild(document.createTextNode(" ·"));
+    el.appendChild(all);
+  }
+
+  render();
+  fetch("https://api.github.com/repos/" + REPO + "/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+    .then(function (r) {
+      if (r.status === 404) { release = false; return null; }   // jeszcze nie ma wydań
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    })
+    .then(function (rel) {
+      if (rel) {
+        release = rel;
+        (rel.assets || []).forEach(function (a) {
+          var n = a.name.toLowerCase();
+          var file = { url: a.browser_download_url, size: a.size };
+          if (/-windows\.zip$/.test(n)) files.win = file;
+          else if (/-mac\.dmg$/.test(n)) files.mac = file;
+        });
+      }
+      render();
+    })
+    .catch(function () { render(); });   // bez API: przycisk prowadzi na stronę wydań
+})();
+</script>
+</body>
+</html>

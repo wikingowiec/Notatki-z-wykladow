@@ -849,6 +849,15 @@ class ModeCard(QAbstractButton):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(96)
         self.setAccessibleName(title)
+        self.soon = ""          # np. „Wkrótce na Macu” – karta wyszarzona, bez wyboru
+
+    def set_soon(self, text: str, tip: str = ""):
+        """Rodzaj niedostępny w tym systemie: wyszarzona karta z dopiskiem w rogu."""
+        self.soon = text
+        self.setEnabled(not text)
+        self.setCursor(Qt.CursorShape.ArrowCursor if text else Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tip)
+        self.update()
 
     def set_vertical(self, v: bool):
         self.vertical = v
@@ -864,7 +873,17 @@ class ModeCard(QAbstractButton):
         f2.setPointSizeF(self.font().pointSizeF() - 0.8)
         tw = max(80, self.width() - 3 - 3 - 16 - 44 - 14 - 14)
         br = QFontMetrics(f2).boundingRect(0, 0, tw, 400, int(Qt.TextFlag.TextWordWrap), self.desc)
-        return max(96, 16 + 22 + 2 + br.height() + 22)
+        return max(96, 16 + 22 + 2 + br.height() + 22 + (self._soon_size()[1] + 6 if self.soon else 0))
+
+    def _soon_font(self) -> QFont:
+        f3 = QFont(self.font())
+        f3.setPointSizeF(self.font().pointSizeF() - 1.5)
+        f3.setWeight(QFont.Weight.DemiBold)
+        return f3
+
+    def _soon_size(self) -> tuple[int, int]:
+        fm = QFontMetrics(self._soon_font())
+        return fm.horizontalAdvance(self.soon) + 16, fm.height() + 6
 
     def _fit_height(self):
         h = max([c._needed() for c in self.peers] or [self._needed()]) if self in self.peers else self._needed()
@@ -894,7 +913,9 @@ class ModeCard(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect()).adjusted(3, 2, -3, -5)
         on = self.isChecked()
-        hover = self.underMouse()
+        hover = self.underMouse() and not self.soon
+        if self.soon:
+            p.setOpacity(0.55)
         if on or hover:
             paint_shadow(p, r, 16, 1.0 if on else 0.6)
         p.setPen(QPen(qcolor(t.accent if on else t.separator), 2 if on else 1))
@@ -924,13 +945,24 @@ class ModeCard(QAbstractButton):
         else:
             x = tx + tile + 14
             text_r = QRectF(x, r.top() + 16, r.right() - x - 36, 22)
-            desc_r = QRectF(x, text_r.bottom() + 2, r.right() - x - 14, r.bottom() - text_r.bottom() - 10)
+            dy = self._soon_size()[1] + 6 if self.soon else 0      # dopisek „Wkrótce…” pod tytułem
+            desc_r = QRectF(x, text_r.bottom() + 2 + dy, r.right() - x - 14, r.bottom() - text_r.bottom() - 10 - dy)
         p.setFont(f)
         p.setPen(qcolor(t.text))
         p.drawText(text_r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.title)
         p.setFont(f2)
         p.setPen(qcolor(t.text2))
         p.drawText(desc_r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, self.desc)
+        if self.soon:            # dopisek (w pełnym kolorze): pionowo w rogu, poziomo pod tytułem
+            p.setOpacity(1.0)
+            p.setFont(self._soon_font())
+            pw, ph = self._soon_size()
+            pill = QRectF(r.right() - pw - 10, r.top() + 10, pw, ph) if self.vertical else                 QRectF(text_r.left(), text_r.bottom() + 4, pw, ph)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(qcolor(t.accent_soft))
+            p.drawRoundedRect(pill, ph / 2, ph / 2)
+            p.setPen(qcolor(t.accent_text))
+            p.drawText(pill, Qt.AlignmentFlag.AlignCenter, self.soon)
         p.end()
 
 

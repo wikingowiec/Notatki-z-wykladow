@@ -17,6 +17,10 @@
 </p>
 
 <p align="center">
+  <a href="https://wikingowiec.github.io/Notatki-z-wykladow/"><b>⬇️ Pobierz Wykłady</b></a>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/library.png" alt="Notatka w bibliotece: spis treści z kategoriami w kolorach" width="100%">
 </p>
 
@@ -59,13 +63,21 @@
 
 ## Instalacja
 
-1. Pobierz **[Wykłady (zip)](https://github.com/wikingowiec/Notatki-z-wykladow/archive/refs/heads/main.zip)** (albo najnowszy plik z zakładki **Releases**) i rozpakuj w stałym miejscu, np. `C:\Wykłady`.
+1. Wejdź na **[stronę pobierania](https://wikingowiec.github.io/Notatki-z-wykladow/)** i kliknij **Pobierz na Windows** (albo weź plik `Wyklady-…-Windows.zip` z zakładki **[Releases](https://github.com/wikingowiec/Notatki-z-wykladow/releases/latest)**). Rozpakuj go w stałym miejscu, np. `C:\Wykłady`.
 2. Uruchom **`Wykłady.exe`**. To jedyny plik, którego używasz – folder `_internal` zawiera resztę programu.
 3. Przy pierwszym uruchomieniu **ekran z notesem** sam pobierze wszystko, co potrzebne (Python, biblioteki z CUDA, model mowy Whisper, Ollama i modele AI – razem ok. 25 GB). Potem notes się zamyka, otwiera się aplikacja, a na pulpicie pojawia się skrót.
 
 > **„System Windows ochronił ten komputer”** – `Wykłady.exe` nie ma płatnego podpisu. Kliknij **Więcej informacji → Uruchom mimo to** (jednorazowo).
 
-**Wymagania:** Windows 10 (1803+) lub 11, ok. 30 GB miejsca. Zalecana karta NVIDIA (bez niej działa wolniej).
+**Wymagania:** Windows 10 (1803+) lub 11, ok. 30 GB miejsca. Zalecana karta NVIDIA (bez niej działa wolniej). Szczegóły profili sprzętowych są na [stronie pobierania](https://wikingowiec.github.io/Notatki-z-wykladow/#wymagania).
+
+### Mac (M1–M4) – pierwsza wersja
+
+1. Pobierz `Wyklady-…-Mac.dmg` ze [strony pobierania](https://wikingowiec.github.io/Notatki-z-wykladow/), otwórz go i przeciągnij **Wykłady** do **Aplikacji**.
+2. Za pierwszym razem: prawy przycisk na aplikacji → **Otwórz** (na macOS 15+: **Ustawienia systemowe → Prywatność i ochrona → Otwórz mimo to**). Aplikacja nie ma podpisu Apple.
+3. Małe okienko pobierze Pythona, potem ekran z notesem – biblioteki, model mowy, Ollamę i modele AI (ok. 7–16 GB, zależnie od pamięci Maca). Python i biblioteki trafiają do `~/Library/Application Support/WykladyAI`, notatki do `Dokumenty/Wykłady`.
+
+**Nagrywanie na żywo od macOS 14.4** – dźwięk wybranej aplikacji albo całego systemu (Core Audio, zapasowo ScreenCaptureKit), mikrofon i slajdy z ekranu lub okna (ScreenCaptureKit). Przy pierwszym nagrywaniu macOS pyta o zgody (mikrofon, dźwięk systemu, nagrywanie ekranu) – aplikacja wyjaśnia, po co, i otwiera właściwe miejsce w Ustawieniach systemowych. Na starszym macOS wykład dodajesz z pliku (Dyktafon, mp3, wideo, zdjęcia slajdów). Mowę rozpoznaje procesor (faster-whisper), modele AI liczy GPU przez pamięć wspólną, tekst ze slajdów czyta Apple Vision.
 
 ## Jak zacząć
 
@@ -79,14 +91,15 @@
 
 ## Aktualizacje
 
-**Ustawienia → Aktualizacje → Sprawdź aktualizacje → Zaktualizuj.** Aplikacja sama pobiera nową wersję z tego repozytorium, podmienia pliki i uruchamia się ponownie. Notatki, nagrania i ustawienia zostają bez zmian.
+**Ustawienia → Aktualizacje → Sprawdź aktualizacje → Zaktualizuj.** Aplikacja sama pobiera najnowsze wydanie (Release) z tego repozytorium, podmienia pliki i uruchamia się ponownie. Notatki, nagrania i ustawienia zostają bez zmian.
 
 <details>
 <summary><b>Wydawanie nowej wersji (dla autora)</b></summary>
 
 1. Podbij `VERSION` w `_internal/app/version.py`.
 2. Gdy zmieniasz program startowy (`_internal/tools/launcher/launcher.c`): `pip install ziglang` i `python _internal/tools/launcher/build_launcher.py`.
-3. `git push`, a najlepiej też **Release** z tagiem `vX.Y.Z`. Bez Release aktualizacja bierze wersję z gałęzi `main`.
+3. `git push`, potem tag z opisem zmian: `git tag -a vX.Y.Z -m "Co nowego…"` i `git push origin vX.Y.Z`.
+4. GitHub Actions (`.github/workflows/release.yml`) sprawdzi, że tag = `VERSION`, zbuduje `Wyklady-X.Y.Z-Windows.zip` i utworzy **Release** z opisem z tagu. Potem na Macu (Apple Silicon) zbuduje `Wyklady-X.Y.Z-Mac.dmg` (`_internal/tools/macos/build_app.sh`), zrobi test dymny (zrzuty w artefakcie `test-dymny-mac`) i dołączy .dmg do wydania. Aplikacje i strona pobierania biorą najnowsze wydanie.
 </details>
 
 ## Notatki na telefonie

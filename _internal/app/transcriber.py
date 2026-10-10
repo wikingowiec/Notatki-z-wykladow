@@ -1,4 +1,7 @@
-"""Transkrypcja mowy lokalnie przez faster-whisper (GPU NVIDIA, a gdy się nie da – CPU)."""
+"""Transkrypcja mowy lokalnie przez faster-whisper (GPU NVIDIA, a gdy się nie da – CPU; na Macu CPU int8).
+
+Na Macu jest miejsce na drugi silnik – mlx-whisper (GPU Apple): klasa z tym samym interfejsem co WhisperEngine
+(load / transcribe / transcribe_file / unload), wybierana w engine_for() przez settings.whisper_backend = "mlx"."""
 from __future__ import annotations
 
 import gc
@@ -103,8 +106,9 @@ class WhisperEngine:
                 if status:
                     status(f"Ładowanie modelu Whisper {self.model_name} ({device})… przy pierwszym uruchomieniu model się pobiera (~3 GB)")
                 model_name = self.model_name
-                if device == "cpu" and self.model_name.startswith("large") and self.device_pref == "auto":
-                    model_name = "medium"   # na CPU large jest za wolny do pracy na żywo
+                if device == "cpu" and self.model_name.startswith("large") and self.device_pref == "auto" \
+                        and sys.platform != "darwin":
+                    model_name = "medium"   # na CPU large jest za wolny do pracy na żywo (Mac: M1+ daje radę z turbo)
                 m = WhisperModel(model_name, device=device, compute_type=ctype,
                                  cpu_threads=self.cpu_threads if device == "cpu" else 0)
                 # szybki test, czy biblioteki CUDA (cuBLAS/cuDNN) naprawdę działają
@@ -182,6 +186,9 @@ class WhisperEngine:
 def engine_for(settings, language: str, low_vram: bool = False) -> "WhisperEngine":
     """Silnik Whispera z ustawień: model, dokładność (beam), fragmenty naraz i wątki procesora."""
     from .perf import cpu_threads
+    backend = getattr(settings, "whisper_backend", "faster-whisper") or "faster-whisper"
+    if backend != "faster-whisper":       # np. "mlx" na Macu – jeszcze nie ma, zostaje faster-whisper
+        log.info("Silnik mowy %s jeszcze nieobsługiwany – używam faster-whisper", backend)
     return WhisperEngine(settings.whisper_model, settings.whisper_device, language, low_vram=low_vram,
                          beam=getattr(settings, "whisper_beam", 5), batch=getattr(settings, "whisper_batch", 1),
                          cpu_threads=cpu_threads(getattr(settings, "hw_info", None)))

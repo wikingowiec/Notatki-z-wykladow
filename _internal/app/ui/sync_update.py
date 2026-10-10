@@ -257,6 +257,11 @@ class UpdateSection(GroupSection):
 
     # ------------------------------------------------------------------ instalacja
     def _install(self):
+        if self.info.manual:      # tylko pobranie w przeglądarce – instalacja jak za pierwszym razem
+            QDesktopServices.openUrl(QUrl(self.info.url))
+            self._status(f"Pobieram wersję {self.info.version} w przeglądarce – otwórz plik i przeciągnij "
+                         "Wykłady do Aplikacji.")
+            return
         ok, why = updater.can_update()
         if not ok:
             QMessageBox.information(self, "Aktualizacja", why)

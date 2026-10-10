@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget, QListWi
 
 from ..config import APP_NAME
 from ..storage import card_stats, fmt_time, list_lectures
+from ..system import IS_MAC, LIVE_RECORDING
 from .controls import label
 from .library_tab import LibraryTab
 from .record_tab import RecordTab
@@ -274,6 +275,9 @@ class MainWindow(QMainWindow):
         ql.addWidget(self.split)
         ql.addWidget(self.rec_pill)
         ql.addWidget(self.quick_caption)
+        if not LIVE_RECORDING:        # Mac: „nagraj jak ostatnio” nie ma sensu bez nagrywania
+            self.btn_mic.hide()
+            self.btn_new.setToolTip("Nowa notatka z nagrania, wideo albo zdjęć slajdów")
         sv.addWidget(quick)
 
         self.delegate = SidebarDelegate()
@@ -593,11 +597,16 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ nagraj jak ostatnio
     def _update_quick(self):
+        if not LIVE_RECORDING:
+            self.quick_caption.setText("")
+            self.quick_caption.hide()
+            return
         q = self.record.quick_label()
-        self.btn_mic.setToolTip("Nowa notatka z ostatnimi ustawieniami (Ctrl+Shift+R)" + (f" – {q}" if q else "")
+        keys = "⌘⇧R" if IS_MAC else "Ctrl Shift R"          # Qt na Macu zamienia Ctrl na Cmd
+        self.btn_mic.setToolTip(f"Nowa notatka z ostatnimi ustawieniami ({keys})" + (f" – {q}" if q else "")
                                 + "\nNagrywanie zacznie się dopiero po kliknięciu przycisku nagrywania.")
-        self.quick_caption.setText(f"Ctrl Shift R — ustawienia jak ostatnio ({q})" if q else
-                                   "Ctrl Shift R — ustawienia jak ostatnio")
+        self.quick_caption.setText(f"{keys} — ustawienia jak ostatnio ({q})" if q else
+                                   f"{keys} — ustawienia jak ostatnio")
         self.quick_caption.setVisible(not self._rail and not self.record.is_recording())
 
     def quick_record(self):

@@ -14,6 +14,7 @@ from .controls import GroupSection, SegmentedControl, StatusDot, ToggleSwitch, h
 from .record_tab import _centered
 from . import tokens as TK
 from .. import perf
+from ..system import IS_MAC, LIVE_RECORDING, system_name
 from .theme import theme
 
 VISION_MODELS = [
@@ -173,7 +174,7 @@ class SettingsTab(QWidget):
         wl.setContentsMargins(16, 16, 16, 16)
         wl.addWidget(cards)
         gw.add(wrap)
-        gw.add_row("Tryb", self.appearance, "Jasny – papier, ciemny – tablica. „Jak system” – zgodnie z Windows.")
+        gw.add_row("Tryb", self.appearance, f"Jasny – papier, ciemny – tablica. „Jak system” – zgodnie z {system_name()}.")
         self._mark_theme()
         v.addWidget(gw)
         g = GroupSection("Ogólne")
@@ -243,8 +244,9 @@ class SettingsTab(QWidget):
                            ("es", "Hiszpański"), ("fr", "Francuski")], self.s.language)
         self.beam = combo([(1, "Szybko"), (2, "Zrównoważona"), (5, "Najdokładniej")],
                           int(getattr(self.s, "whisper_beam", 5)), 200)
-        self.w_device = combo([("auto", "Automatycznie"), ("cuda", "Karta graficzna (CUDA)"), ("cpu", "Procesor")],
-                              self.s.whisper_device)
+        devices = [("auto", "Automatycznie"), ("cpu", "Procesor")] if IS_MAC else \
+            [("auto", "Automatycznie"), ("cuda", "Karta graficzna (CUDA)"), ("cpu", "Procesor")]
+        self.w_device = combo(devices, self.s.whisper_device)
         self.chunk = QSpinBox()
         self.chunk.setRange(8, 60)
         self.chunk.setSuffix(" s")
@@ -256,11 +258,15 @@ class SettingsTab(QWidget):
         g = GroupSection("Transkrypcja", "Rozpoznawanie mowy (Whisper) działa lokalnie na komputerze.")
         g.add_row("Język wykładów", self.lang, "Język, w którym mówi prowadzący. Transkrypcja zawsze zostaje w tym "
                                               "języku – język notatek ustawisz w „Notatki AI”.")
-        g.add_row("Model", self.w_model, "Dokładniejszy model = lepszy tekst, ale większe obciążenie karty.")
+        g.add_row("Model", self.w_model, "Dokładniejszy model = lepszy tekst, ale wolniejsza transkrypcja." if IS_MAC
+                  else "Dokładniejszy model = lepszy tekst, ale większe obciążenie karty.")
         g.add_row("Dokładność", self.beam, "„Szybko” rozpoznaje mowę ok. 2× szybciej kosztem drobnych pomyłek.")
-        g.add_row("Urządzenie", self.w_device)
-        g.add_row("Fragment na żywo co", self.chunk, "Co ile sekund dopisywać tekst podczas wykładu.")
-        g.add_row("Karta graficzna", hbox(self.gpu_dot, self.gpu_text, b_gpu, spacing=8))
+        g.add_row("Urządzenie", self.w_device, "Na Macu mowę rozpoznaje procesor (rdzenie wydajnościowe)." if IS_MAC
+                  else "")
+        if LIVE_RECORDING:
+            g.add_row("Fragment na żywo co", self.chunk, "Co ile sekund dopisywać tekst podczas wykładu.")
+        if not IS_MAC:          # CUDA – tylko karty NVIDIA (Windows)
+            g.add_row("Karta graficzna", hbox(self.gpu_dot, self.gpu_text, b_gpu, spacing=8))
         v.addWidget(g)
 
         # ---------------- Slajdy ----------------
@@ -287,14 +293,18 @@ class SettingsTab(QWidget):
         g.add_row("Próg zmiany slajdu", hbox(self.sens, self.sens_val, spacing=8),
                   "Jaka część obrazu musi się zmienić. Łapie za dużo – zwiększ. Gubi slajdy – zmniejsz.")
         g.add_row("Slajd musi stać przez", self.stable, "Chroni przed zapisywaniem przejść i animacji.")
-        g.add_row("Sprawdzaj ekran co", self.interval)
-        g.add_row("Odczytuj tekst ze slajdów", self.ocr, "OCR Windows – treść slajdów trafia do notatek.")
+        if LIVE_RECORDING:
+            g.add_row("Sprawdzaj ekran co", self.interval)
+        g.add_row("Odczytuj tekst ze slajdów", self.ocr,
+                  f"OCR {'Apple Vision' if IS_MAC else 'Windows'} – treść slajdów trafia do notatek.")
         v.addWidget(g)
 
         # ---------------- Dźwięk ----------------
-        self.audio_backend = combo([("auto", "Automatycznie"), ("proctap", "proc-tap"),
-                                    ("native", "Wbudowany (WASAPI)")], self.s.audio_backend)
-        g = GroupSection("Dźwięk", "Zmień, jeśli przy nagrywaniu wybranej aplikacji pasek poziomu dźwięku stoi w miejscu.")
+        backends = [("auto", "Automatycznie"), ("sck", "ScreenCaptureKit")] if IS_MAC else             [("auto", "Automatycznie"), ("proctap", "proc-tap"), ("native", "Wbudowany (WASAPI)")]
+        self.audio_backend = combo(backends, self.s.audio_backend)
+        g = GroupSection("Dźwięk", "Zmień, jeśli przy nagrywaniu wybranej aplikacji pasek poziomu dźwięku stoi w miejscu."
+                         + (" „Automatycznie” = Core Audio (macOS 14.4+), a gdy się nie uda – ScreenCaptureKit."
+                            if IS_MAC else ""))
         g.add_row("Przechwytywanie aplikacji", self.audio_backend)
         self.autostop = QSpinBox()
         self.autostop.setRange(0, 60)
@@ -305,6 +315,17 @@ class SettingsTab(QWidget):
                   "Gdy tyle minut nic nie słychać albo zamkniesz aplikację z wykładem, nagrywanie zakończy się "
                   "po 60 s (możesz to anulować).")
         v.addWidget(g)
+        g.setVisible(LIVE_RECORDING)    # przechwytywanie dźwięku – Windows i macOS 14.4+
+
+        # ---------------- Zgody macOS ----------------
+        if IS_MAC and LIVE_RECORDING:
+            from .permission_panel import PermissionPanel
+            g = GroupSection("Zgody macOS", "macOS pyta o zgodę osobno na mikrofon, dźwięk aplikacji i nagrywanie "
+                                            "ekranu. Wszystko zostaje na tym Macu.")
+            self.perms = PermissionPanel(show_granted=True)
+            self.perms.restart_requested.connect(self._restart_app)
+            g.add(self.perms)
+            v.addWidget(g)
 
         # ---------------- AI ----------------
         self.ai_dot = StatusDot("gray")
@@ -352,12 +373,16 @@ class SettingsTab(QWidget):
         lm.subtitle.show()
         g.add(self._wrap(self.pull_bar))
         self.reuse = ToggleSwitch(bool(getattr(self.s, "reuse_live_notes", False)))
-        g.add_row("Notatki i pytania na żywo", self.live_notes,
+        live_rows = [lm]
+        live_rows.append(g.add_row("Notatki i pytania na żywo", self.live_notes,
                   "Notatki powstają w trakcie nagrywania, a pytania można zadawać od razu. Whisper działa wtedy w "
-                  "oszczędniejszym trybie, żeby oba modele zmieściły się w pamięci karty graficznej.")
-        g.add_row("Szybkie zakończenie", self.reuse,
+                  "oszczędniejszym trybie, żeby oba modele zmieściły się w pamięci karty graficznej."))
+        live_rows.append(g.add_row("Szybkie zakończenie", self.reuse,
                   "Fragmenty napisane w trakcie nagrywania zostają w notatce – po wykładzie dopisuje się tylko reszta, "
-                  "fiszki i podsumowanie. Dużo szybciej, ale te fragmenty pisał lżejszy model.")
+                  "fiszki i podsumowanie. Dużo szybciej, ale te fragmenty pisał lżejszy model."))
+        if not LIVE_RECORDING:      # Mac: bez nagrywania na żywo
+            for row in live_rows:
+                row.setVisible(False)
         self.describe = ToggleSwitch(bool(getattr(self.s, "describe_slides", True)))
         self.vision_model = QComboBox()
         self.vision_model.setEditable(True)
@@ -388,7 +413,9 @@ class SettingsTab(QWidget):
         # ---------------- Pomoc ----------------
         b_log = QPushButton("Otwórz log")
         b_log.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path()))))
-        g = GroupSection("Pomoc", "Gdy coś nie działa, uruchom „Wykłady.exe --debug” (okno z komunikatami) albo prześlij treść logu.")
+        debug = ("w Terminalu wpisz „/Applications/Wykłady.app/Contents/MacOS/Wyklady --debug” (komunikaty w oknie "
+                 "Terminala)" if IS_MAC else "uruchom „Wykłady.exe --debug” (okno z komunikatami)")
+        g = GroupSection("Pomoc", f"Gdy coś nie działa, {debug} albo prześlij treść logu.")
         g.add_row("Dziennik zdarzeń", b_log)
         v.addWidget(g)
 
@@ -428,6 +455,12 @@ class SettingsTab(QWidget):
         self._update_profiles()
         QTimer.singleShot(400, self.check_ollama)
         QTimer.singleShot(200, lambda: self._detect_hw(False))
+
+    def _restart_app(self):
+        """Mac: zgoda na nagrywanie ekranu działa dopiero po ponownym uruchomieniu."""
+        w = self.window()
+        if hasattr(w, "_restart_after_update"):
+            w._restart_after_update()
 
     def _about(self) -> QWidget:
         from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel

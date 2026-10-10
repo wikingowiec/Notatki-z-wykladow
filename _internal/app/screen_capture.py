@@ -1,4 +1,5 @@
-"""Zrzuty ekranu: cały monitor (mss) albo pojedyncze okno (PrintWindow – działa też, gdy okno jest zasłonięte)."""
+"""Zrzuty ekranu: cały monitor (mss) albo pojedyncze okno (PrintWindow – działa też, gdy okno jest zasłonięte).
+Na macOS wszystko robi mac_screen.py (ScreenCaptureKit)."""
 from __future__ import annotations
 
 import ctypes
@@ -10,6 +11,7 @@ from typing import Optional
 import numpy as np
 
 IS_WIN = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
 
 
 @dataclass
@@ -17,12 +19,16 @@ class VideoSourceInfo:
     kind: str           # "monitor" / "window" / "none"
     label: str
     index: int = 0      # numer monitora (1..n) w mss
-    hwnd: int = 0
+    hwnd: int = 0       # Windows: uchwyt okna; macOS: CGWindowID
     pid: int = 0
     title: str = ""
+    display_id: int = 0     # macOS: CGDirectDisplayID monitora
 
 
 def list_monitors() -> list[VideoSourceInfo]:
+    if IS_MAC:
+        from .mac_screen import list_monitors as mac_monitors
+        return mac_monitors()
     out = []
     try:
         import mss
@@ -35,6 +41,9 @@ def list_monitors() -> list[VideoSourceInfo]:
 
 
 def list_windows() -> list[VideoSourceInfo]:
+    if IS_MAC:
+        from .mac_screen import list_windows as mac_windows
+        return mac_windows()
     if not IS_WIN:
         return []
     from ctypes import wintypes
@@ -181,6 +190,9 @@ class WindowGrabber:
 
 
 def make_grabber(info: VideoSourceInfo):
+    if IS_MAC and info.kind in ("monitor", "window"):
+        from .mac_screen import SCKGrabber
+        return SCKGrabber(info)
     if info.kind == "monitor":
         return MonitorGrabber(info.index)
     if info.kind == "window":

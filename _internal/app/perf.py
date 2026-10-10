@@ -1,7 +1,8 @@
 """Sprzęt i profile wydajności: Lekki / Zrównoważony / Pełna moc.
 
-Wykrywanie działa na samej bibliotece standardowej (rejestr Windows, ctypes, nvidia-smi), więc da się go użyć
-w instalatorze, zanim pobiorą się biblioteki aplikacji. Profil to zestaw ustawień: model rozpoznawania mowy,
+Wykrywanie działa na samej bibliotece standardowej (rejestr Windows, ctypes, nvidia-smi, na Macu sysctl), więc da
+się go użyć w instalatorze, zanim pobiorą się biblioteki aplikacji. Na Macu (Apple Silicon) procesor i grafika mają
+wspólną pamięć – profil wybiera się według jej ilości, a Ollama sama liczy na GPU przez Metal. Profil to zestaw ustawień: model rozpoznawania mowy,
 modele AI, kontekst, notatki na żywo, opisy slajdów i kilka przełączników szybkości."""
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import time
 from pathlib import Path
 
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+IS_MAC = sys.platform == "darwin"
 
 BIELIK_11 = "SpeakLeash/bielik-11b-v3.0-instruct:Q4_K_M"
 BIELIK_45 = "SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0"
@@ -35,6 +37,19 @@ DESC = {
     "pelna": "Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów. Po wykładzie "
              "cała notatka powstaje od nowa mocniejszym modelem.",
 }
+if IS_MAC:          # Apple Silicon: liczy się pamięć wspólna
+    FOR = {
+        "lekki": "Mac z 8 GB pamięci",
+        "zrownowazony": "Mac z 16–24 GB pamięci",
+        "pelna": "Mac z 32 GB pamięci lub więcej",
+    }
+    DESC = {
+        "lekki": "Mniejsze modele i bez opisywania obrazów na slajdach. Notatki powstają spokojnie, bez zacinania "
+                 "Maca.",
+        "zrownowazony": "Szybki i dokładny model mowy, mocniejszy model notatek i opisy obrazów na slajdach.",
+        "pelna": "Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów – cała "
+                 "notatka mocniejszymi modelami.",
+    }
 
 # pola ustawień, które ustawia profil (whisper_batch nie ma przełącznika – nie wpływa na „Własne”)
 FIELDS = ("whisper_model", "whisper_beam", "ollama_model", "live_model", "live_notes", "describe_slides",
@@ -46,6 +61,8 @@ MODEL_GB = {"bielik-11b": 6.7, "bielik-4.5b": 5.1, "qwen3-vl:8b": 6.1, "qwen3-vl
 LIBS_GB = 2.6           # biblioteki aplikacji (z bibliotekami CUDA)
 CUDA_LIBS_GB = 1.4      # z tego biblioteki CUDA – niepotrzebne bez karty NVIDIA
 OLLAMA_GB = 1.0
+MAC_LIBS_GB = 0.9       # Mac: Python + biblioteki (bez CUDA)
+MAC_OLLAMA_GB = 0.2
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +167,44 @@ def _registry_gpus() -> list[dict]:
     return out
 
 
+def _sysctl(name: str) -> str:
+    try:
+        r = subprocess.run(["/usr/sbin/sysctl", "-n", name], capture_output=True, text=True, timeout=5)
+        return (r.stdout or "").strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _int(x: str) -> int:
+    try:
+        return int(x)
+    except (TypeError, ValueError):
+        return 0
+
+
+def detect_mac() -> dict:
+    """Mac: układ (np. „Apple M2 Pro”), pamięć wspólna i rdzenie wydajnościowe – przez sysctl."""
+    chip = _sysctl("machdep.cpu.brand_string") or "Apple"
+    ram = _int(_sysctl("hw.memsize")) / 1024 ** 3 or _ram_gb()
+    perf_cores = _int(_sysctl("hw.perflevel0.physicalcpu")) or _int(_sysctl("hw.physicalcpu"))
+    threads = _int(_sysctl("hw.logicalcpu")) or os.cpu_count() or 8
+    gpu_cores = 0
+    try:            # liczba rdzeni GPU (tylko do opisu)
+        r = subprocess.run(["/usr/sbin/ioreg", "-rc", "AGXAccelerator", "-d", "1"], capture_output=True, text=True,
+                           timeout=5)
+        m = re.search(r'"gpu-core-count"\s*=\s*(\d+)', r.stdout or "")
+        gpu_cores = int(m.group(1)) if m else 0
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return {"cpu": chip, "threads": threads, "perf_cores": perf_cores, "ram_gb": round(ram, 1), "apple": True,
+            "arm64": _int(_sysctl("hw.optional.arm64")) == 1,
+            "gpus": [{"name": f"{chip} GPU", "vram_gb": round(ram, 1), "nvidia": False, "cores": gpu_cores}],
+            "t": int(time.time())}
+
+
 def detect() -> dict:
+    if IS_MAC:
+        return detect_mac()
     gpus = _nvidia()
     names = {g["name"].lower() for g in gpus}
     for g in _registry_gpus():
@@ -198,7 +252,15 @@ def _short_cpu(name: str) -> str:
 
 
 def describe(hw: dict) -> str:
-    """„Intel Core i5-1235U · 16 GB RAM · GeForce RTX 3050 Laptop GPU 4 GB”."""
+    """„Intel Core i5-1235U · 16 GB RAM · GeForce RTX 3050 Laptop GPU 4 GB” (Mac: „Apple M2 · 16 GB pamięci wspólnej”)."""
+    if hw.get("apple"):
+        parts = [hw.get("cpu") or "Apple"]
+        if hw.get("ram_gb"):
+            parts.append(f"{round(hw['ram_gb']):.0f} GB pamięci wspólnej")
+        g = (hw.get("gpus") or [{}])[0]
+        if g.get("cores"):
+            parts.append(f"GPU {g['cores']} rdzeni")
+        return " · ".join(parts)
     parts = [_short_cpu(hw.get("cpu", ""))]
     if hw.get("ram_gb"):
         parts.append(f"{round(hw['ram_gb']):.0f} GB RAM")
@@ -214,6 +276,13 @@ def recommend(hw: dict) -> tuple[str, str]:
     """(profil, powód w jednym zdaniu)."""
     v = nvidia_vram(hw)
     ram = hw.get("ram_gb", 0)
+    if hw.get("apple"):
+        r = round(ram)
+        if ram >= 31:
+            return "pelna", f"Mac ma {r} GB pamięci wspólnej – zmieszczą się największe modele."
+        if ram >= 15:
+            return "zrownowazony", f"Mac ma {r} GB pamięci wspólnej – wystarczy na mocniejszy model notatek."
+        return "lekki", f"Mac ma {r} GB pamięci wspólnej – większe modele zwalniałyby komputer."
     if v >= 11.5 and ram >= 15:
         return "pelna", f"Karta NVIDIA ma {_gb(v)} pamięci – zmieszczą się największe modele."
     if v >= 7.5:
@@ -236,6 +305,8 @@ def fmt_gb(x: float) -> str:
 # profile
 # ---------------------------------------------------------------------------
 def values(key: str, hw: dict) -> dict:
+    if hw.get("apple"):
+        return _values_mac(key)
     gpu = has_nvidia(hw)
     if key == "lekki":
         return {"whisper_model": "large-v3-turbo" if gpu else "small", "whisper_beam": 1,
@@ -255,6 +326,22 @@ def values(key: str, hw: dict) -> dict:
             "ollama_model": BIELIK_11, "live_model": BIELIK_45, "live_notes": True, "describe_slides": True,
             "vision_model": QWEN_VL8, "ollama_ctx": 16384, "live_ctx": 8192, "reuse_live_notes": False,
             "live_chunk_seconds": 20.0}
+
+
+def _values_mac(key: str) -> dict:
+    """Mac: Whisper na procesorze (int8) – large-v3-turbo jest na CPU kilka razy szybszy od large-v3 przy prawie tej
+    samej dokładności. Modele AI liczy GPU przez pamięć wspólną. Notatki na żywo domyślnie wyłączone (transkrypcja
+    na żywo zajmuje procesor, a drugi model – pamięć) – można je włączyć przy nagrywaniu albo w Ustawieniach."""
+    common = {"live_model": BIELIK_45, "live_notes": False, "reuse_live_notes": False, "live_ctx": 8192,
+              "live_chunk_seconds": 20.0}
+    if key == "lekki":
+        return {**common, "whisper_model": "small", "whisper_beam": 1, "whisper_batch": 4,
+                "ollama_model": BIELIK_45, "describe_slides": False, "vision_model": QWEN_VL4, "ollama_ctx": 8192}
+    if key == "zrownowazony":
+        return {**common, "whisper_model": "large-v3-turbo", "whisper_beam": 2, "whisper_batch": 4,
+                "ollama_model": BIELIK_11, "describe_slides": True, "vision_model": QWEN_VL4, "ollama_ctx": 8192}
+    return {**common, "whisper_model": "large-v3-turbo", "whisper_beam": 5, "whisper_batch": 8,
+            "ollama_model": BIELIK_11, "describe_slides": True, "vision_model": QWEN_VL8, "ollama_ctx": 16384}
 
 
 def apply(settings, key: str, hw: dict | None = None) -> None:
@@ -300,12 +387,16 @@ def models_of(vals: dict) -> list[str]:
 def download_gb(key: str, hw: dict, with_libs: bool = True) -> float:
     vals = values(key, hw)
     tot = WHISPER_GB.get(vals["whisper_model"], 1.5) + sum(model_gb(m) for m in models_of(vals))
-    if with_libs:
+    if with_libs and hw.get("apple"):
+        tot += MAC_LIBS_GB + MAC_OLLAMA_GB
+    elif with_libs:
         tot += LIBS_GB - (0 if has_nvidia(hw) else CUDA_LIBS_GB) + OLLAMA_GB
     return round(tot, 1)
 
 
 def cpu_threads(hw: dict | None = None) -> int:
+    if (hw or {}).get("apple"):       # tylko rdzenie wydajnościowe – energooszczędne spowalniają Whispera
+        return max(2, min(10, int(hw.get("perf_cores") or 4)))
     n = (hw or {}).get("threads") or os.cpu_count() or 4
     return max(4, min(8, n // 2))
 
@@ -318,10 +409,19 @@ OLLAMA_ENV = {"OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0"}
 
 def ollama_env() -> dict:
     """Zmienne środowiska dla Ollamy. Na Windows zapisuje je też jako zmienne użytkownika (działają od
-    następnego uruchomienia Ollamy), chyba że użytkownik ustawił je sam."""
+    następnego uruchomienia Ollamy), chyba że użytkownik ustawił je sam. Na Macu – przez launchctl (dla Ollama.app
+    uruchomionej później; do ponownego uruchomienia komputera)."""
     env = {**os.environ}
     for k, v in OLLAMA_ENV.items():
         env.setdefault(k, v)
+    if IS_MAC:
+        for name, val in OLLAMA_ENV.items():
+            try:
+                cur = subprocess.run(["/bin/launchctl", "getenv", name], capture_output=True, text=True, timeout=3)
+                if not (cur.stdout or "").strip():
+                    subprocess.run(["/bin/launchctl", "setenv", name, val], capture_output=True, timeout=3)
+            except (OSError, subprocess.SubprocessError):
+                pass
     if sys.platform == "win32":
         try:
             import ctypes

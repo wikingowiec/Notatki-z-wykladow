@@ -1,0 +1,152 @@
+# Wydanie nowej wersji: po wypchnięciu tagu v* (np. v2.2.0) buduje paczkę i tworzy GitHub Release.
+# Nowe w wersji 2.2.0.
+#
+# WAŻNE: paczka Windows musi być JEDYNYM plikiem .zip w wydaniu – starsze wersje aplikacji (do 2.1.4)
+# pobierają pierwszy załączony .zip. Paczka na Maca to .dmg (job macos – po teście dymnym na Apple Silicon).
+
+name: Wydanie
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Paczka Windows i wydanie
+    runs-on: ubuntu-latest      # paczka to same pliki (Wykłady.exe jest w repozytorium) – Linux wystarczy
+    steps:
+      - uses: actions/checkout@v4
+
+      # checkout pobiera tag bez wiadomości – dociągamy go w pełnej postaci
+      - name: Pobranie tagu z opisem
+        run: git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+
+      - name: Sprawdzenie numeru wersji
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(python3 -c "import re; print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"', open('_internal/app/version.py', encoding='utf-8').read()).group(1))")
+          echo "Tag: $TAG, VERSION: $VER"
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::Tag v$TAG nie zgadza się z VERSION = $VER w _internal/app/version.py"
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      # zipfile z Pythona zapisuje nazwy w UTF-8 (z flagą), więc „Wykłady.exe” rozpakuje się poprawnie
+      - name: Budowanie paczki
+        run: |
+          python3 - "${{ steps.ver.outputs.version }}" <<'EOF'
+          import sys, zipfile
+          from pathlib import Path
+
+          ver = sys.argv[1]
+          out = Path(f"Wyklady-{ver}-Windows.zip")
+          top = "Wykłady"
+          skip = {"runtime", "__pycache__"}
+          files = [Path("Wykłady.exe"), Path("README.md")]
+          for p in sorted(Path("_internal").rglob("*")):
+              rel = p.relative_to("_internal").parts
+              if p.is_file() and not (rel[0] == "runtime" or skip & set(rel) or p.suffix == ".pyc"):
+                  files.append(p)
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for f in files:
+                  z.write(f, f"{top}/{f.as_posix()}")
+          print(f"{out}: {len(files)} plików, {out.stat().st_size / 1e6:.1f} MB")
+          EOF
+
+      - name: Utworzenie wydania
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
+          [ -s notes.md ] || echo "Wykłady ${{ steps.ver.outputs.version }}" > notes.md
+          gh release create "$GITHUB_REF_NAME" "Wyklady-${{ steps.ver.outputs.version }}-Windows.zip" \
+            --title "Wykłady ${{ steps.ver.outputs.version }}" --notes-file notes.md --verify-tag
+
+  macos:
+    name: Paczka Mac (.dmg) i test dymny
+    needs: windows              # wydanie musi już istnieć
+    runs-on: macos-14           # Apple Silicon (M1)
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Numer wersji
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Pillow – ikona .icns z największego obrazu w icon.ico
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pillow
+        run: python -m pip install pillow
+
+      - name: Budowanie Wykłady.app
+        run: bash _internal/tools/macos/build_app.sh dist
+
+      - name: Budowanie .dmg
+        run: |
+          ln -s /Applications dist/Applications
+          hdiutil create -volname "Wykłady" -srcfolder dist -format UDZO -ov \
+            "Wyklady-${{ steps.ver.outputs.version }}-Mac.dmg"
+
+      # Czyste konto (HOME w folderze tymczasowym): aplikacja z .dmg, pierwsze uruchomienie programu startowego,
+      # biblioteki z requirements-mac.txt, potem okno bez ekranu z przykładowym wykładem i zrzuty.
+      - name: Test dymny
+        env:
+          HOME: ${{ runner.temp }}/home
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/Documents"
+          MNT="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "Wyklady-${{ steps.ver.outputs.version }}-Mac.dmg"
+          cp -R "$MNT/Wykłady.app" "$RUNNER_TEMP/Wykłady.app"
+          hdiutil detach "$MNT"
+          APP="$RUNNER_TEMP/Wykłady.app"
+          test -x "$APP/Contents/MacOS/Wyklady"
+          test -f "$APP/Contents/Resources/icon.icns"
+          test -x "$APP/Contents/MacOS/WykladyHost"
+          plutil -lint "$APP/Contents/Info.plist"
+          for key in NSMicrophoneUsageDescription NSAudioCaptureUsageDescription; do
+            plutil -extract "$key" raw "$APP/Contents/Info.plist" >/dev/null
+          done
+
+          echo "::group::Program startowy: Python + PySide6"
+          WYKLADY_BOOTSTRAP_ONLY=1 "$APP/Contents/MacOS/Wyklady"
+          echo "::endgroup::"
+          PY="$HOME/Library/Application Support/WykladyAI/runtime/python/bin/python3"
+          "$PY" --version
+
+          echo "::group::Biblioteki (requirements-mac.txt)"
+          "$PY" -m pip install --disable-pip-version-check --no-warn-script-location \
+            -r "$APP/Contents/Resources/_internal/requirements-mac.txt"
+          echo "::endgroup::"
+
+          # Python w procesie Wykłady.app (jak przy zwykłym uruchomieniu) – zgody macOS idą do „Wykłady”
+          LIBPY="$(ls "$HOME/Library/Application Support/WykladyAI/runtime/python/lib"/libpython3.*.dylib | head -n 1)"
+          export WYKLADY_LIBPYTHON="$LIBPY" PYTHONEXECUTABLE="$PY"
+          echo "::group::WykladyHost"
+          "$APP/Contents/MacOS/WykladyHost" -c "import sys, encodings, ctypes, PySide6; print(sys.executable, sys.version)"
+          echo "::endgroup::"
+
+          QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/WykladyHost" \
+            "$APP/Contents/Resources/_internal/tools/macos/smoke_test.py" \
+            "$APP/Contents/Resources/_internal" "$GITHUB_WORKSPACE/test-dymny"
+
+      - name: Zrzuty z testu dymnego
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-dymny-mac
+          path: test-dymny/
+          if-no-files-found: warn
+
+      - name: Dołączenie do wydania
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "Wyklady-${{ steps.ver.outputs.version }}-Mac.dmg" --clobber

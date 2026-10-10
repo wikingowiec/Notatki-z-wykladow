@@ -6,15 +6,17 @@ import json
 import sys
 from pathlib import Path
 
+from ..system import IS_MAC, requirements_files, runtime_dir
+
 BASE = Path(__file__).resolve().parents[2]          # folder _internal
-RUNTIME = BASE / "runtime"
+RUNTIME = runtime_dir()                             # Windows: _internal/runtime, Mac: Application Support
 PYTHON_DIR = RUNTIME / "python"
 MARKER = RUNTIME / "setup.json"
-REQ_FILES = ("requirements.txt", "requirements-ocr.txt")
+REQ_FILES = requirements_files()
 
 
 def embedded() -> bool:
-    """Aplikacja działa na własnym Pythonie z _internal/runtime (a nie np. z .venv programisty)."""
+    """Aplikacja działa na własnym Pythonie z runtime (a nie np. z .venv programisty)."""
     try:
         return Path(sys.executable).resolve().is_relative_to(RUNTIME.resolve())
     except Exception:  # noqa: BLE001
@@ -53,8 +55,10 @@ def save_marker(**extra) -> None:
 
 
 def python_console() -> str:
-    """python.exe obok pythonw.exe (pip z przechwyconym wyjściem)."""
+    """python.exe obok pythonw.exe (pip z przechwyconym wyjściem). Na Macu – ten sam Python."""
     exe = Path(sys.executable)
+    if IS_MAC:
+        return str(exe)
     cand = exe.with_name("python.exe")
     return str(cand if cand.exists() else exe)
 
