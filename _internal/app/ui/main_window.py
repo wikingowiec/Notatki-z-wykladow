@@ -402,6 +402,7 @@ class MainWindow(QMainWindow):
                 style_combo(c, max(260, c.minimumWidth()))
         # aktualizacje: sprawdzanie w tle po starcie, znaczek przy „Ustawieniach”
         self.settings_tab.busy_fn = self._busy_reason
+        self.settings_tab.uninstall_busy_fn = self._busy_uninstall
         self.settings_tab.updates.update_available.connect(self._update_badge)
         self.settings_tab.updates.restart_requested.connect(self._restart_after_update)
         QTimer.singleShot(6000, lambda: self.settings_tab.updates.check(silent=True))
@@ -814,6 +815,13 @@ class MainWindow(QMainWindow):
             return tr("Trwa: {name}. Zaktualizuj, gdy się skończy.", name=self.runner.name)
         return ""
 
+    def _busy_uninstall(self) -> str:
+        if self.record.is_recording():
+            return tr("Trwa nagrywanie – zakończ je, zanim odinstalujesz aplikację.")
+        if self.runner.busy:
+            return tr("Trwa: {name}. Odinstaluj aplikację, gdy się skończy (albo przerwij zadanie).", name=self.runner.name)
+        return ""
+
     def _update_badge(self, ver: str):
         it = self.nav_bottom.item(0)
         it.setData(COUNT, tr("nowa wersja"))
@@ -854,6 +862,11 @@ class MainWindow(QMainWindow):
         self._relayout()
 
     def bring_to_front(self):
+        uw = getattr(self, "_uninstall_window", None)
+        if uw is not None:            # trwa odinstalowywanie – okno aplikacji zostaje ukryte
+            uw.raise_()
+            uw.activateWindow()
+            return
         if self.isMinimized():
             self.showNormal()
         self.show()

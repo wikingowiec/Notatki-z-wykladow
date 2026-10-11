@@ -36,6 +36,8 @@ class NotebookView(QWidget):
         self.detail = ""
         self.steps: list[list] = []          # [tytuł, stan]
         self.error = ""
+        self.heading = tr("Przygotowanie")   # nagłówek na lewej stronie
+        self.reverse = False                 # kartki przewracają się w drugą stronę (odinstalowywanie)
         self.phase = "working"               # working / closing / closed
         self.t0 = time.monotonic()
         self.close_t0 = 0.0
@@ -113,7 +115,15 @@ class NotebookView(QWidget):
         else:
             cyc = (time.monotonic() - self.t0) % FLIP_EVERY
             if cyc < FLIP_TIME and not self.error and self.shown_percent < 0.995:
-                self._flip(p, spine, right, _ease(cyc / FLIP_TIME), paper, cover, t)
+                if self.reverse:     # lewa kartka na prawą stronę – lustrzane odbicie względem grzbietu
+                    p.save()
+                    p.translate(2 * spine, 0)
+                    p.scale(-1, 1)
+                    self._flip(p, spine, QRectF(2 * spine - left.right(), left.top(), left.width(), left.height()),
+                               _ease(cyc / FLIP_TIME), paper, cover, t)
+                    p.restore()
+                else:
+                    self._flip(p, spine, right, _ease(cyc / FLIP_TIME), paper, cover, t)
         self._rings(p, spine, book, m)
         p.end()
 
@@ -183,7 +193,7 @@ class NotebookView(QWidget):
         p.setFont(f)
         p.setPen(qcolor(t.accent))
         p.drawText(QRectF(x0, r.top() + step * 0.45, r.right() - x0 - 8, step * 1.5),
-                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, tr("Przygotowanie"))
+                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self.heading)
         fi = QFont(UI_FAMILY)
         fi.setPointSizeF(max(8.5, step * 0.42))
         now = time.monotonic()
@@ -200,6 +210,13 @@ class NotebookView(QWidget):
                 p.drawEllipse(QPointF(cx, cy), rad, rad)
                 pm = icon_pixmap("check", t.on_accent, int(rad * 1.5), self.devicePixelRatioF())
                 p.drawPixmap(int(cx - rad * 0.75), int(cy - rad * 0.75), pm)
+                p.setPen(qcolor(t.text2))
+            elif st == "later":      # usunie się po zamknięciu aplikacji
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(qcolor(t.accent), 1.6))
+                p.drawEllipse(QPointF(cx, cy), rad * 0.92, rad * 0.92)
+                pm = icon_pixmap("check", t.accent, int(rad * 1.4), self.devicePixelRatioF())
+                p.drawPixmap(int(cx - rad * 0.7), int(cy - rad * 0.7), pm)
                 p.setPen(qcolor(t.text2))
             elif st == "warn":
                 p.setBrush(qcolor(t.orange))
@@ -446,33 +463,32 @@ class ProfileChooser(QWidget):
         self.btn.setText(tr("Zainstaluj · {x}", x=perf.LABELS[key]))
 
 
-class SetupWindow(QWidget):
-    """Okno bez ramki (ok. ¼ ekranu): nagłówek, notes, pasek postępu."""
-    finished = Signal()
+class NotebookWindow(QWidget):
+    """Okno bez ramki (ok. ¼ ekranu) z zaokrągloną kartą i cieniem – wspólne dla instalacji i odinstalowania."""
 
-    def __init__(self, settings):
+    def __init__(self):
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowTitle(f"{APP_NAME} – przygotowanie")
-        self.settings = settings
-        from .installer import Installer
-        self.inst = Installer(settings)
-        first = not (self.inst.marker.get("complete"))
         self._drag = None
-        # przy pierwszej instalacji: najpierw wybór profilu sprzętu (o ile nie wybrano go wcześniej)
-        self.choose = first and not getattr(settings, "hw_profile", "")
 
-        self.logo = QLabel()
-        self.logo.setPixmap(logo_pixmap(30, self.devicePixelRatioF() or 2.0))
+    def _place(self):
+        scr = QApplication.primaryScreen().availableGeometry()
+        w = int(min(1180, max(700, scr.width() * 0.5)))
+        h = int(min(760, max(500, scr.height() * 0.52)))
+        self.setGeometry(scr.left() + (scr.width() - w) // 2, scr.top() + (scr.height() - h) // 2, w, h)
+
+    def _header(self, sub: str, on_close) -> tuple[QHBoxLayout, QLabel, QToolButton]:
+        """Logo, nazwa aplikacji, podtytuł; przyciski „zminimalizuj” i „zamknij”."""
+        logo = QLabel()
+        logo.setPixmap(logo_pixmap(30, self.devicePixelRatioF() or 2.0))
         title = QLabel(APP_NAME)
         title.setObjectName("title3")
         f = QFont(DISPLAY_FAMILY)
         f.setPointSizeF(17)
         f.setWeight(QFont.Weight.DemiBold)
         title.setFont(f)
-        self.sub = QLabel(tr("Przygotowuję wszystko do pierwszego wykładu") if first else
-                          tr("Doinstalowuję nowości po aktualizacji"))
-        self.sub.setObjectName("secondary")
+        lab = QLabel(sub)
+        lab.setObjectName("secondary")
         b_min = QToolButton()
         b_min.setObjectName("icon")
         b_min.setText("–")
@@ -482,18 +498,63 @@ class SetupWindow(QWidget):
         b_close.setObjectName("icon")
         from ..ui.theme import svg_icon
         b_close.setIcon(svg_icon("xmark", T().text2, 16))
-        b_close.setToolTip(tr("Przerwij"))
-        b_close.clicked.connect(self._ask_close)
+        b_close.clicked.connect(on_close)
         head = QHBoxLayout()
         head.setSpacing(10)
-        head.addWidget(self.logo)
+        head.addWidget(logo)
         tv = QVBoxLayout()
         tv.setSpacing(0)
         tv.addWidget(title)
-        tv.addWidget(self.sub)
+        tv.addWidget(lab)
         head.addLayout(tv, 1)
         head.addWidget(b_min, 0, Qt.AlignmentFlag.AlignTop)
         head.addWidget(b_close, 0, Qt.AlignmentFlag.AlignTop)
+        return head, lab, b_close
+
+    # ------------------------------------------------------------------ tło okna i przesuwanie
+    def paintEvent(self, _e):
+        t = T()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(14, 12, -14, -16)
+        for g, a in ((1, 30), (4, 16), (8, 8), (12, 4)):
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(0, 0, 0, a * (2 if t.dark else 1)))
+            p.drawRoundedRect(r.adjusted(-g, -g + 3, g, g + 3), 22 + g, 22 + g)
+        p.setBrush(qcolor(t.window))
+        p.setPen(QPen(qcolor(mix(t.window, t.text, 0.12)), 1))
+        p.drawRoundedRect(r, 22, 22)
+        p.end()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, e):
+        if self._drag is not None and e.buttons() & Qt.MouseButton.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag)
+
+    def mouseReleaseEvent(self, _e):
+        self._drag = None
+
+
+class SetupWindow(NotebookWindow):
+    """Przygotowanie aplikacji: nagłówek, notes, pasek postępu."""
+    finished = Signal()
+
+    def __init__(self, settings):
+        super().__init__()
+        self.setWindowTitle(f"{APP_NAME} – przygotowanie")
+        self.settings = settings
+        from .installer import Installer
+        self.inst = Installer(settings)
+        first = not (self.inst.marker.get("complete"))
+        # przy pierwszej instalacji: najpierw wybór profilu sprzętu (o ile nie wybrano go wcześniej)
+        self.choose = first and not getattr(settings, "hw_profile", "")
+
+        head, self.sub, b_close = self._header(tr("Przygotowuję wszystko do pierwszego wykładu") if first else
+                                               tr("Doinstalowuję nowości po aktualizacji"), self._ask_close)
+        b_close.setToolTip(tr("Przerwij"))
 
         self.book = NotebookView()
         self.book.steps = [[s.title, "pending"] for s in self.inst.steps]
@@ -536,11 +597,7 @@ class SetupWindow(QWidget):
             self.sub.setText(tr("Najpierw dopasujmy aplikację do Twojego komputera"))
 
         self._connect()
-
-        scr = QApplication.primaryScreen().availableGeometry()
-        w = int(min(1180, max(700, scr.width() * 0.5)))
-        h = int(min(760, max(500, scr.height() * 0.52)))
-        self.setGeometry(scr.left() + (scr.width() - w) // 2, scr.top() + (scr.height() - h) // 2, w, h)
+        self._place()
 
     # ------------------------------------------------------------------
     def _connect(self):
@@ -624,28 +681,95 @@ class SetupWindow(QWidget):
             self.inst.stop()
             QApplication.quit()
 
-    # ------------------------------------------------------------------ tło okna i przesuwanie
-    def paintEvent(self, _e):
-        t = T()
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = QRectF(self.rect()).adjusted(14, 12, -14, -16)
-        for g, a in ((1, 30), (4, 16), (8, 8), (12, 4)):
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(0, 0, 0, a * (2 if t.dark else 1)))
-            p.drawRoundedRect(r.adjusted(-g, -g + 3, g, g + 3), 22 + g, 22 + g)
-        p.setBrush(qcolor(t.window))
-        p.setPen(QPen(qcolor(mix(t.window, t.text, 0.12)), 1))
-        p.drawRoundedRect(r, 22, 22)
-        p.end()
 
-    def mousePressEvent(self, e):
-        if e.button() == Qt.MouseButton.LeftButton:
-            self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+class UninstallWindow(NotebookWindow):
+    """Odinstalowywanie: ten sam notes co przy instalacji, kartki przewracają się w drugą stronę. Na końcu
+    „Gotowe – zwolniono X GB” i „Zamknij” (aplikacja się zamyka; wersja ze Store otwiera Ustawienia Windows)."""
 
-    def mouseMoveEvent(self, e):
-        if self._drag is not None and e.buttons() & Qt.MouseButton.LeftButton:
-            self.move(e.globalPosition().toPoint() - self._drag)
+    def __init__(self, settings, plan, keys: list[str]):
+        super().__init__()
+        from ..uninstall import DRY, Uninstaller
+        self.setWindowTitle(tr("{app} – odinstalowywanie", app=APP_NAME))
+        self.settings = settings
+        self.un = Uninstaller(settings, plan, keys)
+        sub = tr("Usuwam to, co zainstalowała aplikacja")
+        if DRY:
+            sub += " · " + tr("tryb próbny – nic nie jest usuwane")
+        head, self.sub, self.b_x = self._header(sub, self._close_clicked)
+        self.b_x.setToolTip(tr("Zamknij"))
+        self.b_x.setEnabled(False)               # w trakcie nie przerywamy – część rzeczy jest już usunięta
+        self.book = NotebookView()
+        self.book.heading = tr("Odinstalowywanie")
+        self.book.reverse = True
+        self.book.steps = [[st.title, "pending"] for st in self.un.steps]
+        self.book.closed.connect(QApplication.quit)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setTextVisible(False)
+        self.hint = QLabel(tr("Nie wyłączaj komputera – to potrwa chwilę."))
+        self.hint.setObjectName("footnote")
+        self.hint.setWordWrap(True)
+        self.btn = QPushButton(tr("Zamknij"))
+        self.btn.setObjectName("primary")
+        self.btn.setMinimumWidth(150)
+        self.btn.clicked.connect(self._close_clicked)
+        self.btn.hide()
+        row = QHBoxLayout()
+        row.addWidget(self.hint, 1)
+        row.addSpacing(16)
+        row.addWidget(self.btn, 0, Qt.AlignmentFlag.AlignBottom)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(40, 34, 40, 34)
+        v.setSpacing(14)
+        v.addLayout(head)
+        v.addWidget(self.book, 1)
+        v.addWidget(self.bar)
+        v.addLayout(row)
+        self.un.step_changed.connect(self._step)
+        self.un.progress.connect(self._progress)
+        self.un.completed.connect(self._completed)
+        self._done = False
+        self._place()
 
-    def mouseReleaseEvent(self, _e):
-        self._drag = None
+    def start(self):
+        self.show()
+        self.book.t0 = time.monotonic() - FLIP_TIME      # bez przewracania kartki w pierwszej chwili
+        self.un.start()
+
+    def _step(self, i: int, st: str):
+        if 0 <= i < len(self.book.steps):
+            self.book.steps[i][1] = st
+
+    def _progress(self, frac: float, detail: str):
+        self.book.percent = frac
+        self.book.detail = detail
+        self.bar.setValue(int(frac * 1000))
+
+    def _completed(self, res: dict):
+        from ..i18n import gb
+        from ..system import IS_STORE
+        self._done = True
+        self.book.percent = 1.0
+        self.book.detail = tr("Gotowe – zwolniono {x}", x=gb(res.get("freed", 0)))
+        self.bar.setValue(1000)
+        lines = [tr("Nie wszystko się udało – {title}: {note}", title=title, note=note or tr("szczegóły w logu"))
+                 for title, note in res.get("warnings") or []]
+        if res.get("later"):
+            lines.append(tr("Reszta plików usunie się sama zaraz po zamknięciu aplikacji."))
+        if IS_STORE:
+            lines.append(tr("Na koniec usuń sam pakiet: po kliknięciu „Zamknij” otworzą się Ustawienia Windows – "
+                            "kliknij SlideScribe → Odinstaluj."))
+        self.hint.setText("\n".join(lines) or tr("Wszystko usunięte."))
+        self.btn.show()
+        self.b_x.setEnabled(True)
+
+    def _close_clicked(self):
+        if not self._done:
+            return
+        from ..system import IS_STORE
+        if IS_STORE:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl("ms-settings:appsfeatures"))
+        self.btn.setEnabled(False)
+        self.book.start_closing()        # notes się zamyka, potem aplikacja kończy pracę
