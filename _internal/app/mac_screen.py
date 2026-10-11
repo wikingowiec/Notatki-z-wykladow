@@ -12,13 +12,14 @@ import time
 from typing import Optional
 
 import numpy as np
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
 MAX_SIDE = 2880                 # dłuższy bok zrzutu w pikselach – więcej nie pomaga ani OCR, ani wykrywaniu slajdów
 SKIP_BUNDLES = {"com.apple.dock", "com.apple.WindowManager", "com.apple.controlcenter",
                 "com.apple.notificationcenterui", "com.apple.Spotlight", "com.apple.systemuiserver"}
-NO_PERMISSION = "Brak zgody na nagrywanie ekranu – zezwól w Ustawieniach systemowych i uruchom Wykłady ponownie"
+NO_PERMISSION = tr("Brak zgody na nagrywanie ekranu – zezwól w Ustawieniach systemowych i uruchom Wykłady ponownie")
 
 
 def _allowed() -> bool:
@@ -35,7 +36,7 @@ def _wait(call, timeout: float = 5.0):
         ev.set()
     call(handler)
     if not ev.wait(timeout):
-        raise TimeoutError("ScreenCaptureKit nie odpowiedział")
+        raise TimeoutError(tr("ScreenCaptureKit nie odpowiedział"))
     return box[0]
 
 
@@ -45,7 +46,7 @@ def _content(on_screen_only: bool = True):
                          .getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
                              True, on_screen_only, h))
     if content is None:
-        raise RuntimeError(str(err.localizedDescription()) if err is not None else "brak listy okien")
+        raise RuntimeError(str(err.localizedDescription()) if err is not None else tr("brak listy okien"))
     return content
 
 
@@ -73,7 +74,7 @@ def list_monitors():
         for i, did in enumerate(_display_ids(), start=1):
             b = Quartz.CGDisplayBounds(did)
             name = names.get(did, "")
-            label = f"🖥 Monitor {i}" + (f" – {name}" if name else "") + f"  ({int(b.size.width)}×{int(b.size.height)})"
+            label = tr("🖥 Monitor {i}", i=i) + (f" – {name}" if name else "") + f"  ({int(b.size.width)}×{int(b.size.height)})"
             out.append(VideoSourceInfo("monitor", label, index=i, display_id=did))
     except Exception:  # noqa: BLE001
         log.exception("lista ekranów")
@@ -148,7 +149,7 @@ class SCKGrabber:
             win = next((w for w in content.windows() or [] if int(w.windowID()) == self.info.hwnd), None)
             if win is None:
                 self._filter = None
-                self.last_error = "Okno zostało zamknięte"
+                self.last_error = tr("Okno zostało zamknięte")
                 return False
             flt = SCContentFilter.alloc().initWithDesktopIndependentWindow_(win)
             rect = win.frame()
@@ -156,7 +157,7 @@ class SCKGrabber:
             disp = next((d for d in content.displays() or [] if int(d.displayID()) == self.info.display_id), None)
             if disp is None:
                 self._filter = None
-                self.last_error = "Ekran został odłączony"
+                self.last_error = tr("Ekran został odłączony")
                 return False
             own = [a for a in content.applications() or [] if int(a.processID()) == os.getpid()]
             flt = SCContentFilter.alloc().initWithDisplay_excludingApplications_exceptingWindows_(disp, own, [])
@@ -193,9 +194,9 @@ class SCKGrabber:
         if img is None:
             self._filter = None              # następnym razem zbuduj filtr od nowa
             if self.info.kind == "window":
-                self.last_error = "Okno jest zminimalizowane albo niedostępne"
+                self.last_error = tr("Okno jest zminimalizowane albo niedostępne")
                 return None
-            raise RuntimeError(str(err.localizedDescription()) if err is not None else "pusty zrzut")
+            raise RuntimeError(str(err.localizedDescription()) if err is not None else tr("pusty zrzut"))
         out = _cgimage_to_bgr(img)
         if out is not None:
             self.last_error = ""
@@ -224,13 +225,13 @@ class SCKGrabber:
                 self._sck_failed += 1
                 log.warning("ScreenCaptureKit: %s", e)
                 if self.info.kind == "window":
-                    self.last_error = f"Nie udało się złapać okna: {e}"
+                    self.last_error = tr("Nie udało się złapać okna: {e}", e=e)
                     return None
         if self.info.kind == "monitor":       # zapas dla całego ekranu
             try:
                 return self._grab_mss()
             except Exception as e:  # noqa: BLE001
-                self.last_error = f"Nie udało się zrobić zrzutu ekranu: {e}"
+                self.last_error = tr("Nie udało się zrobić zrzutu ekranu: {e}", e=e)
         return None
 
     def close(self):

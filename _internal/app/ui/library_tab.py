@@ -32,6 +32,7 @@ from .theme import T, theme
 from .ask_panel import AskPanel
 from .reader import Reader
 from .widgets import JobRunner, ask_video_roi, run_async
+from ..i18n import date_short, lang_name, tn, tr
 
 log = logging.getLogger(__name__)
 
@@ -58,18 +59,14 @@ def reader_css() -> str:
 
 
 def lecture_date(lec: Lecture) -> str:
-    c = lec.meta.created
-    return f"{c[8:10]}.{c[5:7]}.{c[0:4]}" if len(c) >= 10 else ""
+    """10.10.2026 (pl) / 10/10/2026 (en)."""
+    return date_short(lec.meta.created)
 
 
 def plural_lectures(n: int) -> str:
     if n == 0:
-        return "Brak wykładów"
-    if n == 1:
-        return "1 wykład"
-    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
-        return f"{n} wykłady"
-    return f"{n} wykładów"
+        return tr("Brak wykładów")
+    return tn(n, "{n} wykład", "{n} wykłady", "{n} wykładów")
 
 
 def _sig(lec: Lecture) -> tuple:
@@ -199,7 +196,7 @@ def build_transcript(lec: Lecture) -> str:
     t = T()
     segs = lec.load_segments()
     if not segs:
-        return (f"<p style='color:{t.text2}'>Brak transkrypcji. Użyj „Więcej → Transkrybuj ponownie z nagrania”.</p>")
+        return (tr("<p style='color:{text2}'>Brak transkrypcji. Użyj „Więcej → Transkrybuj ponownie z nagrania”.</p>", text2=t.text2))
     rows = "".join(f"<p style='margin:0 0 8px 0'><a href='seek:{s['start']}' style='color:{t.text3}; "
                    f"text-decoration:none'>{fmt_time(s['start'])}</a>"
                    f"&nbsp;&nbsp;{html.escape(s['text'])}</p>" for s in segs)
@@ -297,22 +294,22 @@ class OutlineDelegate(QStyledItemDelegate):
             f.setWeight(QFont.Weight.DemiBold)
         p.setFont(f)
         p.setPen(qcolor(t.text if (hover or lvl == 1) else t.text2))
-        tr = QRectF(x, r.top() + 5, r.right() - x - max(tw, 46), r.height() - 8)
+        text_r = QRectF(x, r.top() + 5, r.right() - x - max(tw, 46), r.height() - 8)
         fm = p.fontMetrics()
         lines, rest = [], text
         for _ in range(2):          # najwyżej dwie linie, dopiero druga z wielokropkiem
             if not rest:
                 break
-            if fm.horizontalAdvance(rest) <= tr.width() or len(lines) == 1:
-                lines.append(fm.elidedText(rest, Qt.TextElideMode.ElideRight, int(tr.width())))
+            if fm.horizontalAdvance(rest) <= text_r.width() or len(lines) == 1:
+                lines.append(fm.elidedText(rest, Qt.TextElideMode.ElideRight, int(text_r.width())))
                 rest = ""
                 break
             cut = len(rest)
-            while cut > 1 and fm.horizontalAdvance(rest[:cut]) > tr.width():
+            while cut > 1 and fm.horizontalAdvance(rest[:cut]) > text_r.width():
                 cut = rest.rfind(" ", 0, cut - 1) if rest.rfind(" ", 0, cut - 1) > 0 else cut - 1
             lines.append(rest[:cut].rstrip())
             rest = rest[cut:].lstrip()
-        p.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "\n".join(lines))
+        p.drawText(text_r, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "\n".join(lines))
         p.restore()
 
 
@@ -336,11 +333,11 @@ class LibraryTab(QWidget):
         self._pending_anchor: str | None = None
 
         # ================= lista =================
-        self.list_title = label("Wszystkie wykłady", "title2")
+        self.list_title = label(tr("Wszystkie wykłady"), "title2")
         self.list_count = label("", "footnote")
         self.search = QLineEdit()
         self.search.setObjectName("search")
-        self.search.setPlaceholderText("Szukaj w tytułach i notatkach")
+        self.search.setPlaceholderText(tr("Szukaj w tytułach i notatkach"))
         self.search.setClearButtonEnabled(True)
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -348,9 +345,9 @@ class LibraryTab(QWidget):
         self._search_timer.timeout.connect(lambda: self.refresh())
         self.search.textChanged.connect(lambda _t: self._search_timer.start())
 
-        self.list_filter = SegmentedControl(["Wszystkie", "Do nauki", "W toku"])
+        self.list_filter = SegmentedControl([tr("Wszystkie"), tr("Do nauki"), tr("W toku")])
         self.list_filter.changed.connect(lambda _i: self.refresh())
-        self.list_filter.setToolTip("Do nauki – są fiszki do powtórki dziś · W toku – nagrywanie albo praca AI")
+        self.list_filter.setToolTip(tr("Do nauki – są fiszki do powtórki dziś · W toku – nagrywanie albo praca AI"))
         self.list = QListWidget()
         self.list.setObjectName("lectureList")
         self.list.setItemDelegate(LectureDelegate(self.list))
@@ -359,9 +356,9 @@ class LibraryTab(QWidget):
         self.list.currentItemChanged.connect(self._on_select)
         self.list.itemClicked.connect(lambda _it: self._open_detail())
 
-        self.btn_import = QPushButton("Notatka z pliku (m4a, mp3, wideo)…")
+        self.btn_import = QPushButton(tr("Notatka z pliku (m4a, mp3, wideo)…"))
         self.btn_import.setObjectName("plain")
-        self.btn_import.setToolTip("Plik audio lub wideo (mp3, m4a, wav, mp4, mkv…), np. nagranie z e-learningu")
+        self.btn_import.setToolTip(tr("Plik audio lub wideo (mp3, m4a, wav, mp4, mkv…), np. nagranie z e-learningu"))
         set_icon(self.btn_import, "import", "accent", 16)
         self.btn_import.clicked.connect(self.new_from_files.emit)
 
@@ -376,9 +373,9 @@ class LibraryTab(QWidget):
         self.list_count.setContentsMargins(6, 0, 0, 4)
         ll.addWidget(self.list_title)
         ll.addWidget(self.list_count)
-        self.btn_glossary = QPushButton("Słownik terminów przedmiotu…")
+        self.btn_glossary = QPushButton(tr("Słownik terminów przedmiotu…"))
         self.btn_glossary.setObjectName("plain")
-        self.btn_glossary.setToolTip("Nazwiska i terminy, które mają być dobrze rozpoznawane w nagraniach tego przedmiotu")
+        self.btn_glossary.setToolTip(tr("Nazwiska i terminy, które mają być dobrze rozpoznawane w nagraniach tego przedmiotu"))
         self.btn_glossary.clicked.connect(self.edit_glossary)
         self.btn_glossary.hide()
         ll.addWidget(self.btn_glossary, 0, Qt.AlignmentFlag.AlignLeft)
@@ -394,44 +391,44 @@ class LibraryTab(QWidget):
         self.pill = StatusPill()
         self.error = label("", "errorText", wrap=True)
 
-        self.btn_notes = QPushButton("Generuj notatki")
+        self.btn_notes = QPushButton(tr("Generuj notatki"))
         self.btn_notes.setObjectName("primary")
         set_icon(self.btn_notes, "sparkles", "on_accent", 16)
         self.btn_notes.clicked.connect(lambda: self.generate_notes())
-        self.btn_learn = QPushButton("Ucz się")
+        self.btn_learn = QPushButton(tr("Ucz się"))
         self.btn_learn.setObjectName("primary")
         set_icon(self.btn_learn, "play", "on_accent", 14)
         self.btn_learn.clicked.connect(lambda: self.current and self.study_requested.emit(self.current))
-        self.btn_share = icon_button("share", "Eksportuj")
+        self.btn_share = icon_button("share", tr("Eksportuj"))
         m = QMenu(self)
-        m.addAction("Otwórz w przeglądarce (HTML)", self.export_html)
-        m.addAction("Zapisz jako PDF…", self.export_pdf)
-        m.addAction("Fiszki do Anki…", self.export_anki)
+        m.addAction(tr("Otwórz w przeglądarce (HTML)"), self.export_html)
+        m.addAction(tr("Zapisz jako PDF…"), self.export_pdf)
+        m.addAction(tr("Fiszki do Anki…"), self.export_anki)
         m.addSeparator()
-        m.addAction("Kopiuj notatki (Markdown)", self.copy_md)
+        m.addAction(tr("Kopiuj notatki (Markdown)"), self.copy_md)
         self.btn_share.setMenu(m)
         self.btn_share.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.btn_more = icon_button("more", "Więcej")
+        self.btn_more = icon_button("more", tr("Więcej"))
         mm = QMenu(self)
-        self.act_regen = mm.addAction("Generuj ponownie", lambda: self.generate_notes())
-        self.menu_regen_lang = mm.addMenu("Generuj ponownie w języku")
+        self.act_regen = mm.addAction(tr("Generuj ponownie"), lambda: self.generate_notes())
+        self.menu_regen_lang = mm.addMenu(tr("Generuj ponownie w języku"))
         self.menu_regen_lang.aboutToShow.connect(self._fill_regen_lang)
         mm.addSeparator()
-        mm.addAction("Kontynuuj nagrywanie (kolejna część)", lambda: self.current and
+        mm.addAction(tr("Kontynuuj nagrywanie (kolejna część)"), lambda: self.current and
                      self.continue_requested.emit(self.current))
-        mm.addAction("Edytuj notatki", self.edit_notes)
-        mm.addAction("Dodaj zdjęcia slajdów…", self.add_photos)
+        mm.addAction(tr("Edytuj notatki"), self.edit_notes)
+        mm.addAction(tr("Dodaj zdjęcia slajdów…"), self.add_photos)
         mm.addSeparator()
-        mm.addAction("Zmień tytuł i przedmiot…", self.rename)
-        mm.addAction("Transkrybuj ponownie z nagrania", lambda: self.retranscribe())
-        mm.addAction("Otwórz nagranie audio", self.open_audio)
-        mm.addAction("Pokaż w folderze", self.open_folder)
+        mm.addAction(tr("Zmień tytuł i przedmiot…"), self.rename)
+        mm.addAction(tr("Transkrybuj ponownie z nagrania"), lambda: self.retranscribe())
+        mm.addAction(tr("Otwórz nagranie audio"), self.open_audio)
+        mm.addAction(tr("Pokaż w folderze"), self.open_folder)
         mm.addSeparator()
-        mm.addAction("Usuń wykład…", self.delete)
+        mm.addAction(tr("Usuń wykład…"), self.delete)
         self.btn_more.setMenu(mm)
         self.btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
-        self.btn_back = QPushButton("Wykłady")
+        self.btn_back = QPushButton(tr("Wykłady"))
         self.btn_back.setObjectName("back")
         self.btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         set_icon(self.btn_back, "chevron-left", "accent", 16)
@@ -457,10 +454,10 @@ class LibraryTab(QWidget):
         head.add(actions, 0, Qt.AlignmentFlag.AlignTop, Qt.AlignmentFlag.AlignLeft)
         self.head = head
 
-        self.seg = SegmentedControl(["Notatki", "Ściąga", "Zapytaj", "Slajdy", "Transkrypcja", "Fiszki", "Egzamin"],
+        self.seg = SegmentedControl([tr("Notatki"), tr("Ściąga"), tr("Zapytaj"), tr("Slajdy"), tr("Transkrypcja"), tr("Fiszki"), tr("Egzamin")],
                                     style="tabs")
         self._seg_to_page = [NOTES, CHEAT, ASK, SLIDES, TRANSCRIPT, CARDS, EXAM]
-        self.seg.short = {"Transkrypcja": "Tekst", "Notatki": "Notatki", "Egzamin": "Test"}
+        self.seg.short = {"Transkrypcja": tr("Tekst"), "Notatki": tr("Notatki"), "Egzamin": tr("Test")}
         self.seg.changed.connect(lambda i: self._show_page(self._seg_to_page[i]))
 
         # --- baner zadania ---
@@ -472,10 +469,10 @@ class LibraryTab(QWidget):
         self.job_label = label("", "headline")
         self.job_bar = QProgressBar()
         self.job_bar.setTextVisible(False)
-        self.btn_ai = QPushButton("Pokaż, co pisze AI")
+        self.btn_ai = QPushButton(tr("Pokaż, co pisze AI"))
         self.btn_ai.setObjectName("plain")
         self.btn_ai.clicked.connect(self._toggle_ai)
-        self.btn_cancel = QPushButton("Anuluj")
+        self.btn_cancel = QPushButton(tr("Anuluj"))
         self.btn_cancel.setObjectName("plain")
         self.btn_cancel.clicked.connect(lambda: self.runner.cancel.set())
         r1 = QHBoxLayout()
@@ -494,12 +491,12 @@ class LibraryTab(QWidget):
         # ================= strony =================
         # Notatki
         self.notes_view = Reader(max_width=640, pad=34)
-        self.notes_empty_btn = QPushButton("Generuj notatki")
+        self.notes_empty_btn = QPushButton(tr("Generuj notatki"))
         self.notes_empty_btn.setObjectName("primary")
         self.notes_empty_btn.clicked.connect(lambda: self.generate_notes())
-        self.notes_empty = EmptyState("sparkles", "Brak notatek",
-                                      "Lokalny model AI przygotuje podsumowanie, notatki według slajdów i fiszki. "
-                                      "Nic nie jest wysyłane do internetu.", self.notes_empty_btn)
+        self.notes_empty = EmptyState("sparkles", tr("Brak notatek"),
+                                      tr("Lokalny model AI przygotuje podsumowanie, notatki według slajdów i fiszki. "
+                                      "Nic nie jest wysyłane do internetu."), self.notes_empty_btn)
         self.notes_stack = QStackedWidget()
         self.notes_stack.addWidget(self.notes_view)
         self.notes_stack.addWidget(self.notes_empty)
@@ -509,17 +506,17 @@ class LibraryTab(QWidget):
         mono.setStyleHint(QFont.StyleHint.Monospace)
         mono.setPointSizeF(10.5)
         self.editor.setFont(mono)
-        self.btn_save_edit = QPushButton("Zapisz zmiany")
+        self.btn_save_edit = QPushButton(tr("Zapisz zmiany"))
         self.btn_save_edit.setObjectName("primary")
         self.btn_save_edit.clicked.connect(self.save_edit)
-        self.btn_cancel_edit = QPushButton("Anuluj")
+        self.btn_cancel_edit = QPushButton(tr("Anuluj"))
         self.btn_cancel_edit.clicked.connect(self.cancel_edit)
         ew = QWidget()
         el = QVBoxLayout(ew)
         el.setContentsMargins(0, 0, 0, 0)
         el.setSpacing(8)
         erow = QHBoxLayout()
-        erow.addWidget(label("Edycja notatki (Markdown): # nagłówki, - punkty, **pogrubienie**, wzory $x^2$.",
+        erow.addWidget(label(tr("Edycja notatki (Markdown): # nagłówki, - punkty, **pogrubienie**, wzory $x^2$."),
                              "footnote"), 1)
         erow.addWidget(self.btn_cancel_edit)
         erow.addWidget(self.btn_save_edit)
@@ -535,7 +532,7 @@ class LibraryTab(QWidget):
         self.outline.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.outline.itemClicked.connect(self._outline_jump)
         from .note_nav import JumpButtons, LectureTimeline
-        self.read_label = label("Przeczytano 0%", "caption")
+        self.read_label = label(tr("Przeczytano 0%"), "caption")
         self.read_bar = QProgressBar()
         self.read_bar.setTextVisible(False)
         self.read_bar.setRange(0, 100)
@@ -545,12 +542,12 @@ class LibraryTab(QWidget):
         ob = QVBoxLayout(self.outline_box)
         ob.setContentsMargins(6, 4, 0, 0)
         ob.setSpacing(8)
-        ob.addWidget(label("W TEJ NOTATCE", "sectionHeader"))
+        ob.addWidget(label(tr("W TEJ NOTATCE"), "sectionHeader"))
         ob.addWidget(self.read_label)
         ob.addWidget(self.read_bar)
         ob.addSpacing(4)
         ob.addWidget(self.outline, 1)
-        ob.addWidget(label("PRZEJDŹ DO", "sectionHeader"))
+        ob.addWidget(label(tr("PRZEJDŹ DO"), "sectionHeader"))
         ob.addWidget(self.jump_btns)
         self.outline_box.setFixedWidth(248)
         self.outline.setResizeMode(QListWidget.ResizeMode.Adjust)
@@ -568,11 +565,11 @@ class LibraryTab(QWidget):
         self.side_ask.compact = True
         self.side_ask.internal_link.connect(lambda a: self.notes_view.scrollToAnchor(a))
         self.side_ask.seek_requested.connect(
-            lambda t: self.current and self.player.play(self.current, t, None, "Odpowiedź"))
+            lambda t: self.current and self.player.play(self.current, t, None, tr("Odpowiedź")))
         self.side_ask.answered.connect(self._side_actions_state)
-        self.qa_card = QPushButton("Zrób z tego fiszkę")
-        self.qa_example = QPushButton("Podaj przykład")
-        self.qa_simple = QPushButton("Wyjaśnij prościej")
+        self.qa_card = QPushButton(tr("Zrób z tego fiszkę"))
+        self.qa_example = QPushButton(tr("Podaj przykład"))
+        self.qa_simple = QPushButton(tr("Wyjaśnij prościej"))
         for b, fn, ic in ((self.qa_card, self._qa_to_card, "cards"), (self.qa_example, self._qa_example, "sparkles"),
                           (self.qa_simple, self._qa_simpler, "text")):
             b.setObjectName("chipBtn")
@@ -581,7 +578,7 @@ class LibraryTab(QWidget):
         self.qa_status = label("", "caption", wrap=True)
         b_hide = QPushButton("")
         b_hide.setObjectName("plain")
-        b_hide.setToolTip("Zwiń panel (Ctrl+J)")
+        b_hide.setToolTip(tr("Zwiń panel (Ctrl+J)"))
         set_icon(b_hide, "xmark", "text2", 14)
         b_hide.setFixedWidth(36)
         b_hide.clicked.connect(self.toggle_side)
@@ -593,13 +590,13 @@ class LibraryTab(QWidget):
         self.place_text.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.place_text.linkActivated.connect(
             lambda u: u.startswith("seek:") and self.current and
-            self.player.play(self.current, float(u[5:]), None, "Transkrypcja"))
+            self.player.play(self.current, float(u[5:]), None, tr("Transkrypcja")))
         self.side_box = QWidget()
         sbl = QVBoxLayout(self.side_box)
         sbl.setContentsMargins(4, 4, 0, 0)
         sbl.setSpacing(8)
         hh = QHBoxLayout()
-        hh.addWidget(label("ZAPYTAJ NOTATKĘ", "sectionHeader"), 1)
+        hh.addWidget(label(tr("ZAPYTAJ NOTATKĘ"), "sectionHeader"), 1)
         hh.addWidget(label("Ctrl J", "caption"))
         hh.addWidget(b_hide)
         sbl.addLayout(hh)
@@ -612,7 +609,7 @@ class LibraryTab(QWidget):
         sbl.addLayout(qrow)
         sbl.addWidget(self.qa_status)
         sbl.addSpacing(6)
-        sbl.addWidget(label("W TYM MIEJSCU WYKŁADU", "sectionHeader"))
+        sbl.addWidget(label(tr("W TYM MIEJSCU WYKŁADU"), "sectionHeader"))
         prow = QHBoxLayout()
         prow.setSpacing(12)
         pl = QVBoxLayout()
@@ -654,8 +651,8 @@ class LibraryTab(QWidget):
         self.slides_view = SlideThumbs(GRID_ICON, deletable=True)
         self.slides_view.open_requested.connect(self._preview_slide)
         self.slides_view.delete_requested.connect(lambda i: self._delete_slide(i, ask=True))
-        self.slides_text = SlideTextPanel("Tekst ze wszystkich slajdów")
-        self.slides_mode = SegmentedControl(["Miniatury", "Tekst"])
+        self.slides_text = SlideTextPanel(tr("Tekst ze wszystkich slajdów"))
+        self.slides_mode = SegmentedControl([tr("Miniatury"), tr("Tekst")])
         self.slides_inner = QStackedWidget()
         self.slides_inner.addWidget(self.slides_view)
         self.slides_inner.addWidget(self.slides_text)
@@ -666,7 +663,7 @@ class LibraryTab(QWidget):
         swl.setSpacing(10)
         swl.addWidget(self.slides_mode, 0, Qt.AlignmentFlag.AlignLeft)
         swl.addWidget(self.slides_inner, 1)
-        self.slides_empty = EmptyState("photo", "Brak slajdów", "Ten wykład był nagrany bez źródła slajdów.")
+        self.slides_empty = EmptyState("photo", tr("Brak slajdów"), tr("Ten wykład był nagrany bez źródła slajdów."))
         self.slides_stack = QStackedWidget()
         self.slides_stack.addWidget(sw_)
         self.slides_stack.addWidget(self.slides_empty)
@@ -677,12 +674,12 @@ class LibraryTab(QWidget):
         # Fiszki
         self.cards_summary = label("", "headline")
         self.cards_sub = label("", "secondary")
-        self.btn_study = QPushButton("Ucz się")
+        self.btn_study = QPushButton(tr("Ucz się"))
         self.btn_study.setObjectName("primary")
         set_icon(self.btn_study, "play", "on_accent", 14)
         self.btn_study.clicked.connect(lambda: self.current and self.study_requested.emit(self.current))
         self.cards_view = Reader(max_width=820, pad=30)
-        self.cards_empty = EmptyState("cards", "Brak fiszek", "Fiszki powstają automatycznie razem z notatkami.")
+        self.cards_empty = EmptyState("cards", tr("Brak fiszek"), tr("Fiszki powstają automatycznie razem z notatkami."))
         self.cards_stack = QStackedWidget()
         self.cards_stack.addWidget(self.cards_view)
         self.cards_stack.addWidget(self.cards_empty)
@@ -706,14 +703,14 @@ class LibraryTab(QWidget):
         self.ask_stack = self.ask_panel
 
         # Ściąga: definicje, wzory, przykłady, ważne – po tematach, z odnośnikiem do notatki
-        self.cheat_filter = SegmentedControl(["Wszystko", "Definicje", "Wzory", "Przykłady", "Ważne"])
+        self.cheat_filter = SegmentedControl([tr("Wszystko"), tr("Definicje"), tr("Wzory"), tr("Przykłady"), tr("Ważne")])
         self.cheat_filter.changed.connect(lambda _i: self._render_cheat())
         self.cheat_view = Reader(max_width=820, pad=30)
         self.cheat_view.internal_link.connect(
             lambda a: a.startswith("note-") and self._jump_to_notes(a[5:]))
-        self.cheat_empty = EmptyState("list", "Ściąga jest pusta",
-                                      "Ściąga zbiera definicje, wzory, przykłady i ważne rzeczy z ramek w notatce. "
-                                      "Starsze notatki nie mają ramek – kliknij „Generuj ponownie”.")
+        self.cheat_empty = EmptyState("list", tr("Ściąga jest pusta"),
+                                      tr("Ściąga zbiera definicje, wzory, przykłady i ważne rzeczy z ramek w notatce. "
+                                      "Starsze notatki nie mają ramek – kliknij „Generuj ponownie”."))
         self.cheat_stack = QStackedWidget()
         self.cheat_stack.addWidget(self.cheat_view)
         self.cheat_stack.addWidget(self.cheat_empty)
@@ -725,13 +722,13 @@ class LibraryTab(QWidget):
         chl.addWidget(self.cheat_stack, 1)
 
         # Egzamin próbny z tego wykładu
-        b_exam = QPushButton("Przygotuj egzamin")
+        b_exam = QPushButton(tr("Przygotuj egzamin"))
         b_exam.setObjectName("primary")
         set_icon(b_exam, "exam", "on_accent", 16)
         b_exam.clicked.connect(lambda: self.current and self.exam_requested.emit(self.current))
-        self.exam_page = EmptyState("exam", "Egzamin próbny z tego wykładu",
-                                    "Pytania A–D, prawda/fałsz i otwarte – każde sprawdzone w tej notatce. "
-                                    "Liczbę pytań i poziom wybierzesz na następnym ekranie.", b_exam)
+        self.exam_page = EmptyState("exam", tr("Egzamin próbny z tego wykładu"),
+                                    tr("Pytania A–D, prawda/fałsz i otwarte – każde sprawdzone w tej notatce. "
+                                    "Liczbę pytań i poziom wybierzesz na następnym ekranie."), b_exam)
 
         self.pages = QStackedWidget()
         for w in (notes_page, self.slides_stack, self.transcript_view, cw, self.ask_stack, chw, self.exam_page):
@@ -753,12 +750,12 @@ class LibraryTab(QWidget):
         self.notes_view.play_requested.connect(
             lambda frags: self.current and self.player.choose(self.current, frags, self.notes_view, QCursor.pos()))
         self.notes_view.seek_requested.connect(
-            lambda t: self.current and self.player.play(self.current, t, None, "Notatka"))
+            lambda t: self.current and self.player.play(self.current, t, None, tr("Notatka")))
         self.transcript_view.seek_requested.connect(
-            lambda t: self.current and self.player.play(self.current, t, None, "Transkrypcja"))
+            lambda t: self.current and self.player.play(self.current, t, None, tr("Transkrypcja")))
 
-        self.detail_empty = EmptyState("books", "Wybierz wykład",
-                                       "Tu zobaczysz notatki, slajdy, transkrypcję i fiszki wybranego wykładu.")
+        self.detail_empty = EmptyState("books", tr("Wybierz wykład"),
+                                       tr("Tu zobaczysz notatki, slajdy, transkrypcję i fiszki wybranego wykładu."))
         self.detail_stack = QStackedWidget()
         self.detail_stack.addWidget(self.detail_empty)
         self.detail_stack.addWidget(detail)
@@ -795,9 +792,9 @@ class LibraryTab(QWidget):
             return
         cur = load_glossary(self.settings.library_path(), subj)
         text, ok = QInputDialog.getMultiLineText(
-            self, f"Słownik: {subj}",
-            "Terminy, nazwiska i skróty z tego przedmiotu (oddzielone przecinkami lub w osobnych liniach).\n"
-            "Pomagają poprawnie rozpoznawać je w nagraniach. Terminy ze slajdów dodają się same.", cur)
+            self, tr("Słownik: {subj}", subj=subj),
+            tr("Terminy, nazwiska i skróty z tego przedmiotu (oddzielone przecinkami lub w osobnych liniach).\n"
+            "Pomagają poprawnie rozpoznawać je w nagraniach. Terminy ze slajdów dodają się same."), cur)
         if ok:
             save_glossary(self.settings.library_path(), subj, text)
 
@@ -808,7 +805,7 @@ class LibraryTab(QWidget):
         self._show_detail = False
         self._apply_layout()
         show_if(self.btn_glossary, subject)
-        self.list_title.setText("Wszystkie wykłady" if subject is None else (subject or "Bez przedmiotu"))
+        self.list_title.setText(tr("Wszystkie wykłady") if subject is None else (subject or tr("Bez przedmiotu")))
         self.refresh()
 
     def refresh(self, select_folder: str | None = None):
@@ -841,7 +838,7 @@ class LibraryTab(QWidget):
                 d = datetime.fromisoformat(m.created).date()
             except Exception:  # noqa: BLE001
                 d = monday - timedelta(days=1)
-            grp = "Ten tydzień" if d >= monday else "Wcześniej"
+            grp = tr("Ten tydzień") if d >= monday else tr("Wcześniej")
             if grp not in group_shown:
                 group_shown.add(grp)
                 h = QListWidgetItem()
@@ -855,19 +852,19 @@ class LibraryTab(QWidget):
                 status = (f"AI {int(frac * 100)}%" if frac >= 0 else "AI pracuje", "blue")
                 progress = frac
             elif m.status == "nagrywanie":
-                status = ("Nagrywanie", "red")
+                status = (tr("Nagrywanie"), "red")
             elif lec.notes_path.exists():
-                status = ("Gotowe", "blue") if m.status != "błąd" else ("Błąd", "red")
+                status = (tr("Gotowe"), "blue") if m.status != "błąd" else (tr("Błąd"), "red")  # i18n: nie
             else:
-                status = ("Bez notatek", "gray") if m.status != "błąd" else ("Błąd", "red")
-            cards_txt = (f"{n_cards} fiszek" if n_cards != 1 else "1 fiszka") if n_cards else ""
+                status = (tr("Bez notatek"), "gray") if m.status != "błąd" else (tr("Błąd"), "red")  # i18n: nie
+            cards_txt = tn(n_cards, "{n} fiszka", "{n} fiszki", "{n} fiszek") if n_cards else ""
             sub = " · ".join(x for x in [lecture_date(lec), fmt_time(m.duration) if m.duration else "", cards_txt,
                                          m.subject if self.subject_filter is None and not cards_txt else ""] if x)
             it = QListWidgetItem()
             it.setData(Qt.ItemDataRole.UserRole, str(lec.folder))
             it.setData(LectureDelegate.ROLE, {"title": m.title, "sub": sub, "pill": status, "subject": m.subject,
                                               "progress": progress})
-            it.setToolTip(m.title + (f" · do powtórki dziś: {due}" if due else ""))
+            it.setToolTip(m.title + (tr(" · do powtórki dziś: {due}", due=due) if due else ""))
             self.list.addItem(it)
             if select_folder and str(lec.folder) == select_folder:
                 to_select = (it, lec)
@@ -888,7 +885,7 @@ class LibraryTab(QWidget):
         self._apply_layout()
         if self.subject_filter is not None and lecture.meta.subject != self.subject_filter:
             self.subject_filter = None
-            self.list_title.setText("Wszystkie wykłady")
+            self.list_title.setText(tr("Wszystkie wykłady"))
         self.refresh(str(lecture.folder))
         self._apply_layout()
 
@@ -936,42 +933,41 @@ class LibraryTab(QWidget):
         n_cards, due = card_stats(lec)
         if busy_here:
             self.pill.set("AI pracuje", "blue")
-        elif m.status == "błąd":
-            self.pill.set("Błąd", "red")
+        elif m.status == "błąd":  # i18n: nie
+            self.pill.set(tr("Błąd"), "red")
         elif not has_notes:
-            self.pill.set("Bez notatek", "gray")
+            self.pill.set(tr("Bez notatek"), "gray")
         else:
             self.pill.set("", "gray")
         self.subject_chip.set(m.subject)
         parts = [lecture_date(lec), fmt_time(m.duration) if m.duration else "",
-                 (f"{n_slides} slajdów" if n_slides != 1 else "1 slajd") if n_slides else "",
-                 (f"{n_topics} tematów" if n_topics != 1 else "1 temat") if n_topics else ""]
+                 tn(n_slides, "{n} slajd", "{n} slajdy", "{n} slajdów") if n_slides else "",
+                 tn(n_topics, "{n} temat", "{n} tematy", "{n} tematów") if n_topics else ""]
         src, dst = lecture_lang(lec), notes_lang(lec)
         cross = bool(m.notes_language and m.language and src != dst)
         if cross:                                               # np. „EN → PL” (wykład po angielsku, notatki po polsku)
             parts.append(f"{src.upper()} → {dst.upper()}")
         self.meta.setText(" · ".join(x for x in parts if x))
-        tips = [f"Model notatek: {m.notes_model}" if m.notes_model else ""]
+        tips = [tr("Model notatek: {notes_model}", notes_model=m.notes_model) if m.notes_model else ""]
         if cross:
-            from ..prompts import LANG_PL
-            tips.append(f"Wykład: {LANG_PL.get(src, src)}, notatki: {LANG_PL.get(dst, dst)}")
+            tips.append(tr("Wykład: {get}, notatki: {get2}", get=lang_name(src), get2=lang_name(dst)))
         self.meta.setToolTip("\n".join(t for t in tips if t))
-        self.error.setText(f"Ostatnia próba nie powiodła się: {m.error}" if m.error and not busy_here else "")
+        self.error.setText(tr("Ostatnia próba nie powiodła się: {error}", error=m.error) if m.error and not busy_here else "")
         show_if(self.error, self.error.text())
         # główny przycisk: nauka z fiszek; bez notatek – generowanie
-        self.btn_learn.setText(f"Ucz się · {n_cards} fiszek" if n_cards != 1 else "Ucz się · 1 fiszka")
-        self.btn_learn.setToolTip(f"Do powtórki dziś: {due}" if due else "Wszystkie fiszki tego wykładu")
+        self.btn_learn.setText(tn(n_cards, "Ucz się · {n} fiszka", "Ucz się · {n} fiszki", "Ucz się · {n} fiszek"))
+        self.btn_learn.setToolTip(tr("Do powtórki dziś: {due}", due=due) if due else tr("Wszystkie fiszki tego wykładu"))
         show_if(self.btn_learn, n_cards)
         show_if(self.btn_notes, not has_notes)
         self.btn_notes.setEnabled(not self.runner.busy)
-        self.act_regen.setText("Generuj ponownie" if has_notes else "Generuj notatki")
+        self.act_regen.setText(tr("Generuj ponownie") if has_notes else tr("Generuj notatki"))
         self.act_regen.setEnabled(not self.runner.busy)
-        self.menu_regen_lang.setTitle("Generuj ponownie w języku" if has_notes else "Generuj notatki w języku")
+        self.menu_regen_lang.setTitle(tr("Generuj ponownie w języku") if has_notes else tr("Generuj notatki w języku"))
         self.menu_regen_lang.setEnabled(not self.runner.busy)
         self.notes_empty_btn.setEnabled(not self.runner.busy)
         self.banner.setVisible(busy_here)
-        names = ["Notatki", "Ściąga", "Zapytaj", f"Slajdy {n_slides}" if n_slides else "Slajdy", "Transkrypcja",
-                 f"Fiszki {n_cards}" if n_cards else "Fiszki", "Egzamin"]
+        names = [tr("Notatki"), tr("Ściąga"), tr("Zapytaj"), tr("Slajdy {n_slides}", n_slides=n_slides) if n_slides else tr("Slajdy"), tr("Transkrypcja"),
+                 tr("Fiszki {n_cards}", n_cards=n_cards) if n_cards else tr("Fiszki"), tr("Egzamin")]
         for i, name in enumerate(names):
             self.seg.set_text(i, name)
 
@@ -990,7 +986,7 @@ class LibraryTab(QWidget):
             self.notes_stack.setCurrentIndex(1)
             return
         self.notes_stack.setCurrentIndex(0)
-        self.notes_view.setHtml(f"<p style='color:{T().text3}'>Wczytywanie notatek…</p>")
+        self.notes_view.setHtml(tr("<p style='color:{text3}'>Wczytywanie notatek…</p>", text3=T().text3))
         md = lec.read_text(lec.notes_path)
         folder, dpr = lec.folder, self._dpr()
         toc = not self._outline_on
@@ -1045,7 +1041,7 @@ class LibraryTab(QWidget):
         infos = self.slides_view.infos()
         pos = next((k for k, x in enumerate(infos) if x.index == index), 0)
         SlidePreview(infos, pos, self, on_delete=lambda i: self._delete_slide(i, ask=True),
-                     extra_buttons=[("Otwórz plik", lambda si: si and QDesktopServices.openUrl(
+                     extra_buttons=[(tr("Otwórz plik"), lambda si: si and QDesktopServices.openUrl(
                          QUrl.fromLocalFile(si.path)))]).exec()
 
     def _delete_slide(self, index: int, ask: bool = True) -> bool:
@@ -1053,9 +1049,9 @@ class LibraryTab(QWidget):
         if not lec:
             return False
         if self._job_is_for(lec):
-            QMessageBox.information(self, "Usuń slajd", "Poczekaj, aż skończy się zadanie dla tego wykładu.")
+            QMessageBox.information(self, tr("Usuń slajd"), tr("Poczekaj, aż skończy się zadanie dla tego wykładu."))
             return False
-        if ask and QMessageBox.question(self, "Usuń slajd", f"Usunąć slajd {index}? Zniknie też z notatki.") \
+        if ask and QMessageBox.question(self, tr("Usuń slajd"), tr("Usunąć slajd {index}? Zniknie też z notatki.", index=index)) \
                 != QMessageBox.StandardButton.Yes:
             return False
         from ..slides import delete_slide
@@ -1069,7 +1065,7 @@ class LibraryTab(QWidget):
 
     def _render_transcript(self):
         lec, gen = self.current, self._gen
-        self.transcript_view.setHtml(f"<p style='color:{T().text3}'>Wczytywanie…</p>")
+        self.transcript_view.setHtml(tr("<p style='color:{text3}'>Wczytywanie…</p>", text3=T().text3))
 
         def done(doc):
             if gen == self._gen:
@@ -1082,8 +1078,10 @@ class LibraryTab(QWidget):
         cards = lec.load_flashcards()
         known = sum(1 for c in cards if c.get("known"))
         decks = decks_for([lec])
-        self.cards_summary.setText(f"{len(cards)} fiszek w {len(decks)} kategoriach" if cards else "Brak fiszek")
-        self.cards_sub.setText(f"Opanowane: {known} z {len(cards)}" if cards else "")
+        self.cards_summary.setText(tn(len(cards), "{n} fiszka", "{n} fiszki", "{n} fiszek") + " · "
+                                   + tn(len(decks), "{n} kategoria", "{n} kategorie", "{n} kategorii")
+                                   if cards else tr("Brak fiszek"))
+        self.cards_sub.setText(tr("Opanowane: {known} z {n}", known=known, n=len(cards)) if cards else "")
         self.btn_study.setEnabled(bool(cards))
         self.cards_stack.setCurrentIndex(0 if cards else 1)
         if not cards:
@@ -1108,10 +1106,10 @@ class LibraryTab(QWidget):
         md = lec.read_text(lec.notes_path) if lec.notes_path.exists() else ""
         items = CS.extract(md)
         cnt = CS.counts(items)
-        names = ["Wszystko"] + [f"{CS.KINDS[k]} {cnt[k]}" if cnt[k] else CS.KINDS[k] for k in CS.KINDS]
+        names = [tr("Wszystko")] + [f"{CS.KINDS[k]} {cnt[k]}" if cnt[k] else CS.KINDS[k] for k in CS.KINDS]
         for b, n in zip(self.cheat_filter.buttons, names):
             b.setText(n)
-        self.cheat_filter.buttons[0].setText(f"Wszystko {len(items)}" if items else "Wszystko")
+        self.cheat_filter.buttons[0].setText(tr("Wszystko {n}", n=len(items)) if items else tr("Wszystko"))
         if not items:
             self.cheat_stack.setCurrentIndex(1)
             return
@@ -1153,7 +1151,7 @@ class LibraryTab(QWidget):
                 head.setData(OutlineDelegate.LEVEL, 0)
                 head.setData(OutlineDelegate.COLOR, palette_color(shown_cat))
                 head.setData(OutlineDelegate.TIME, str(len(c["sections"])))
-                head.setToolTip(f"{c['name']} – tematy: {len(c['sections'])}")
+                head.setToolTip(c["name"] + " – " + tn(len(c["sections"]), "{n} temat", "{n} tematy", "{n} tematów"))
                 self.outline.addItem(head)
             it = QListWidgetItem(label)
             it.setData(Qt.ItemDataRole.UserRole, h.anchor)
@@ -1213,17 +1211,17 @@ class LibraryTab(QWidget):
         ok = self._last_answer() is not None
         for b in (self.qa_card, self.qa_example, self.qa_simple):
             b.setEnabled(ok)
-            b.setToolTip("" if ok else "Najpierw zadaj pytanie")
+            b.setToolTip("" if ok else tr("Najpierw zadaj pytanie"))
 
     def _qa_example(self):
         a = self._last_answer()
         if a:
-            self.side_ask.ask_text(f"Podaj przykład do pytania: {a['question']}")
+            self.side_ask.ask_text(f"Podaj przykład do pytania: {a['question']}")  # i18n: nie – pytanie do modelu
 
     def _qa_simpler(self):
         a = self._last_answer()
         if a:
-            self.side_ask.ask_text(f"Wyjaśnij prościej, krótko i bez żargonu: {a['question']}")
+            self.side_ask.ask_text(f"Wyjaśnij prościej, krótko i bez żargonu: {a['question']}")  # i18n: nie
 
     def _qa_to_card(self):
         """Ostatnia odpowiedź → nowa fiszka w kategorii tematu, z którego pochodzi cytat."""
@@ -1240,18 +1238,18 @@ class LibraryTab(QWidget):
         cats = load_categories(lec, md)
         times = section_times(md)
         q = a["question"]
-        for pre in ("Podaj przykład do pytania: ", "Wyjaśnij prościej, krótko i bez żargonu: "):
+        for pre in ("Podaj przykład do pytania: ", "Wyjaśnij prościej, krótko i bez żargonu: "):  # i18n: nie
             q = q.replace(pre, "")
         cards = lec.load_flashcards()
         if any(c.get("q", "").strip().lower() == q.strip().lower() for c in cards):
-            self.qa_status.setText("Taka fiszka już jest.")
+            self.qa_status.setText(tr("Taka fiszka już jest."))
             return
         cards.append({"q": q, "a": a.get("answer", ""), "section": num, "t": times.get(num, (0.0, 0.0))[0],
                       "known": 0, "category": category_of(cats, num) if num else "", "topic": title,
                       "source": "zapytaj"})
         lec.save_flashcards(cards)
         cat = category_of(cats, num) if num else ""
-        self.qa_status.setText("Dodano fiszkę" + (f" do kategorii „{cat}”." if cat else "."))
+        self.qa_status.setText(tr("Dodano fiszkę") + (tr(" do kategorii „{cat}”.", cat=cat) if cat else "."))
         self._update_header()
         self.library_changed.emit()
 
@@ -1277,7 +1275,7 @@ class LibraryTab(QWidget):
                 pm.setDevicePixelRatio(dpr)
                 from .controls import rounded_pixmap
                 self.place_img.setPixmap(rounded_pixmap(pm))
-            self.place_cap.setText(f"Slajd {slide['index']} · {fmt_time(ev[-1]['t'])}")
+            self.place_cap.setText(tr("Slajd {x} · {fmt_time}", x=slide['index'], fmt_time=fmt_time(ev[-1]['t'])))
         else:
             self.place_img.clear()
             self.place_cap.setText("")
@@ -1289,7 +1287,7 @@ class LibraryTab(QWidget):
                 f"text-decoration:none'>{fmt_time(sg['start'])}</a>&nbsp; {html.escape(sg['text'])}</p>"
                 for sg in segs[:6]))
         else:
-            self.place_text.setText(f"<span style='color:{t.text3}'>Brak transkrypcji w tym miejscu.</span>")
+            self.place_text.setText(tr("<span style='color:{text3}'>Brak transkrypcji w tym miejscu.</span>", text3=t.text3))
 
     # ------------------------------------------------------------------ nawigacja po notatce
     def _after_notes(self, md: str):
@@ -1330,7 +1328,7 @@ class LibraryTab(QWidget):
     def _on_note_scroll(self, v: int):
         sb = self.notes_view.verticalScrollBar()
         pct = 100 if sb.maximum() <= 0 else int(round(100 * v / sb.maximum()))
-        self.read_label.setText(f"Przeczytano {pct}%")
+        self.read_label.setText(tr("Przeczytano {pct}%", pct=pct))
         self.read_bar.setValue(pct)
         if self.current is None:
             return
@@ -1455,8 +1453,8 @@ class LibraryTab(QWidget):
             return
         from ..photos import PHOTO_EXT
         pat = " ".join(f"*{e}" for e in PHOTO_EXT)
-        paths, _ = QFileDialog.getOpenFileNames(self, "Zdjęcia slajdów", str(Path.home()),
-                                                f"Zdjęcia ({pat});;Wszystkie pliki (*.*)")
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("Zdjęcia slajdów"), str(Path.home()),
+                                                tr("Zdjęcia ({pat});;Wszystkie pliki (*.*)", pat=pat))
         if not paths:
             return
         s = self.settings
@@ -1465,7 +1463,7 @@ class LibraryTab(QWidget):
             n = jobs.add_photos(lec, paths, s, prog, cancel, True)
             if n and s.auto_generate_notes and not cancel.is_set() and (lec.load_segments() or lec.notes_path.exists()):
                 jobs.generate_notes(lec, s, prog, cancel, tok, use_cache=True)
-        self._run("Dodawanie zdjęć slajdów", fn, lec)
+        self._run(tr("Dodawanie zdjęć slajdów"), fn, lec)
 
     # ------------------------------------------------------------------ edycja notatek
     def edit_notes(self):
@@ -1473,7 +1471,7 @@ class LibraryTab(QWidget):
         if not lec or not lec.notes_path.exists():
             return
         if self._job_is_for(lec):
-            return QMessageBox.information(self, "Edycja", "Poczekaj, aż skończy się generowanie notatek.")
+            return QMessageBox.information(self, tr("Edycja"), tr("Poczekaj, aż skończy się generowanie notatek."))
         self.seg.set_current(0, emit=True)
         self.editor.setPlainText(lec.read_text(lec.notes_path))
         self.notes_stack.setCurrentIndex(2)
@@ -1503,22 +1501,22 @@ class LibraryTab(QWidget):
     # ------------------------------------------------------------------ zadania
     def _run(self, name: str, fn, lecture: Lecture) -> bool:
         if not self.runner.run(name, fn, lecture):
-            QMessageBox.information(self, "Trwa inne zadanie", f"Trwa: {self.runner.name}. Poczekaj, aż się skończy.")
+            QMessageBox.information(self, tr("Trwa inne zadanie"), tr("Trwa: {name}. Poczekaj, aż się skończy.", name=self.runner.name))
             return False
         return True
 
     def _fill_regen_lang(self):
         """Podmenu „Generuj ponownie w języku ▸”: Jak wykład / Polski / Angielski / … (zaznaczony obecny)."""
-        from ..prompts import LANG_PL, NOTES_LANGS
+        from ..prompts import NOTES_LANGS
         menu = self.menu_regen_lang
         menu.clear()
         lec = self.current
         if not lec:
             return
         src = lecture_lang(lec) if lec.meta.language else ""
-        same = f"Jak wykład ({LANG_PL.get(src, src)})" if src else "Jak wykład"
+        same = tr("Jak wykład ({get})", get=lang_name(src)) if src else tr("Jak wykład")
         cur = lec.meta.notes_language or ""
-        for code, name in [("", same)] + NOTES_LANGS:
+        for code, name in [("", same)] + [(c, tr(n)) for c, n in NOTES_LANGS]:
             a = menu.addAction(name)
             a.setCheckable(True)
             a.setChecked(code == cur)
@@ -1531,9 +1529,9 @@ class LibraryTab(QWidget):
         if not lec:
             return
         if lec.meta.edited and lec.notes_path.exists() and not isinstance(lecture, Lecture):
-            if QMessageBox.question(self, "Generuj ponownie",
-                                    "Notatki były ręcznie poprawiane. Nowe notatki zastąpią Twoje zmiany "
-                                    "(kopia zostanie zapisana jako notes_poprawione.md). Kontynuować?") \
+            if QMessageBox.question(self, tr("Generuj ponownie"),
+                                    tr("Notatki były ręcznie poprawiane. Nowe notatki zastąpią Twoje zmiany "
+                                    "(kopia zostanie zapisana jako notes_poprawione.md). Kontynuować?")) \
                     != QMessageBox.StandardButton.Yes:
                 return
             try:
@@ -1549,7 +1547,7 @@ class LibraryTab(QWidget):
             lec.save_meta()
         s = self.settings
         self.ai_log.clear()
-        self._run("Generowanie notatek",
+        self._run(tr("Generowanie notatek"),
                   lambda prog, cancel, tok: jobs.generate_notes(lec, s, prog, cancel, tok, use_cache=use_cache), lec)
 
     def retranscribe(self, lecture: Lecture | None = None, then_notes: bool = False):
@@ -1557,7 +1555,7 @@ class LibraryTab(QWidget):
         if not lec:
             return
         if not isinstance(lecture, Lecture) and lec.load_segments():
-            if QMessageBox.question(self, "Transkrypcja", "Zastąpić obecną transkrypcję nową, zrobioną z pliku nagrania?") \
+            if QMessageBox.question(self, tr("Transkrypcja"), tr("Zastąpić obecną transkrypcję nową, zrobioną z pliku nagrania?")) \
                     != QMessageBox.StandardButton.Yes:
                 return
         s = self.settings
@@ -1566,21 +1564,21 @@ class LibraryTab(QWidget):
             jobs.transcribe_lecture(lec, s, prog, cancel)
             if then_notes and not cancel.is_set():
                 jobs.generate_notes(lec, s, prog, cancel, tok)
-        self._run("Transkrypcja", fn, lec)
+        self._run(tr("Transkrypcja"), fn, lec)
 
     def import_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Wybierz nagranie wykładu", str(Path.home()),
-            "Audio/Wideo (*.mp3 *.m4a *.wav *.flac *.ogg *.opus *.aac *.wma *.mp4 *.mkv *.webm *.mov *.avi);;Wszystkie (*.*)")
+            self, tr("Wybierz nagranie wykładu"), str(Path.home()),
+            tr("Audio/Wideo (*.mp3 *.m4a *.wav *.flac *.ogg *.opus *.aac *.wma *.mp4 *.mkv *.webm *.mov *.avi);;Wszystkie (*.*)"))
         if not path:
             return
         ok, roi = ask_video_roi(self, path)
         if not ok:
             return
-        title, ok = QInputDialog.getText(self, "Importuj nagranie", "Tytuł wykładu:", text=Path(path).stem)
+        title, ok = QInputDialog.getText(self, tr("Importuj nagranie"), tr("Tytuł wykładu:"), text=Path(path).stem)
         if not ok:
             return
-        subject, ok = QInputDialog.getText(self, "Importuj nagranie", "Przedmiot:",
+        subject, ok = QInputDialog.getText(self, tr("Importuj nagranie"), "Przedmiot:",
                                            text=self.subject_filter or self.settings.last_subject)
         if not ok:
             return
@@ -1591,7 +1589,7 @@ class LibraryTab(QWidget):
             jobs.import_file(path, lec, s, prog, cancel, roi=roi)
             if s.auto_generate_notes and not cancel.is_set():
                 jobs.generate_notes(lec, s, prog, cancel, tok)
-        if self._run("Import nagrania", fn, lec):
+        if self._run(tr("Import nagrania"), fn, lec):
             self.library_changed.emit()
             self.select(lec)
 
@@ -1637,7 +1635,7 @@ class LibraryTab(QWidget):
         self.ai_log.setVisible(vis)
         if vis and getattr(self, "_token_buf", ""):
             self._job_token("")
-        self.btn_ai.setText("Ukryj podgląd" if vis else "Pokaż, co pisze AI")
+        self.btn_ai.setText(tr("Ukryj podgląd") if vis else tr("Pokaż, co pisze AI"))
 
     def _phone(self, lec):
         """Notatka na telefon (PDF do folderu Dysku Google / iCloud / OneDrive), jeśli włączone."""
@@ -1670,26 +1668,26 @@ class LibraryTab(QWidget):
 
     def export_html(self):
         if not self.current or not self.current.notes_path.exists():
-            return QMessageBox.information(self, "Eksport", "Najpierw wygeneruj notatki.")
+            return QMessageBox.information(self, tr("Eksport"), tr("Najpierw wygeneruj notatki."))
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(export_html(self.current))))
 
     def export_pdf(self):
         if not self.current or not self.current.notes_path.exists():
-            return QMessageBox.information(self, "Eksport", "Najpierw wygeneruj notatki.")
+            return QMessageBox.information(self, tr("Eksport"), tr("Najpierw wygeneruj notatki."))
         default = str(Path.home() / "Documents" / f"{self.current.folder.name}.pdf")
-        path, _ = QFileDialog.getSaveFileName(self, "Zapisz PDF", default, "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Zapisz PDF"), default, "PDF (*.pdf)")
         if path:
             export_pdf(self.current, Path(path))
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def export_anki(self):
         if not self.current or not card_stats(self.current)[0]:
-            return QMessageBox.information(self, "Eksport", "Ten wykład nie ma fiszek.")
-        default = str(Path.home() / "Documents" / f"Fiszki - {self.current.folder.name}.txt")
-        path, _ = QFileDialog.getSaveFileName(self, "Fiszki do Anki", default, "Tekst (*.txt)")
+            return QMessageBox.information(self, tr("Eksport"), tr("Ten wykład nie ma fiszek."))
+        default = str(Path.home() / "Documents" / tr("Fiszki - {title}.txt", title=self.current.folder.name))
+        path, _ = QFileDialog.getSaveFileName(self, tr("Fiszki do Anki"), default, tr("Tekst (*.txt)"))
         if path:
             export_anki(self.current, Path(path))
-            QMessageBox.information(self, "Anki", "Zapisano. W Anki wybierz Plik → Importuj i wskaż ten plik.")
+            QMessageBox.information(self, "Anki", tr("Zapisano. W Anki wybierz Plik → Importuj i wskaż ten plik."))
 
     def copy_md(self):
         if self.current:
@@ -1699,10 +1697,10 @@ class LibraryTab(QWidget):
         if not self.current:
             return
         m = self.current.meta
-        title, ok = QInputDialog.getText(self, "Tytuł", "Tytuł wykładu:", text=m.title)
+        title, ok = QInputDialog.getText(self, tr("Tytuł"), tr("Tytuł wykładu:"), text=m.title)
         if not ok:
             return
-        subject, ok = QInputDialog.getText(self, "Przedmiot", "Przedmiot:", text=m.subject)
+        subject, ok = QInputDialog.getText(self, tr("Przedmiot"), "Przedmiot:", text=m.subject)
         if not ok:
             return
         m.title, m.subject = title.strip() or m.title, subject.strip()
@@ -1715,13 +1713,13 @@ class LibraryTab(QWidget):
         if not self.current:
             return
         if self._job_is_for(self.current):
-            return QMessageBox.information(self, "Usuń", "Trwa zadanie dla tego wykładu.")
+            return QMessageBox.information(self, tr("Usuń"), tr("Trwa zadanie dla tego wykładu."))
         box = QMessageBox(self)
-        box.setWindowTitle("Usuń wykład")
-        box.setText(f"Usunąć „{self.current.meta.title}”?")
-        box.setInformativeText("Nagranie, slajdy, notatki i fiszki zostaną trwale usunięte.")
-        delete_btn = box.addButton("Usuń", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("Anuluj", QMessageBox.ButtonRole.RejectRole)
+        box.setWindowTitle(tr("Usuń wykład"))
+        box.setText(tr("Usunąć „{title}”?", title=self.current.meta.title))
+        box.setInformativeText(tr("Nagranie, slajdy, notatki i fiszki zostaną trwale usunięte."))
+        delete_btn = box.addButton(tr("Usuń"), QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(tr("Anuluj"), QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() is delete_btn:
             from .. import phone

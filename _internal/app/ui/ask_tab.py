@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from ..notes_doc import Chunk, chunks
 from ..storage import list_lectures
 from .ask_panel import AskPanel
+from ..i18n import tr
 
 
 class AskTab(QWidget):
@@ -26,14 +27,14 @@ class AskTab(QWidget):
         self.scope.setMinimumWidth(300)
         self.scope.currentIndexChanged.connect(lambda _i: self._apply())
         self.panel = AskPanel(settings, busy_hint=busy_hint)
-        self.panel.hint.setText("Odpowiedzi pochodzą wyłącznie z notatek z wybranego zakresu – każda z cytatem i "
-                                "odnośnikiem do wykładu. Jeśli czegoś w nich nie ma, zobaczysz to wprost.")
+        self.panel.hint.setText(tr("Odpowiedzi pochodzą wyłącznie z notatek z wybranego zakresu – każda z cytatem i "
+                                "odnośnikiem do wykładu. Jeśli czegoś w nich nie ma, zobaczysz to wprost."))
         self.panel.internal_link.connect(self._link)
 
         from .controls import AdaptiveBox, Heading
         head = AdaptiveBox(threshold=820, spacing=16, vspacing=12)
-        head.add(Heading("Zapytaj", "Pytania do notatek z wielu wykładów – np. przy zadaniach domowych albo przed "
-                                    "kolokwium."), 1)
+        head.add(Heading(tr("Zapytaj"), tr("Pytania do notatek z wielu wykładów – np. przy zadaniach domowych albo przed "
+                                    "kolokwium.")), 1)
         head.add(self.scope, 0, Qt.AlignmentFlag.AlignBottom, Qt.AlignmentFlag.AlignLeft)
         col = QWidget()
         col.setMaximumWidth(1000)
@@ -57,7 +58,7 @@ class AskTab(QWidget):
     def refresh(self):
         cur = self.scope.currentData()
         lectures = [l for l in list_lectures(self.settings.library_path()) if l.notes_path.exists()]
-        self.scope.fill_scope(lectures, "Wszystkie wykłady", keep=cur)
+        self.scope.fill_scope(lectures, tr("Wszystkie wykłady"), keep=cur)
         self.scope.blockSignals(True)
         i = self.scope.findData(cur) if cur else -1
         if i < 0 and self.settings.last_subject:
@@ -77,7 +78,7 @@ class AskTab(QWidget):
         def get_parts():
             return self._collect(kind, val)
         self.panel.set_source(get_parts, hist / f"{key}.json", int(self.settings.ollama_ctx))
-        self.panel.empty.text.setText("W tym zakresie nie ma jeszcze notatek.")
+        self.panel.empty.text.setText(tr("W tym zakresie nie ma jeszcze notatek."))
 
     def _collect(self, kind: str, val: str) -> list[Chunk]:
         parts: list[Chunk] = []

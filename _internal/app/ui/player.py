@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QMenu, QSlider, QToolButton, 
 
 from ..storage import Lecture, fmt_time
 from .controls import icon_button, label, set_icon
+from ..i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class PlayerBar(QFrame):
         self.slider.setRange(0, 1000)
         self.slider.sliderMoved.connect(self._seek_slider)
         self.time = label("", "secondary")
-        self.btn_close = icon_button("xmark", "Zamknij odtwarzacz")
+        self.btn_close = icon_button("xmark", tr("Zamknij odtwarzacz"))
         self.btn_close.clicked.connect(self.close_player)
         text = QWidget()
         from PySide6.QtWidgets import QVBoxLayout
@@ -69,7 +70,7 @@ class PlayerBar(QFrame):
             self._player.mediaStatusChanged.connect(self._on_status)
             self._player.playbackStateChanged.connect(self._on_state)
             self._player.errorOccurred.connect(lambda *_: self.desc.setText(
-                "Nie udało się odtworzyć nagrania: " + (self._player.errorString() or "")))
+                tr("Nie udało się odtworzyć nagrania: ") + (self._player.errorString() or "")))
 
     def choose(self, lecture: Lecture, frags: list, anchor_widget: QWidget, pos: Optional[QPoint] = None):
         """Jeden fragment – od razu gra. Kilka – lista z krótkimi opisami do wyboru."""
@@ -91,8 +92,8 @@ class PlayerBar(QFrame):
         path, local = lecture.locate(start)
         if path is None:
             self.show()
-            self.title.setText("Brak nagrania")
-            self.desc.setText("Ten wykład nie ma pliku audio.")
+            self.title.setText(tr("Brak nagrania"))
+            self.desc.setText(tr("Ten wykład nie ma pliku audio."))
             return
         self.lecture = lecture
         self.frag_start, self.frag_end = start, end

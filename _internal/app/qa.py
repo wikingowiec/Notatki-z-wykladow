@@ -19,7 +19,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from .notes_doc import Chunk, chunks
+from .i18n import tr
 
+# i18n: nie – prompt / treść notatki
 SYSTEM_QA = """Jesteś asystentem, który odpowiada na pytania studenta WYŁĄCZNIE na podstawie podanych fragmentów notatki z wykładu.
 
 ZASADY BEZWZGLĘDNE:
@@ -38,6 +40,7 @@ Zwróć wyłącznie JSON w formacie:
 # ---------------------------------------------------------------------------
 # Wyszukiwanie fragmentów (BM25 na „rdzeniach” słów – prosto, ale działa dla polskiej odmiany)
 # ---------------------------------------------------------------------------
+# i18n: nie – prompt / treść notatki
 _STOP = set("""a aby ale albo ani bez by być był była było były czy dla do gdy gdzie i ich jak jaka jaki jakie
 jest jeśli jego jej już ku lub ma mają na nad nie niż o od oraz po pod przez przy się są ta tak także te
 ten to tu tych tylko w we z za ze że który która które którzy co czym czego kiedy dlaczego ile jakim jakiej""".split())
@@ -45,10 +48,12 @@ ten to tu tych tylko w we z za ze że który która które którzy co czym czego
 
 def _fold(s: str) -> str:
     s = unicodedata.normalize("NFKD", s.lower())
+    # i18n: nie – prompt / treść notatki
     return "".join(c for c in s if not unicodedata.combining(c)).replace("ł", "l")
 
 
 def _stems(text: str) -> list[str]:
+    # i18n: nie – prompt / treść notatki
     words = re.findall(r"[a-ząćęłńóśźż0-9]+", text.lower())
     return [_fold(w)[:6] for w in words if len(w) >= 3 and w not in _STOP]
 
@@ -162,7 +167,7 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
     parts = md if isinstance(md, list) else chunks(md)
     ans = Answer(question=question.strip(), status="brak", t=time.time())
     if not parts:
-        ans.status, ans.answer = "blad", "Ta notatka jest pusta."
+        ans.status, ans.answer = "blad", tr("Ta notatka jest pusta.")
         return ans
     budget = int(num_ctx * 0.6) - 800
     idx = select_context(question, parts, budget)
@@ -173,6 +178,7 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
     for k, c in enumerate(ctx, 1):
         head = c.title + (f", {c.time}" if c.time else "")
         blocks.append(f"[F{k}] ({head})\n{c.text}")
+    # i18n: nie – prompt / treść notatki
     user = ("FRAGMENTY NOTATKI:\n\n" + "\n\n".join(blocks) +
             f"\n\nPYTANIE STUDENTA: {question.strip()}\n\n"
             "Odpowiedz zgodnie z zasadami. Jeśli odpowiedzi nie ma we fragmentach, zwróć status \"brak\".")
@@ -180,6 +186,7 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
     if lang and lang != "pl":           # odpowiedź w języku notatek (klucze JSON zostają te same)
         from .prompts import LANG_EN
         name = LANG_EN.get(lang, lang)
+        # i18n: nie – prompt / treść notatki
         system = system.replace("7. Pisz po polsku, zwięźle i konkretnie.",
                                 f"7. Pisz w języku notatek ({name}), zwięźle i konkretnie.")
         system += (f"\n\nThe notes are in {name}. Write \"odpowiedz\" and \"brakuje\" in {name}; "
@@ -187,8 +194,10 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
     raw = llm.chat(model, [{"role": "system", "content": system}, {"role": "user", "content": user}],
                    num_ctx=num_ctx, temperature=0.0, json_mode=True, cancel=cancel, keep_alive=keep_alive)
     data = _parse(raw)
+    # i18n: nie – prompt / treść notatki
     status = str(data.get("status", "")).lower().replace("ę", "e").replace("ź", "z")
     status = {"odpowiedź": "odpowiedz", "czesciowa": "czesciowo", "częściowo": "czesciowo"}.get(status, status)
+    # i18n: nie – prompt / treść notatki
     text = str(data.get("odpowiedz") or data.get("odpowiedź") or "").strip()
     ans.missing = str(data.get("brakuje") or "").strip()
     ans.related = [{"anchor": parts[i].anchor, "title": parts[i].title, "time": parts[i].time} for i in ranked[:3]]
@@ -211,11 +220,11 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
             verified.append({"text": str(q).strip(), "anchor": ctx[i].anchor, "title": ctx[i].title})
     if not verified:
         ans.status = "niepewne"
-        ans.missing = ans.missing or "Model nie wskazał fragmentu notatki, który potwierdza odpowiedź."
+        ans.missing = ans.missing or tr("Model nie wskazał fragmentu notatki, który potwierdza odpowiedź.")
         return ans
     ans.status = status if bad == 0 else "czesciowo"
     if bad and not ans.missing:
-        ans.missing = "Część odpowiedzi nie ma potwierdzenia w notatce – sprawdź w źródle."
+        ans.missing = tr("Część odpowiedzi nie ma potwierdzenia w notatce – sprawdź w źródle.")
     # czy odpowiedź nie wychodzi poza notatkę (słowa i liczby, których w niej nie ma)
     ctx_all = " ".join(texts)
     ctx_stems = set(_stems(ctx_all + " " + question))
@@ -225,9 +234,10 @@ def ask(md, question: str, llm, model: str, num_ctx: int = 16384,
     foreign_nums = [n for n in re.findall(r"\d+(?:[.,]\d+)?", text) if n not in ctx_nums]
     if coverage < 0.6 or foreign_nums:
         ans.status = "czesciowo"
-        ans.missing = ("Odpowiedź zawiera " + (f"liczby ({', '.join(foreign_nums[:3])}), których " if foreign_nums
-                                              else "sformułowania, których ") +
-                       "nie ma w notatce – traktuj ją ostrożnie i sprawdź w źródle.")
+        ans.missing = (tr("Odpowiedź zawiera liczby ({nums}), których nie ma w notatce – traktuj ją ostrożnie i sprawdź "
+                          "w źródle.", nums=", ".join(foreign_nums[:3])) if foreign_nums else
+                       tr("Odpowiedź zawiera sformułowania, których nie ma w notatce – traktuj ją ostrożnie i sprawdź "
+                          "w źródle."))
     ans.answer = text
     ans.quotes = verified
     seen = []

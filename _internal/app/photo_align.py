@@ -10,6 +10,7 @@ import math
 import re
 from collections import Counter
 
+# i18n: nie – prompt / treść notatki
 STOP = set("""i oraz a w we z ze na do od po za przez dla to jest są był była było być nie tak jak że czy co
 który która które którego tego ten ta te tym tych się sie o u przy pod nad lub albo ale też tez jego jej ich
 the a an of to in on for and or is are be as by with this that these from at it""".split())
@@ -19,7 +20,7 @@ STEP = 20.0
 
 def tokens(text: str) -> list[str]:
     out = []
-    for w in re.findall(r"[a-ząćęłńóśźż0-9]{3,}", (text or "").lower()):
+    for w in re.findall(r"[a-ząćęłńóśźż0-9]{3,}", (text or "").lower()):  # i18n: nie
         if w in STOP:
             continue
         out.append(w[:6])          # prosty „rdzeń” – odmiana polskich słów
@@ -51,7 +52,7 @@ def align(photo_texts: list[str], segs: list[dict], duration: float,
     wins = windows(segs, duration) if segs else []
     if not wins:
         return [(anchors.get(i, (duration * i / n) if duration else float(i)),
-                 "czas zdjęcia" if i in anchors else "kolejność") for i in range(n)]
+                 "czas zdjęcia" if i in anchors else "kolejność") for i in range(n)]  # i18n: nie
     m = len(wins)
     # waga słów: rzadkie w całym wykładzie ważą więcej
     df = Counter()
@@ -100,11 +101,11 @@ def align(photo_texts: list[str], segs: list[dict], duration: float,
     out: list[tuple[float, str]] = []
     for i in range(n):
         if i in anchors:
-            out.append((anchors[i], "czas zdjęcia"))
+            out.append((anchors[i], "czas zdjęcia"))  # i18n: nie
         elif score[i][pos[i]] >= 0.12:
-            out.append((wins[pos[i]][0] + WINDOW * 0.25, "treść"))
+            out.append((wins[pos[i]][0] + WINDOW * 0.25, "treść"))  # i18n: nie
         else:
-            out.append((None, "kolejność"))
+            out.append((None, "kolejność"))  # i18n: nie
     # bez dopasowania: równo między sąsiadami
     end = max([duration] + [s["end"] for s in segs])
     i = 0
@@ -119,7 +120,7 @@ def align(photo_texts: list[str], segs: list[dict], duration: float,
         hi = out[k][0] if k < n else end
         cnt = k - i
         for q in range(cnt):
-            out[i + q] = (lo + (hi - lo) * (q + 1) / (cnt + 1), "kolejność")
+            out[i + q] = (lo + (hi - lo) * (q + 1) / (cnt + 1), "kolejność")  # i18n: nie
         i = k
     # ściśle rosnąco (dwa zdjęcia nie w tej samej sekundzie)
     fixed = []

@@ -13,6 +13,7 @@ from ..audio_capture import LevelMonitor, PLAYING, list_audio_sources, play_prev
 from .controls import hbox, label, set_icon, show_if
 from .theme import T, icon_pixmap, qcolor
 from .widgets import run_async
+from ..i18n import tr
 
 R_IDX = Qt.ItemDataRole.UserRole          # indeks w liście źródeł; -1 = nagłówek grupy
 PREVIEW_S = 4
@@ -131,14 +132,14 @@ class AudioSourcePicker(QWidget):
         self.list.itemClicked.connect(lambda _i: self.picked.emit())
         self.list.currentRowChanged.connect(self._row_changed)
 
-        self.btn_preview = QPushButton("Odsłuchaj")
+        self.btn_preview = QPushButton(tr("Odsłuchaj"))
         set_icon(self.btn_preview, "headphones", "text2", 16)
         self.btn_preview.clicked.connect(self.preview)
-        self.btn_refresh = QPushButton("Odśwież")
+        self.btn_refresh = QPushButton(tr("Odśwież"))
         set_icon(self.btn_refresh, "refresh", "text2", 16)
-        self.btn_refresh.setToolTip("Zbierz listę jeszcze raz (np. po włączeniu wykładu)")
+        self.btn_refresh.setToolTip(tr("Zbierz listę jeszcze raz (np. po włączeniu wykładu)"))
         self.btn_refresh.clicked.connect(self.refresh)
-        self.btn_all = QPushButton("Pokaż wszystkie")
+        self.btn_all = QPushButton(tr("Pokaż wszystkie"))
         self.btn_all.setObjectName("plain")
         self.btn_all.clicked.connect(self._toggle_all)
         self.status = label("", "footnote", wrap=True)
@@ -201,7 +202,7 @@ class AudioSourcePicker(QWidget):
         if not self.show_all:        # wybrane źródło nie znika z listy, nawet gdy jest „schowane”
             rest = [i for i in rest if i == cur]
             devices += [cur] if cur >= 0 and self.sources[cur].kind != "process" and cur not in devices else []
-        return [("Grają teraz", playing), ("Urządzenia", devices), ("Pozostałe aplikacje", rest)]
+        return [(tr("Grają teraz"), playing), (tr("Urządzenia"), devices), (tr("Pozostałe aplikacje"), rest)]
 
     def _rebuild(self):
         cur = self.current_index()
@@ -226,7 +227,7 @@ class AudioSourcePicker(QWidget):
         self.list.blockSignals(False)
         self.list.setFixedHeight(min(height, HEAD_H * 2 + ROW_H * 6))
         hidden = sum(1 for s in self.sources if s.hidden)
-        self.btn_all.setText("Pokaż mniej" if self.show_all else f"Pokaż wszystkie ({hidden})")
+        self.btn_all.setText(tr("Pokaż mniej") if self.show_all else tr("Pokaż wszystkie ({hidden})", hidden=hidden))
         show_if(self.btn_all, hidden > 0 or self.show_all)
         self._update_buttons()
 
@@ -272,10 +273,10 @@ class AudioSourcePicker(QWidget):
         info = self.current()
         mic = info is not None and info.kind == "mic"
         self.btn_preview.setEnabled(info is not None and not mic and not self._previewing)
-        self.btn_preview.setToolTip("Przy mikrofonie odsłuch dawałby sprzężenie (pisk) – sprawdź wskaźnik poziomu "
-                                    "przy nazwie: powinien skakać, gdy mówisz." if mic else
-                                    f"Nagra {PREVIEW_S} s z tego źródła i od razu je odtworzy – usłyszysz dokładnie to, "
-                                    "co trafi do nagrania.")
+        self.btn_preview.setToolTip(tr("Przy mikrofonie odsłuch dawałby sprzężenie (pisk) – sprawdź wskaźnik poziomu "
+                                    "przy nazwie: powinien skakać, gdy mówisz.") if mic else
+                                    tr("Nagra {preview_s} s z tego źródła i od razu je odtworzy – usłyszysz dokładnie to, co trafi "
+                                       "do nagrania.", preview_s=PREVIEW_S))
 
     # ------------------------------------------------------------------ poziomy na żywo
     def measurable(self, info) -> bool:
@@ -333,29 +334,29 @@ class AudioSourcePicker(QWidget):
             return
         self._previewing = True
         self._update_buttons()
-        self.btn_preview.setText(f"Słucham {PREVIEW_S} s…")
-        self._say(f"Nagrywam {PREVIEW_S} sekundy z „{info.label}”…")
+        self.btn_preview.setText(tr("Słucham {preview_s} s…", preview_s=PREVIEW_S))
+        self._say(tr("Nagrywam {preview_s} sekundy z „{label}”…", preview_s=PREVIEW_S, label=info.label))
 
         def recorded(res):
             audio, rate = res
             peak = float(abs(audio).max()) if audio.size else 0.0
             if peak < 1e-3:
-                self._preview_done("Nic nie było słychać. " + (
-                    "Ta aplikacja teraz nie gra – włącz wykład i spróbuj jeszcze raz." if info.kind == "process"
-                    else "Na komputerze nic teraz nie gra."))
+                self._preview_done(tr("Nic nie było słychać. ") + (
+                    tr("Ta aplikacja teraz nie gra – włącz wykład i spróbuj jeszcze raz.") if info.kind == "process"
+                    else tr("Na komputerze nic teraz nie gra.")))
                 return
-            self.btn_preview.setText("Odtwarzam…")
-            self._say("Odtwarzam to, co się nagrało – tak będzie brzmiało nagranie wykładu.")
+            self.btn_preview.setText(tr("Odtwarzam…"))
+            self._say(tr("Odtwarzam to, co się nagrało – tak będzie brzmiało nagranie wykładu."))
             run_async(lambda: play_preview(audio, rate),
-                      lambda _r: self._preview_done("Odsłuch zakończony. Jeśli było słychać wykład – możesz nagrywać."),
-                      lambda e: self._preview_done(f"Nie udało się odtworzyć: {e}"))
+                      lambda _r: self._preview_done(tr("Odsłuch zakończony. Jeśli było słychać wykład – możesz nagrywać.")),
+                      lambda e: self._preview_done(tr("Nie udało się odtworzyć: {e}", e=e)))
 
         run_async(lambda: record_preview(info, PREVIEW_S), recorded,
-                  lambda e: self._preview_done(f"Nie udało się nagrać z tego źródła: {e}"))
+                  lambda e: self._preview_done(tr("Nie udało się nagrać z tego źródła: {e}", e=e)))
 
     def _preview_done(self, text: str):
         self._previewing = False
-        self.btn_preview.setText("Odsłuchaj")
+        self.btn_preview.setText(tr("Odsłuchaj"))
         self._update_buttons()
         self._say(text)
 

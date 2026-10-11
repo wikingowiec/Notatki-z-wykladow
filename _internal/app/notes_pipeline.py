@@ -26,6 +26,7 @@ MAX_WORDS = 1400
 NOSLIDE_WORDS = 1100
 
 from .prompts import EXAM_PATTERNS, mark_names, texts
+from .i18n import tr
 
 SYSTEM = texts("pl").system    # zgodność wstecz
 
@@ -229,7 +230,9 @@ def tidy_note(md: str, max_marks: int = 4) -> str:
         count += 1
         return m.group(0) if count <= max_marks else m.group(1)
     md = re.sub(r"==(?=\S)(.+?)(?<=\S)==", hl, md)
+    # i18n: nie – prompt / treść notatki
     md = re.sub(r"^>[ \t]*\*\*[^*\n]+:\*\*[ \t]*(?:\n(?!>)|\Z)", "", md, flags=re.MULTILINE)   # pusta ramka
+    # i18n: nie – prompt / treść notatki
     md = re.sub(r"^==(?:zakreśleni[ae]|highlight)==[ \t]*$", "", md, flags=re.MULTILINE | re.IGNORECASE)  # echo wzoru
     md = re.sub(r"\n{3,}", "\n\n", md)
     return md.strip()
@@ -292,7 +295,9 @@ def condense_prompt(notes: str, lang: str = "pl") -> str:
     return texts(lang).condense.format(notes=notes)
 
 
+# i18n: nie – prompt / treść notatki
 _Q_KEYS = ("pytanie", "question", "q", "przod", "przód", "front")
+# i18n: nie – prompt / treść notatki
 _A_KEYS = ("odpowiedz", "odpowiedź", "answer", "a", "tyl", "tył", "back")
 
 
@@ -385,7 +390,7 @@ def section_note(llm, model: str, sec: Section, i: int, n: int, title: str, subj
     return localize_labels(note, lang) if src and src != lang else note
 
 
-# etykiety ramek w języku notatek (wykład w innym języku – model czasem bierze etykiety z oryginału)
+# etykiety ramek w języku notatek (wykład w innym języku – model czasem bierze etykiety z oryginału); i18n: nie
 BOX_LABELS = {
     "pl": {"def": "Definicja", "formula": "Wzór", "example": "Przykład", "important": "Ważne",
            "slide": "Na slajdzie", "lead": "W skrócie"},
@@ -471,6 +476,7 @@ def translate_titles(llm, model: str, notes: list[str], lang: str, src: str, num
         return notes
     listing = "\n".join(f"{k}. {t}" for k, (_i, t) in enumerate(heads, 1))
     if lang == "pl":
+        # i18n: nie – prompt / treść notatki
         prompt = (f"Poniżej nagłówki tematów z notatek do wykładu prowadzonego w języku: {LANG_PL.get(src, src)}.\n"
                   f"{listing}\n\nKażdy nagłówek ma być po polsku: przetłumacz te, które są w innym języku "
                   "(przyjętą polską terminologią), a polskie zostaw bez zmian. Zachowaj liczbę i kolejność.\n"
@@ -524,13 +530,13 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
             if cancel is not None and cancel.is_set():
                 raise
             log.warning("opisy slajdów pominięte: %s", e)
-            prog(f"Opisy slajdów pominięte ({str(e)[:80]}) – notatki z tekstu slajdów.", 0.15)
+            prog(tr("Opisy slajdów pominięte ({x}) – notatki z tekstu slajdów.", x=str(e)[:80]), 0.15)
     slides_data = lecture.load_slides()
     marks = lecture.load_marks()
     sections = build_sections(segments, slides_data, lecture.meta.duration)
     attach_marks(sections, marks)
     if not sections or not any(s.text or s.ocr for s in sections):
-        raise RuntimeError("Brak transkrypcji i tekstu ze slajdów – nie ma z czego zrobić notatek.")
+        raise RuntimeError(tr("Brak transkrypcji i tekstu ze slajdów – nie ma z czego zrobić notatek."))
 
     n = len(sections)
     chat = lambda prompt, **kw: llm.chat(model, [{"role": "system", "content": T.system},  # noqa: E731
@@ -551,7 +557,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
         if alt:
             notes.append(alt)
             continue
-        prog(f"Notatki: fragment {i}/{n}", 0.15 + 0.40 * (i - 1) / n)
+        prog(tr("Notatki: fragment {i}/{n}", i=i, n=n), 0.15 + 0.40 * (i - 1) / n)
         if on_token:
             on_token(f"\n\n— fragment {i}/{n} —\n")
         note = section_note(llm, model, sec, i, n, title, subject, num_ctx, cancel, on_token, lang=lang, src=src)
@@ -564,7 +570,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
 
     # --- wykład w innym języku: nagłówki tematów, które model zostawił w oryginale, w języku notatek ---
     if src != lang:
-        prog("Nagłówki tematów w języku notatek…", 0.555)
+        prog(tr("Nagłówki tematów w języku notatek…"), 0.555)
         try:
             notes = translate_titles(llm, model, notes, lang, src, num_ctx, cancel)
         except Exception as e:  # noqa: BLE001
@@ -575,7 +581,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     # --- zaznaczone fragmenty ---
     marked_notes: list[tuple[dict, str]] = []
     for j, m in enumerate(sorted(marks, key=lambda x: x.get("start", 0)), 1):
-        prog(f"Zaznaczone fragmenty: {j}/{len(marks)}", 0.56)
+        prog(tr("Zaznaczone fragmenty: {j}/{n}", j=j, n=len(marks)), 0.56)
         txt = text_between(segments, m["start"] - 5, m.get("end", m["start"]) + 5)
         if len(txt.split()) < 8:
             continue
@@ -589,7 +595,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
             log.warning("zaznaczenie: %s", e)
 
     # --- informacje o egzaminie ---
-    prog("Szukam informacji o egzaminie…", 0.58)
+    prog(tr("Szukam informacji o egzaminie…"), 0.58)
     try:
         exam_items = extract_exam_info(llm, model, segments, marks, lang, num_ctx, cancel, src=src)
     except Exception as e:  # noqa: BLE001
@@ -606,7 +612,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     for i, note in enumerate(notes, 1):
         mm = re.match(r"^\s*###\s+(.+?)\s*(?:\n|$)", note or "")
         titles.append((i, clean_title(mm.group(1)) if mm else T.fragment))
-    prog("Porządkuję tematy w kategorie…", 0.59)
+    prog(tr("Porządkuję tematy w kategorie…"), 0.59)
     cats: list = []
     try:
         cats = llm_categories(llm, model, titles, lang, num_ctx, cancel)
@@ -638,7 +644,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
         seen_q.append(toks)
         return False
     for i, (sec, note) in enumerate(zip(sections, notes), 1):
-        prog(f"Fiszki: fragment {i}/{n}", 0.60 + 0.25 * (i - 1) / n)
+        prog(tr("Fiszki: fragment {i}/{n}", i=i, n=n), 0.60 + 0.25 * (i - 1) / n)
         if not note:
             continue
         share = max(sec.words, 60) / total_words
@@ -668,7 +674,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
                     c[f] = o[f]
 
     # --- podsumowanie ---
-    prog("Podsumowanie wykładu…", 0.86)
+    prog(tr("Podsumowanie wykładu…"), 0.86)
     all_notes = "\n\n".join(x for x in notes if x)
     budget = int(num_ctx * 0.55)
     level = 0
@@ -684,7 +690,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
             chunks.append(cur)
         condensed = []
         for j, ch in enumerate(chunks, 1):
-            prog(f"Podsumowanie: skracanie części {j}/{len(chunks)}", 0.86 + 0.06 * j / len(chunks))
+            prog(tr("Podsumowanie: skracanie części {j}/{n}", j=j, n=len(chunks)), 0.86 + 0.06 * j / len(chunks))
             condensed.append(chat(condense_prompt(ch, lang)))
         all_notes = "\n\n".join(condensed)
     summary = chat(summary_prompt(all_notes, title, subject, lang, src), on_token=on_token)
@@ -693,7 +699,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     summary = re.sub(r"^###\s+", "## ", summary, flags=re.MULTILINE)
 
     # --- złożenie plików ---
-    prog("Zapisywanie…", 0.97)
+    prog(tr("Zapisywanie…"), 0.97)
     lecture.summary_path.write_text(summary + "\n", encoding="utf-8")
     lecture.save_flashcards(cards)
     lecture.notes_path.write_text(assemble_markdown(lecture, sections, notes, summary, marked_notes, exam_items, marks),
@@ -703,7 +709,7 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     lecture.save_meta()
     from .exporters import export_html
     export_html(lecture)
-    prog("Gotowe", 1.0)
+    prog(tr("Gotowe"), 1.0)
 
 
 def _first_line(md: str, limit: int = 240) -> str:
@@ -714,6 +720,7 @@ def _first_line(md: str, limit: int = 240) -> str:
             continue
         t = re.sub(r"^(?:(?:[-*]|\d+\.)\s+|>\s*)+", "", t)
         t = re.sub(r"^\*\*[^*]{2,30}:\*\*\s*", "", t).strip()
+        # i18n: nie – prompt / treść notatki
         if re.match(r"(?i)((oto|poniżej|here is|below is)\b.*:|o czym (to|jest)\b.{0,30}\?)$", t):   # wstęp modelu
             continue
         if len(t) > 8:
@@ -746,6 +753,7 @@ def mark_boxes(marks: list[dict], marked_notes: Optional[list], start: float, en
         if not (start <= t < end):
             continue
         name = names.get(mk.get("kind"), "") or ""
+        # i18n: nie – treść notatki w jej języku
         label = name if name.lower() in LABELS and LABELS[name.lower()] == "important" else (
             "Important" if lang == "en" else "Ważne")
         who = "marked by you" if lang == "en" else "zaznaczone przez Ciebie"

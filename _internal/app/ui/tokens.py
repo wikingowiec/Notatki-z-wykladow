@@ -10,6 +10,7 @@ Użycie (PySide6):
 Rozmiary podane w px (QFont.setPixelSize). Nazwy kolorów są takie same
 w obu motywach — przełączenie motywu = podmiana słownika.
 """
+from ..i18n import tr
 
 # ---------------------------------------------------------------- kolory
 LIGHT = {
@@ -141,6 +142,7 @@ ANIM_MS = {"fast": 120, "base": 180, "slow": 260}  # QPropertyAnimation, OutCubi
 def qss(t: dict) -> str:
     r = t.get("radius", RADIUS)
     fu = t.get("fontUi", FONT_UI)
+    # i18n: nie – prompt / treść notatki / styl
     return f"""
 QWidget {{ background: {t['bg']}; color: {t['ink']}; font-family: "{fu}"; font-size: 14px; }}
 QFrame#Sidebar {{ background: {t['side']}; border-right: 1px solid {t['line']}; }}
@@ -258,7 +260,7 @@ def variant(name: str = "A", dark: bool = False) -> dict:
 
 THEMES = {"zeszyt": "A", "atrament": "A1", "akademia": "A3"}  # nazwa w Ustawieniach -> klucz
 THEME_LABELS = {"zeszyt": "Zeszyt", "atrament": "Atrament", "akademia": "Akademia"}
-THEME_NOTES = {"zeszyt": "Zielony, papierowy – domyślny.",
-               "atrament": "Granatowy, miękki, zaokrąglony.",
-               "akademia": "Bordowy, książkowy, ostre rogi."}
+THEME_NOTES = {"zeszyt": tr("Zielony, papierowy – domyślny."),
+               "atrament": tr("Granatowy, miękki, zaokrąglony."),
+               "akademia": tr("Bordowy, książkowy, ostre rogi.")}
 FALLBACK = {"display": "Georgia", "ui": "Segoe UI"}

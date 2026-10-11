@@ -46,7 +46,7 @@ def decks_for(lectures: list[Lecture]) -> list[Deck]:
         decks: dict[str, Deck] = {}
         for i, c in enumerate(cards):
             sec = int(c.get("section") or 0)
-            name = c.get("category") or by_sec.get(sec) or "Ogólne"
+            name = c.get("category") or by_sec.get(sec) or "Ogólne"  # i18n: nie
             if name not in decks:
                 ci = next((k for k, cat in enumerate(cats) if cat["name"] == name), colors.get(sec, len(decks)))
                 decks[name] = Deck(lec, name, ci)
@@ -73,7 +73,7 @@ def deck_markdown(deck: Deck) -> str:
     out = []
     for sec in sorted(by_sec, key=lambda s: (s == 0, s)):
         title, tm = titles.get(sec, (by_sec[sec][0].get("topic") or "", ""))
-        head = f"{sec}. {title}" if sec else (title or "Pozostałe")
+        head = f"{sec}. {title}" if sec else (title or "Pozostałe")  # i18n: nie
         out += ["", f"## {head}", ""]
         for it in (d for d in defs if d.section == sec):
             out += [f"> **{CS.KIND_LABEL[it.kind]}:** " + it.text.replace("\n", "\n> "), ""]

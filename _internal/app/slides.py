@@ -21,6 +21,7 @@ from typing import Callable, Optional
 
 import cv2
 import numpy as np
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -253,7 +254,7 @@ def hash_dist(a, b) -> float:
 
 def text_tokens(text: str) -> set:
     import re as _re
-    return {w[:7] for w in _re.findall(r"[0-9a-ząćęłńóśźż]{3,}", (text or "").lower())}
+    return {w[:7] for w in _re.findall(r"[0-9a-ząćęłńóśźż]{3,}", (text or "").lower())}  # i18n: nie
 
 
 def _jaccard(a: set, b: set) -> float:
@@ -488,7 +489,7 @@ class SlideRecorder:
                 except Exception as e:  # noqa: BLE001
                     img = None
                     log.exception("grab")
-                    status = f"Błąd zrzutu ekranu: {e}"
+                    status = tr("Błąd zrzutu ekranu: {e}", e=e)
                 else:
                     status = getattr(self.grabber, "last_error", "") if img is None else ""
                 if status != last_status and self.on_status:

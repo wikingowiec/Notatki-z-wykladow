@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QAbstractButton, QBoxLayout, QButtonGroup, QFrame
                                QSizePolicy, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget)
 
 from .theme import T, display_font, icon_pixmap, palette_color, qcolor, soft, svg_icon, theme
+from ..i18n import tr
 
 # ---------------------------------------------------------------------------
 # Ikony zależne od motywu
@@ -454,18 +455,18 @@ def hbox(*widgets, spacing: int = 8, margins=(0, 0, 0, 0)) -> QWidget:
 
 # ---------------------------------------------------------------------------
 STATUS = {
-    "gotowy": ("Gotowe", "green"),
-    "nagrany": ("Bez notatek", "gray"),
-    "nowy": ("Bez notatek", "gray"),
-    "przetwarzanie": ("W toku", "orange"),
-    "nagrywanie": ("Nagrywanie", "red"),
-    "błąd": ("Błąd", "red"),
+    "gotowy": (tr("Gotowe"), "green"),
+    "nagrany": (tr("Bez notatek"), "gray"),
+    "nowy": (tr("Bez notatek"), "gray"),
+    "przetwarzanie": (tr("W toku"), "orange"),
+    "nagrywanie": (tr("Nagrywanie"), "red"),
+    "błąd": (tr("Błąd"), "red"),
 }
 
 
 def lecture_status(lec) -> tuple[str, str]:
     st = lec.meta.status
-    if st not in ("przetwarzanie", "nagrywanie", "błąd") and lec.notes_path.exists():
+    if st not in ("przetwarzanie", "nagrywanie", "błąd") and lec.notes_path.exists():  # i18n: nie
         st = "gotowy"
     return STATUS.get(st, ("", "gray"))
 
@@ -567,7 +568,7 @@ class RecordButton(QAbstractButton):
         self.recording = False
         self.setFixedSize(size, size)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setAccessibleName("Nagrywanie")
+        self.setAccessibleName(tr("Nagrywanie"))
 
     def set_recording(self, on: bool):
         self.recording = on
@@ -1028,12 +1029,12 @@ class _ChoiceDelegate(QStyledItemDelegate):
         if tag:
             p.setFont(f)
             tw = p.fontMetrics().horizontalAdvance(tag) + 16
-            tr = QRectF(r.right() - tw - 8, r.center().y() - 10, tw, 20)
+            tag_r = QRectF(r.right() - tw - 8, r.center().y() - 10, tw, 20)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.hover))
-            p.drawRoundedRect(tr, T().r("md"), T().r("md"))
+            p.drawRoundedRect(tag_r, T().r("md"), T().r("md"))
             p.setPen(qcolor(t.text2))
-            p.drawText(tr, Qt.AlignmentFlag.AlignCenter, tag)
+            p.drawText(tag_r, Qt.AlignmentFlag.AlignCenter, tag)
         p.setFont(option.font)
         p.setPen(qcolor(t.text))
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
@@ -1066,7 +1067,7 @@ class ChoiceCombo(QComboBox):
         self.setItemData(i, color, C_COLOR)
         self.setItemData(i, tag, C_TAG)
 
-    def fill_scope(self, lectures, all_label: str = "Wszystkie wykłady", subjects: bool = True,
+    def fill_scope(self, lectures, all_label: str = tr("Wszystkie wykłady"), subjects: bool = True,
                    subject_prefix: str = "", keep=None):
         """Zakres: wszystkie / każdy przedmiot / każdy wykład (z kolorami przedmiotów)."""
         from .theme import subject_color
@@ -1076,9 +1077,9 @@ class ChoiceCombo(QComboBox):
             self.add(all_label, ("all", ""), None, "")
         if subjects:
             for s in sorted({l.meta.subject for l in lectures if l.meta.subject}):
-                self.add(subject_prefix + s, ("subject", s), subject_color(s), "Przedmiot")
+                self.add(subject_prefix + s, ("subject", s), subject_color(s), tr("Przedmiot"))
         for l in lectures:
-            self.add(l.meta.title, ("lecture", str(l.folder)), subject_color(l.meta.subject), "Wykład")
+            self.add(l.meta.title, ("lecture", str(l.folder)), subject_color(l.meta.subject), tr("Wykład"))
         i = self.findData(keep) if keep else -1
         self.setCurrentIndex(max(0, i))
         self.blockSignals(False)
@@ -1112,12 +1113,12 @@ class ChoiceCombo(QComboBox):
             f.setWeight(QFont.Weight.DemiBold)
             p.setFont(f)
             tw = p.fontMetrics().horizontalAdvance(tag) + 16
-            tr = QRectF(r.right() - tw, r.center().y() - 10, tw, 20)
+            tag_r = QRectF(r.right() - tw, r.center().y() - 10, tw, 20)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(qcolor(t.hover))
-            p.drawRoundedRect(tr, T().r("md"), T().r("md"))
+            p.drawRoundedRect(tag_r, T().r("md"), T().r("md"))
             p.setPen(qcolor(t.text2))
-            p.drawText(tr, Qt.AlignmentFlag.AlignCenter, tag)
+            p.drawText(tag_r, Qt.AlignmentFlag.AlignCenter, tag)
         p.setFont(self.font())
         p.setPen(qcolor(t.text if self.isEnabled() else t.text3))
         rr = QRectF(x, r.top(), r.right() - x - tw - 8, r.height())

@@ -17,10 +17,13 @@ from typing import Callable, Optional
 from .notes_doc import Chunk, chunks
 from .qa import verify_quote
 from .storage import Lecture, list_lectures
+from .i18n import tr
 
+# i18n: nie – prompt / treść notatki / styl
 TYPES = {"abcd": "jednokrotnego wyboru (4 odpowiedzi A–D, dokładnie jedna poprawna)",
          "pf": "prawda/fałsz",
          "open": "otwarte (krótka odpowiedź własnymi słowami)"}
+# i18n: nie – prompt / treść notatki / styl
 LEVELS = {"easy": "łatwe – podstawowe definicje i fakty",
           "medium": "średnie – zrozumienie i zastosowanie",
           "hard": "trudne – łączenie wiadomości, przykłady, subtelne różnice"}
@@ -57,6 +60,7 @@ def collect(lectures: list[Lecture]) -> tuple[list[Chunk], list[str], list[tuple
         md = lec.read_text(lec.notes_path)
         for c in chunks(md):
             low = c.title.lower()
+            # i18n: nie – prompt / treść notatki / styl
             if low.startswith(("spis treści", "contents", "pytania kontrolne", "review questions")):
                 continue
             parts.append(Chunk(c.anchor, f"{lec.meta.title} › {c.title}", c.time, c.text))
@@ -69,6 +73,7 @@ def collect(lectures: list[Lecture]) -> tuple[list[Chunk], list[str], list[tuple
     return parts, info, src
 
 
+# i18n: nie – prompt / treść notatki / styl
 PROMPT = """Jesteś egzaminatorem. Na podstawie poniższych fragmentów notatek z wykładów ułóż {k} pytań egzaminacyjnych.
 
 Rodzaje pytań do użycia: {types}.
@@ -140,6 +145,7 @@ def _normalize(q: dict, allowed: list) -> Optional[dict]:
             return None
         out["correct"] = val
     else:
+        # i18n: nie – prompt / treść notatki / styl
         ans = str(q.get("odpowiedz") or q.get("odpowiedź") or q.get("answer") or "").strip()
         if not ans:
             return None
@@ -153,10 +159,10 @@ def generate_exam(library: Path, spec: ExamSpec, llm, model: str, num_ctx: int,
     prog = progress or (lambda m, f: None)
     lectures = scope_lectures(library, spec)
     if not lectures:
-        raise RuntimeError("W wybranym zakresie nie ma wykładów z gotowymi notatkami.")
+        raise RuntimeError(tr("W wybranym zakresie nie ma wykładów z gotowymi notatkami."))
     parts, info, src = collect(lectures)
     if not parts:
-        raise RuntimeError("Notatki są puste.")
+        raise RuntimeError(tr("Notatki są puste."))
     # fragmenty zaznaczone jako ważne / na egzamin trafiają do losowania częściej
     weights = [3.0 if src[i][2] else 1.0 for i in range(len(parts))]
     types = [t for t in spec.types if t in TYPES] or ["abcd"]
@@ -185,13 +191,14 @@ def generate_exam(library: Path, spec: ExamSpec, llm, model: str, num_ctx: int,
         chosen.sort()
         k = min(6, spec.n - len(questions) + 1)
         frags = "\n\n".join(f"[{j}] ({parts[i].title})\n{parts[i].text}" for j, i in enumerate(chosen, 1))
+        # i18n: nie – prompt
         prompt = PROMPT.format(
             k=k, types=", ".join(TYPES[t] for t in types), level=LEVELS.get(spec.level, LEVELS["medium"]),
             instructions=(f"Dodatkowe wskazówki studenta: {spec.instructions.strip()}\n" if spec.instructions.strip() else ""),
             exam_info=(("Informacje o egzaminie podane przez prowadzącego (uwzględnij je):\n- " + "\n- ".join(info[:15]) + "\n")
                        if spec.use_exam_info and info else ""),
             fragments=frags)
-        prog(f"Układam pytania… ({len(questions)}/{spec.n})", len(questions) / max(1, spec.n))
+        prog(tr("Układam pytania… ({n}/{n2})", n=len(questions), n2=spec.n), len(questions) / max(1, spec.n))
         raw = llm.chat(model, [{"role": "user", "content": prompt}], num_ctx=num_ctx, temperature=0.5,
                        json_mode=True, cancel=cancel)
         texts = [parts[i].title + "\n" + parts[i].text for i in chosen]
@@ -212,7 +219,7 @@ def generate_exam(library: Path, spec: ExamSpec, llm, model: str, num_ctx: int,
             if len(questions) >= spec.n:
                 break
     if not questions:
-        raise RuntimeError("Nie udało się ułożyć pytań potwierdzonych w notatkach. Spróbuj ponownie.")
+        raise RuntimeError(tr("Nie udało się ułożyć pytań potwierdzonych w notatkach. Spróbuj ponownie."))
     random.shuffle(questions)
     title = (spec.value if spec.scope == "subject" else lectures[0].meta.title)
     return {"id": time.strftime("%Y%m%d-%H%M%S"), "title": title, "scope": spec.scope, "value": spec.value,
@@ -220,6 +227,7 @@ def generate_exam(library: Path, spec: ExamSpec, llm, model: str, num_ctx: int,
             "results": []}
 
 
+# i18n: nie – prompt / treść notatki / styl
 GRADE_PROMPT = """Oceń odpowiedź studenta na pytanie otwarte, porównując ją ze wzorcem z notatek.
 
 PYTANIE: {q}
@@ -233,7 +241,7 @@ Zwróć wyłącznie JSON: {{"punkty": 0|1|2, "komentarz": "1–2 zdania: co dobr
 
 def grade_open(q: dict, answer: str, llm, model: str, num_ctx: int = 8192) -> tuple[int, str]:
     if not answer.strip():
-        return 0, "Brak odpowiedzi."
+        return 0, tr("Brak odpowiedzi.")
     raw = llm.chat(model, [{"role": "user", "content": GRADE_PROMPT.format(
         q=q["q"], ref=q.get("answer", ""), quote=q.get("quote", ""), ans=answer.strip())}],
         num_ctx=num_ctx, temperature=0.0, json_mode=True)

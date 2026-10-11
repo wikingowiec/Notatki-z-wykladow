@@ -11,15 +11,16 @@ import threading
 from typing import Callable, Optional
 
 from .storage import Lecture
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 MAX_SIDE = 1280
 
 _KIND_KEYS = ("rodzaj", "kind", "type", "typ")
 _DESC_KEYS = ("opis", "description", "desc", "text")
-_TEXT_KEYS = ("tekst", "text", "content", "tresc", "treść")
+_TEXT_KEYS = ("tekst", "text", "content", "tresc", "treść")  # i18n: nie
 _LIST_KEYS = ("elementy", "elements", "items", "obrazy", "images")
-_SKIP = re.compile(r"\b(logo|tło|background|dekoracj|decorat|watermark|znak wodny)\b", re.IGNORECASE)
+_SKIP = re.compile(r"\b(logo|tło|background|dekoracj|decorat|watermark|znak wodny)\b", re.IGNORECASE)  # i18n: nie
 
 
 def encode_image(path) -> Optional[str]:
@@ -96,7 +97,7 @@ def describe_slides(lecture: Lecture, llm, model: str, lang: str = "pl",
         if cancel is not None and cancel.is_set():
             break
         if progress:
-            progress(f"Opisywanie slajdów: {k}/{len(todo)}", (k - 1) / max(1, len(todo)))
+            progress(tr("Opisywanie slajdów: {k}/{n}", k=k, n=len(todo)), (k - 1) / max(1, len(todo)))
         path = lecture.folder / sl["file"]
         if not path.exists():
             continue

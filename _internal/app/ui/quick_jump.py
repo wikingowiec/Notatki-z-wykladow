@@ -10,20 +10,21 @@ from PySide6.QtWidgets import (QDialog, QFrame, QLineEdit, QListWidget, QListWid
 
 from .controls import label, paint_shadow
 from .theme import T, icon_pixmap, qcolor, soft, subject_color
+from ..i18n import tr
 
 DATA = Qt.ItemDataRole.UserRole + 1
 PAGES = [
-    ("Nowa notatka", "record", "plus", "nagranie albo pliki"),
-    ("Wszystkie wykłady", "library", "books", "biblioteka"),
-    ("Fiszki", "study", "cards", "nauka z powtórkami"),
-    ("Zapytaj", "ask", "question", "pytania do notatek"),
-    ("Egzamin próbny", "exam", "exam", "sprawdź się"),
-    ("Ustawienia", "settings", "settings", "motyw, modele, aktualizacje"),
+    (tr("Nowa notatka"), "record", "plus", tr("nagranie albo pliki")),
+    (tr("Wszystkie wykłady"), "library", "books", "biblioteka"),
+    (tr("Fiszki"), "study", "cards", tr("nauka z powtórkami")),
+    (tr("Zapytaj"), "ask", "question", tr("pytania do notatek")),
+    (tr("Egzamin próbny"), "exam", "exam", tr("sprawdź się")),
+    (tr("Ustawienia"), "settings", "settings", "motyw, modele, aktualizacje"),
 ]
 
 
 def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", (s or "").lower().replace("ł", "l"))
+    s = unicodedata.normalize("NFKD", (s or "").lower().replace("ł", "l"))  # i18n: nie
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
@@ -92,7 +93,7 @@ class QuickJump(QDialog):
         v.setSpacing(8)
         self.edit = QLineEdit()
         self.edit.setObjectName("askInput")
-        self.edit.setPlaceholderText("Szukaj wykładu, tematu albo ekranu…")
+        self.edit.setPlaceholderText(tr("Szukaj wykładu, tematu albo ekranu…"))
         self.edit.textChanged.connect(self._filter)
         self.edit.installEventFilter(self)
         self.list = QListWidget()
@@ -101,7 +102,7 @@ class QuickJump(QDialog):
         self.list.setMouseTracking(True)
         self.list.itemActivated.connect(self._accept)
         self.list.itemClicked.connect(self._accept)
-        self.hint = label("↑ ↓ wybór · Enter otwórz · Esc zamknij", "caption")
+        self.hint = label(tr("↑ ↓ wybór · Enter otwórz · Esc zamknij"), "caption")
         v.addWidget(self.edit)
         v.addWidget(self.list, 1)
         v.addWidget(self.hint)
@@ -115,21 +116,21 @@ class QuickJump(QDialog):
     def _index(self) -> list[dict]:
         from ..storage import list_lectures
         from ..topics import sections_of
-        out = [{"kind": "page", "a": key, "b": "", "title": name, "sub": sub, "icon": icon, "tag": "Ekran"}
+        out = [{"kind": "page", "a": key, "b": "", "title": name, "sub": sub, "icon": icon, "tag": tr("Ekran")}
                for name, key, icon, sub in PAGES]
         for lec in list_lectures(self.settings.library_path()):
             m = lec.meta
             col = subject_color(m.subject) if m.subject else T().accent
             date = ".".join(reversed((m.created or "")[:10].split("-"))) if m.created else ""
             out.append({"kind": "lecture", "a": str(lec.folder), "b": "", "title": m.title, "icon": "doc",
-                        "sub": " · ".join(x for x in (m.subject, date) if x), "tag": "Wykład", "color": col})
+                        "sub": " · ".join(x for x in (m.subject, date) if x), "tag": tr("Wykład"), "color": col})
             try:
                 md = lec.read_text(lec.notes_path) if lec.notes_path.exists() else ""
             except Exception:  # noqa: BLE001
                 md = ""
             for num, title, anchor, tm in sections_of(md):
                 out.append({"kind": "lecture", "a": str(lec.folder), "b": anchor, "title": f"{num}. {title}",
-                            "icon": "list", "sub": m.title + (f" · {tm}" if tm else ""), "tag": "Temat",
+                            "icon": "list", "sub": m.title + (f" · {tm}" if tm else ""), "tag": tr("Temat"),
                             "color": col, "topic": True})
         for d in out:
             d["key"] = _norm(d["title"] + " " + d["sub"])
@@ -153,8 +154,8 @@ class QuickJump(QDialog):
             self.list.addItem(it)
         if self.list.count():
             self.list.setCurrentRow(0)
-        self.hint.setText("Nic nie pasuje – spróbuj innego słowa." if not self.list.count() else
-                          "↑ ↓ wybór · Enter otwórz · Esc zamknij")
+        self.hint.setText(tr("Nic nie pasuje – spróbuj innego słowa.") if not self.list.count() else
+                          tr("↑ ↓ wybór · Enter otwórz · Esc zamknij"))
 
     # ------------------------------------------------------------------ klawiatura
     def eventFilter(self, obj, e):

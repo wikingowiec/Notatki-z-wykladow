@@ -7,6 +7,9 @@
  *    „embeddable” z python.org), pip i bibliotekę okienek (PySide6). Dalszą część instalacji (biblioteki,
  *    modele AI) pokazuje już ekran z notesem w samej aplikacji.
  *  - „Wykłady.exe --debug” uruchamia aplikację z konsolą (do diagnozy).
+ *  - Teksty po polsku albo po angielsku – jak interfejs aplikacji (detect_english).
+ *  - Wersja z Microsoft Store (paczka MSIX „SlideScribe”, folder instalacji tylko do odczytu): Python i biblioteki
+ *    w %LOCALAPPDATA%\WykladyAI\runtime, pliki .pyc w runtime\pycache, nazwa w okienkach „SlideScribe”.
  *
  * Kompilacja (dowolny system, przez zig):
  *   python -m ziglang cc -target x86_64-windows-gnu -municode -Os launcher.c launcher.rc -o Wykłady.exe
@@ -34,7 +37,7 @@ static wchar_t g_dir[MAX_PATH], g_internal[MAX_PATH], g_runtime[MAX_PATH], g_pyd
 static wchar_t g_pyw[MAX_PATH], g_py[MAX_PATH], g_main[MAX_PATH], g_ok[MAX_PATH], g_dl[MAX_PATH];
 static HWND g_hwnd;
 static volatile double g_progress = 0.0, g_target = 0.0;
-static wchar_t g_status[512] = L"Przygotowuję…";
+static wchar_t g_status[512] = L"";
 static wchar_t g_error[1024] = L"";
 static volatile int g_mode = 0;            /* 0 = instalacja, 1 = otwieranie */
 static HANDLE g_child = NULL;
@@ -44,6 +47,10 @@ static HICON g_icon;
 static int g_dpi = 96;
 static volatile LONG g_cancel = 0;
 static HANDLE g_proc_running = NULL;
+static BOOL g_store = FALSE;               /* działa z paczki MSIX (Microsoft Store) */
+static BOOL g_en = FALSE;                  /* teksty po angielsku (ustawienie aplikacji albo język Windowsa) */
+#define TR(pl, en) (g_en ? (en) : (pl))
+static const wchar_t *g_name = L"Wykłady";
 
 static int S(int v) { return MulDiv(v, g_dpi, 96); }
 
@@ -57,11 +64,11 @@ static void set_status(const wchar_t *s) {
 /* ------------------------------------------------------------------ pobieranie (WinINet) */
 static BOOL download(const wchar_t *url, const wchar_t *dest, double p0, double p1, const wchar_t *label) {
     HINTERNET net = InternetOpenW(L"Wyklady", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
-    if (!net) { swprintf(g_error, 1024, L"Brak dostępu do internetu (%lu).", GetLastError()); return FALSE; }
+    if (!net) { swprintf(g_error, 1024, TR(L"Brak dostępu do internetu (%lu).", L"No internet access (%lu)."), GetLastError()); return FALSE; }
     HINTERNET h = InternetOpenUrlW(net, url, NULL, 0,
                                    INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_SECURE, 0);
     if (!h) {
-        swprintf(g_error, 1024, L"Nie udało się połączyć z serwerem (%lu).\nSprawdź połączenie z internetem.", GetLastError());
+        swprintf(g_error, 1024, TR(L"Nie udało się połączyć z serwerem (%lu).\nSprawdź połączenie z internetem.", L"Couldn't connect to the server (%lu).\nCheck your internet connection."), GetLastError());
         InternetCloseHandle(net);
         return FALSE;
     }
@@ -69,7 +76,7 @@ static BOOL download(const wchar_t *url, const wchar_t *dest, double p0, double 
     HttpQueryInfoW(h, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER, &total, &sz, &idx);
     HANDLE f = CreateFileW(dest, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f == INVALID_HANDLE_VALUE) {
-        swprintf(g_error, 1024, L"Nie można zapisać pliku w folderze aplikacji (%lu).", GetLastError());
+        swprintf(g_error, 1024, TR(L"Nie można zapisać pliku w folderze aplikacji (%lu).", L"Couldn't save a file in the app folder (%lu)."), GetLastError());
         InternetCloseHandle(h); InternetCloseHandle(net);
         return FALSE;
     }
@@ -83,7 +90,7 @@ static BOOL download(const wchar_t *url, const wchar_t *dest, double p0, double 
         if (total) {
             g_target = g_progress = p0 + (p1 - p0) * ((double)done / total);
             wchar_t s[256];
-            swprintf(s, 256, L"%ls · %.1f z %.1f MB", label, done / 1e6, total / 1e6);
+            swprintf(s, 256, TR(L"%ls · %.1f z %.1f MB", L"%ls · %.1f of %.1f MB"), label, done / 1e6, total / 1e6);
             set_status(s);
         }
     }
@@ -91,7 +98,7 @@ static BOOL download(const wchar_t *url, const wchar_t *dest, double p0, double 
     InternetCloseHandle(h);
     InternetCloseHandle(net);
     if (ok && done < 1000) { ok = FALSE; }
-    if (!ok && !g_error[0]) lstrcpyW(g_error, L"Pobieranie zostało przerwane. Sprawdź połączenie z internetem.");
+    if (!ok && !g_error[0]) lstrcpyW(g_error, TR(L"Pobieranie zostało przerwane. Sprawdź połączenie z internetem.", L"The download was interrupted. Check your internet connection."));
     return ok;
 }
 
@@ -103,7 +110,7 @@ static BOOL run_hidden(const wchar_t *cmdline, double p_end, const wchar_t *what
     lstrcpynW(cmd, cmdline, 4096);
     g_target = p_end;
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, g_runtime, &si, &pi)) {
-        swprintf(g_error, 1024, L"%ls – nie udało się uruchomić (%lu).", what, GetLastError());
+        swprintf(g_error, 1024, TR(L"%ls – nie udało się uruchomić (%lu).", L"%ls – couldn't start (%lu)."), what, GetLastError());
         return FALSE;
     }
     g_proc_running = pi.hProcess;
@@ -115,7 +122,7 @@ static BOOL run_hidden(const wchar_t *cmdline, double p_end, const wchar_t *what
     CloseHandle(pi.hProcess);
     if (g_cancel) return FALSE;
     if (code != 0) {
-        swprintf(g_error, 1024, L"%ls – błąd (kod %lu).\nSprawdź połączenie z internetem i uruchom ponownie.", what, code);
+        swprintf(g_error, 1024, TR(L"%ls – błąd (kod %lu).\nSprawdź połączenie z internetem i uruchom ponownie.", L"%ls – error (code %lu).\nCheck your internet connection and start again."), what, code);
         return FALSE;
     }
     g_progress = p_end;
@@ -127,7 +134,7 @@ static BOOL write_pth(void) {
     wchar_t pat[MAX_PATH], path[MAX_PATH];
     swprintf(pat, MAX_PATH, L"%ls\\python*._pth", g_pydir);
     HANDLE fh = FindFirstFileW(pat, &fd);
-    if (fh == INVALID_HANDLE_VALUE) { lstrcpyW(g_error, L"Nie znaleziono pliku ._pth w pobranym Pythonie."); return FALSE; }
+    if (fh == INVALID_HANDLE_VALUE) { lstrcpyW(g_error, TR(L"Nie znaleziono pliku ._pth w pobranym Pythonie.", L"No ._pth file found in the downloaded Python.")); return FALSE; }
     FindClose(fh);
     swprintf(path, MAX_PATH, L"%ls\\%ls", g_pydir, fd.cFileName);
     /* nazwa archiwum biblioteki standardowej: python312._pth -> python312.zip */
@@ -138,7 +145,7 @@ static BOOL write_pth(void) {
     char content[512];
     snprintf(content, sizeof(content), "%s\r\n.\r\nLib\\site-packages\r\n..\\..\r\nimport site\r\n", zipname);
     HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (f == INVALID_HANDLE_VALUE) { lstrcpyW(g_error, L"Nie można zapisać ustawień Pythona."); return FALSE; }
+    if (f == INVALID_HANDLE_VALUE) { lstrcpyW(g_error, TR(L"Nie można zapisać ustawień Pythona.", L"Couldn't save the Python settings.")); return FALSE; }
     DWORD wr;
     WriteFile(f, content, (DWORD)strlen(content), &wr, NULL);
     CloseHandle(f);
@@ -164,15 +171,15 @@ static DWORD WINAPI stage1(LPVOID arg) {
     GetSystemDirectoryW(sys32, MAX_PATH);
     do {
         if (!exists(g_py)) {
-            set_status(L"Pobieram Pythona");
-            if (!download(PY_URL, zip, 0.02, 0.24, L"Pobieram Pythona")) break;
-            set_status(L"Rozpakowuję…");
+            set_status(TR(L"Pobieram Pythona", L"Downloading Python"));
+            if (!download(PY_URL, zip, 0.02, 0.24, TR(L"Pobieram Pythona", L"Downloading Python"))) break;
+            set_status(TR(L"Rozpakowuję…", L"Unpacking…"));
             swprintf(cmd, 4096, L"\"%ls\\tar.exe\" -xf \"%ls\" -C \"%ls\"", sys32, zip, g_pydir);
-            if (!run_hidden(cmd, 0.28, L"Rozpakowywanie")) {
+            if (!run_hidden(cmd, 0.28, TR(L"Rozpakowywanie", L"Unpacking"))) {
                 g_error[0] = 0;       /* starszy Windows bez tar.exe – PowerShell */
                 swprintf(cmd, 4096, L"powershell -NoProfile -WindowStyle Hidden -Command \"Expand-Archive -Force "
                          L"-LiteralPath '%ls' -DestinationPath '%ls'\"", zip, g_pydir);
-                if (!run_hidden(cmd, 0.28, L"Rozpakowywanie")) break;
+                if (!run_hidden(cmd, 0.28, TR(L"Rozpakowywanie", L"Unpacking"))) break;
             }
         }
         if (!write_pth()) break;
@@ -184,25 +191,61 @@ static DWORD WINAPI stage1(LPVOID arg) {
                 CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
             }
             if (code != 0) {
-                if (!download(PIP_URL, getpip, 0.28, 0.32, L"Pobieram instalator pakietów")) break;
-                set_status(L"Instaluję menedżer pakietów (pip)…");
+                if (!download(PIP_URL, getpip, 0.28, 0.32, TR(L"Pobieram instalator pakietów", L"Downloading the package installer"))) break;
+                set_status(TR(L"Instaluję menedżer pakietów (pip)…", L"Installing the package manager (pip)…"));
                 swprintf(cmd, 4096, L"\"%ls\" \"%ls\" --no-warn-script-location --disable-pip-version-check", g_py, getpip);
-                if (!run_hidden(cmd, 0.45, L"Instalacja pip")) break;
+                if (!run_hidden(cmd, 0.45, TR(L"Instalacja pip", L"Installing pip"))) break;
             }
         }
-        set_status(L"Pobieram bibliotekę okien (PySide6, ok. 80 MB)…");
+        set_status(TR(L"Pobieram bibliotekę okien (PySide6, ok. 80 MB)…", L"Downloading the window library (PySide6, about 80 MB)…"));
         swprintf(cmd, 4096, L"\"%ls\" -m pip install --no-warn-script-location --disable-pip-version-check "
                  L"PySide6-Essentials", g_py);
-        if (!run_hidden(cmd, 0.97, L"Instalacja PySide6")) break;
+        if (!run_hidden(cmd, 0.97, TR(L"Instalacja PySide6", L"Installing PySide6"))) break;
         HANDLE f = CreateFileW(g_ok, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
         rmtree_dl();
         g_target = g_progress = 1.0;
-        set_status(L"Gotowe – otwieram aplikację…");
+        set_status(TR(L"Gotowe – otwieram aplikację…", L"Done – opening the app…"));
         ok = TRUE;
     } while (0);
     PostMessageW(g_hwnd, WM_STAGE_DONE, ok, 0);
     return 0;
+}
+
+/* ------------------------------------------------------------------ język okienek */
+/* Ustawienia → Ogólne → „Język aplikacji” (settings.json: "ui_language": "pl" / "en"), a przy „jak system”
+   i przy pierwszym uruchomieniu – język Windowsa (polski → polski, każdy inny → angielski), jak app/i18n.py. */
+static BOOL detect_english(void) {
+    static char buf[1 << 16];
+    wchar_t path[MAX_PATH];
+    DWORD rd = 0;
+    if (GetEnvironmentVariableW(L"APPDATA", path, MAX_PATH - 40)) {
+        lstrcatW(path, L"\\WykladyAI\\settings.json");
+        HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        if (f != INVALID_HANDLE_VALUE) {
+            ReadFile(f, buf, sizeof(buf) - 1, &rd, NULL);
+            CloseHandle(f);
+            buf[rd] = 0;
+            if (strstr(buf, "\"ui_language\": \"en\"")) return TRUE;
+            if (strstr(buf, "\"ui_language\": \"pl\"")) return FALSE;
+        }
+    }
+    return PRIMARYLANGID(LANGIDFROMLCID(GetUserDefaultLCID())) != LANG_POLISH;   /* jak QLocale.system() */
+}
+
+/* ------------------------------------------------------------------ paczka MSIX (Microsoft Store) */
+static BOOL running_from_store(void) {
+    typedef LONG(WINAPI * GetPkg)(UINT32 *, PWSTR);
+    GetPkg f = (GetPkg)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetCurrentPackageFullName");
+    if (f) {
+        wchar_t name[256];
+        UINT32 n = 256;
+        if (f(&n, name) == ERROR_SUCCESS && wcsncmp(name, L"Wikingowiec.SlideScribe_", 24) == 0) return TRUE;
+    }
+    wchar_t low[MAX_PATH];
+    lstrcpynW(low, g_dir, MAX_PATH);
+    CharLowerW(low);
+    return wcsstr(low, L"\\windowsapps\\") != NULL;
 }
 
 /* ------------------------------------------------------------------ uruchomienie aplikacji */
@@ -214,8 +257,8 @@ static BOOL launch_app(BOOL debug, const wchar_t *extra) {
     AllowSetForegroundWindow(ASFW_ANY);
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, debug ? CREATE_NEW_CONSOLE : 0, NULL, g_internal, &si, &pi)) {
         wchar_t msg[1024];
-        swprintf(msg, 1024, L"Nie udało się uruchomić aplikacji (%lu).\n\n%ls", GetLastError(), cmd);
-        MessageBoxW(NULL, msg, L"Wykłady", MB_ICONERROR);
+        swprintf(msg, 1024, TR(L"Nie udało się uruchomić aplikacji (%lu).\n\n%ls", L"Couldn't start the app (%lu).\n\n%ls"), GetLastError(), cmd);
+        MessageBoxW(NULL, msg, g_name, MB_ICONERROR);
         return FALSE;
     }
     g_child = pi.hProcess;
@@ -268,11 +311,11 @@ static void paint(HWND w) {
     SelectObject(dc, g_ftitle);
     SetTextColor(dc, ink);
     RECT t = { pad + S(52), pad - S(4), rc.right - pad, pad + S(30) };
-    DrawTextW(dc, L"Wykłady", -1, &t, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    DrawTextW(dc, g_name, -1, &t, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     SelectObject(dc, g_ftext);
     SetTextColor(dc, ink2);
     RECT t2 = { pad + S(52), pad + S(26), rc.right - pad, pad + S(48) };
-    DrawTextW(dc, g_mode ? L"Otwieranie…" : L"Pierwsze uruchomienie – przygotowuję aplikację", -1, &t2,
+    DrawTextW(dc, g_mode ? TR(L"Otwieranie…", L"Opening…") : TR(L"Pierwsze uruchomienie – przygotowuję aplikację", L"First launch – getting the app ready"), -1, &t2,
               DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     /* zamknij */
     if (!g_mode) {
@@ -299,7 +342,7 @@ static void paint(HWND w) {
         SelectObject(dc, g_fsmall);
         SetTextColor(dc, ink2);
         RECT h = { pad, rc.bottom - S(38), rc.right - pad, rc.bottom - S(14) };
-        DrawTextW(dc, L"Potem otworzy się ekran instalacji bibliotek i modeli AI.", -1, &h,
+        DrawTextW(dc, TR(L"Potem otworzy się ekran instalacji bibliotek i modeli AI.", L"Next, a screen for installing libraries and AI models will open."), -1, &h,
                   DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
     } else {
         /* otwieranie: trzy kropki */
@@ -339,8 +382,8 @@ static LRESULT CALLBACK wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         return hit;
     }
     case WM_LBUTTONUP:
-        if (!g_mode && MessageBoxW(w, L"Przerwać przygotowanie aplikacji? Dokończy się przy następnym uruchomieniu.",
-                                   L"Wykłady", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+        if (!g_mode && MessageBoxW(w, TR(L"Przerwać przygotowanie aplikacji? Dokończy się przy następnym uruchomieniu.", L"Stop preparing the app? It will continue next time."),
+                                   g_name, MB_YESNO | MB_ICONQUESTION) == IDYES) {
             InterlockedExchange(&g_cancel, 1);
             if (g_proc_running) TerminateProcess(g_proc_running, 1);
             ExitProcess(1);
@@ -352,9 +395,11 @@ static LRESULT CALLBACK wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
             else DestroyWindow(w);
         } else if (!g_cancel) {
             wchar_t msg[1400];
-            swprintf(msg, 1400, L"Nie udało się przygotować aplikacji.\n\n%ls\n\nUruchom Wykłady ponownie – "
-                     L"przygotowanie zacznie się od miejsca, w którym przerwało.", g_error);
-            MessageBoxW(w, msg, L"Wykłady", MB_ICONWARNING);
+            swprintf(msg, 1400, TR(L"Nie udało się przygotować aplikacji.\n\n%ls\n\nUruchom %ls ponownie – "
+                                L"przygotowanie zacznie się od miejsca, w którym przerwało.",
+                                L"Couldn't prepare the app.\n\n%ls\n\nStart %ls again – setup will continue "
+                                L"where it stopped."), g_error, g_name);
+            MessageBoxW(w, msg, g_name, MB_ICONWARNING);
             DestroyWindow(w);
         }
         return 0;
@@ -398,7 +443,7 @@ static void make_window(HINSTANCE inst, int mode) {
     RECT wa;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
     int x = wa.left + (wa.right - wa.left - ww) / 2, y = wa.top + (wa.bottom - wa.top - wh) / 2;
-    g_hwnd = CreateWindowExW(mode ? WS_EX_TOOLWINDOW : 0, wc.lpszClassName, L"Wykłady", WS_POPUP, x, y, ww, wh,
+    g_hwnd = CreateWindowExW(mode ? WS_EX_TOOLWINDOW : 0, wc.lpszClassName, g_name, WS_POPUP, x, y, ww, wh,
                              NULL, NULL, inst, NULL);
     int corner = 2;                  /* DWMWCP_ROUND (Windows 11) */
     DwmSetWindowAttribute(g_hwnd, 33, &corner, sizeof(corner));
@@ -425,6 +470,20 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show) {
     if (slash) *slash = 0;
     swprintf(g_internal, MAX_PATH, L"%ls\\_internal", g_dir);
     swprintf(g_runtime, MAX_PATH, L"%ls\\runtime", g_internal);
+    g_store = running_from_store();
+    if (g_store) {           /* folder paczki jest tylko do odczytu – wszystko, co się zapisuje, w %LOCALAPPDATA% */
+        wchar_t local[MAX_PATH] = L"", base[MAX_PATH], pyc[MAX_PATH];
+        if (!GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) {
+            GetEnvironmentVariableW(L"USERPROFILE", local, MAX_PATH);
+            lstrcatW(local, L"\\AppData\\Local");
+        }
+        swprintf(base, MAX_PATH, L"%ls\\WykladyAI", local);
+        CreateDirectoryW(base, NULL);
+        swprintf(g_runtime, MAX_PATH, L"%ls\\runtime", base);
+        swprintf(pyc, MAX_PATH, L"%ls\\pycache", g_runtime);
+        SetEnvironmentVariableW(L"PYTHONPYCACHEPREFIX", pyc);     /* dziedziczy pythonw.exe */
+        g_name = L"SlideScribe";
+    }
     swprintf(g_pydir, MAX_PATH, L"%ls\\python", g_runtime);
     swprintf(g_pyw, MAX_PATH, L"%ls\\pythonw.exe", g_pydir);
     swprintf(g_py, MAX_PATH, L"%ls\\python.exe", g_pydir);
@@ -432,9 +491,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show) {
     swprintf(g_ok, MAX_PATH, L"%ls\\stage1.ok", g_runtime);
     swprintf(g_dl, MAX_PATH, L"%ls\\pobrane", g_runtime);
 
+    g_en = detect_english();
+    lstrcpyW(g_status, TR(L"Przygotowuję…", L"Preparing…"));
+
     if (!exists(g_main)) {
-        MessageBoxW(NULL, L"Brakuje plików aplikacji (folder _internal).\n\nRozpakuj całe archiwum z aplikacją "
-                    L"i uruchom Wykłady.exe z rozpakowanego folderu.", L"Wykłady", MB_ICONERROR);
+        MessageBoxW(NULL, TR(L"Brakuje plików aplikacji (folder _internal).\n\nRozpakuj całe archiwum z aplikacją "
+                             L"i uruchom Wykłady.exe z rozpakowanego folderu.",
+                             L"App files are missing (the _internal folder).\n\nExtract the whole app archive "
+                             L"and run Wykłady.exe from the extracted folder."), g_name, MB_ICONERROR);
         return 1;
     }
     BOOL debug = cmdline && wcsstr(cmdline, L"--debug") != NULL;

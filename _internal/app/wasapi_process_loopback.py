@@ -19,6 +19,7 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 import comtypes  # noqa: E402
+from .i18n import tr
 from comtypes import COMMETHOD, COMObject, GUID, HRESULT, IUnknown  # noqa: E402
 
 VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK = "VAD\\Process_Loopback"
@@ -157,11 +158,11 @@ def _activate(pid: int) -> POINTER(IAudioClient):
     iid = IAudioClient._iid_
     fn(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, byref(iid), byref(pv), handler_ptr, byref(op))
     if not handler.done.wait(10):
-        raise RuntimeError("Przekroczono czas aktywacji przechwytywania dźwięku procesu")
+        raise RuntimeError(tr("Przekroczono czas aktywacji przechwytywania dźwięku procesu"))
     hr, unk = op.GetActivateResult()
     if hr < 0:
-        raise OSError(f"Aktywacja przechwytywania nie powiodła się (HRESULT 0x{hr & 0xFFFFFFFF:08X}). "
-                      "Wymagany Windows 10 w wersji 2004 lub nowszej.")
+        raise OSError(tr("Aktywacja przechwytywania nie powiodła się (HRESULT 0x{x:08X}). Wymagany Windows 10 w "
+                         "wersji 2004 lub nowszej.", x=hr & 0xFFFFFFFF))
     return unk.QueryInterface(IAudioClient)
 
 
@@ -215,7 +216,7 @@ class NativeProcessLoopback:
                     last_exc = e
                     client = _activate(self.pid)
             if fmt is None:
-                raise OSError(f"Nie udało się zainicjalizować przechwytywania: {last_exc}")
+                raise OSError(tr("Nie udało się zainicjalizować przechwytywania: {last_exc}", last_exc=last_exc))
             self.sample_rate = fmt.nSamplesPerSec
             event = kernel32.CreateEventW(None, False, False, None)
             client.SetEventHandle(event)

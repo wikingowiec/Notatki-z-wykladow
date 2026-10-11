@@ -2,6 +2,7 @@
 Nowe w wersji 2.2.0.
 
 Windows: Wykłady.exe + _internal, Python i biblioteki w _internal/runtime, ustawienia w %APPDATA%/WykladyAI.
+         Wersja z Microsoft Store (SlideScribe, paczka MSIX): Python i biblioteki w %LOCALAPPDATA%/WykladyAI/runtime.
 macOS:   Wykłady.app/Contents/Resources/_internal, Python i biblioteki w ~/Library/Application Support/WykladyAI/runtime
          (paczka aplikacji zostaje mała i da się ją podmienić przy aktualizacji), ustawienia w tym samym folderze.
 
@@ -37,6 +38,53 @@ LIVE_RECORDING = IS_WIN or (IS_MAC and mac_version() >= MAC_LIVE_MIN)
 
 INTERNAL = Path(__file__).resolve().parents[1]          # folder _internal
 
+STORE_ID = "9MWK9Z8V2V7W"                                # SlideScribe w Microsoft Store
+STORE_PACKAGE = "Wikingowiec.SlideScribe"                # Package/Identity/Name z Partner Center
+
+
+def _msix_package() -> str:
+    """Pełna nazwa paczki MSIX SlideScribe, z której działa proces („” = zwykła wersja z GitHuba). Proces potomny
+    (pythonw uruchomiony przez program startowy z paczki) dziedziczy tożsamość paczki. Inne paczki (np. Python
+    z Microsoft Store u programisty) się nie liczą."""
+    if not IS_WIN:
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        n = wintypes.UINT(0)
+        k32 = ctypes.windll.kernel32
+        if k32.GetCurrentPackageFullName(ctypes.byref(n), None) == 122:     # ERROR_INSUFFICIENT_BUFFER = jest paczka
+            buf = ctypes.create_unicode_buffer(n.value)
+            if k32.GetCurrentPackageFullName(ctypes.byref(n), buf) == 0 and buf.value.startswith(STORE_PACKAGE + "_"):
+                return buf.value
+    except Exception:  # noqa: BLE001 – starszy Windows bez API paczek
+        pass
+    return "msix" if "\\windowsapps\\" in str(INTERNAL).lower() else ""
+
+
+# wersja z Microsoft Store (paczka MSIX): folder instalacji tylko do odczytu, Python i biblioteki w
+# %LOCALAPPDATA%\WykladyAI\runtime, aktualizacje przez Store, nazwa „SlideScribe”
+IS_STORE = bool(_msix_package())
+APP_DISPLAY_NAME = "SlideScribe" if IS_STORE else "Wykłady"  # i18n: nie
+
+
+def package_family() -> str:
+    """Rodzina paczki MSIX (Wikingowiec.SlideScribe_…) albo „”."""
+    if not IS_STORE:
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        n = wintypes.UINT(0)
+        k32 = ctypes.windll.kernel32
+        if k32.GetCurrentPackageFamilyName(ctypes.byref(n), None) == 122:
+            buf = ctypes.create_unicode_buffer(n.value)
+            if k32.GetCurrentPackageFamilyName(ctypes.byref(n), buf) == 0:
+                return buf.value
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
 
 def data_dir() -> Path:
     """Ustawienia, log (i na Macu runtime): %APPDATA%/WykladyAI albo ~/Library/Application Support/WykladyAI."""
@@ -53,6 +101,9 @@ def runtime_dir() -> Path:
     """Wbudowany Python z bibliotekami (tworzony przy pierwszym uruchomieniu)."""
     if IS_MAC:
         return Path.home() / "Library" / "Application Support" / APP_ID / "runtime"
+    if IS_STORE:        # tak samo liczy to program startowy (launcher.c)
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / APP_ID / "runtime"
     return INTERNAL / "runtime"
 
 

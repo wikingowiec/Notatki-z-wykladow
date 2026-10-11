@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ _SYSTEM_EXES = {
     "searchapp.exe", "startmenuexperiencehost.exe", "shellexperiencehost.exe", "applicationframehost.exe",
     "systemsettings.exe", "lockapp.exe", "smartscreen.exe", "securityhealthsystray.exe", "rtkauduservice64.exe",
     "nvcontainer.exe", "nvidia share.exe", "widgets.exe", "phoneexperiencehost.exe", "gamebar.exe",
-    "wykłady.exe",
+    "wykłady.exe",  # i18n: nie
 }
 # wirtualne urządzenia (Steam, kable audio) – schowane pod „Pokaż wszystkie”
 _VIRTUAL_DEVICES = ("steam streaming", "vb-audio", "cable output", "voicemeeter", "virtual")
@@ -203,7 +204,7 @@ def list_audio_sources() -> list[AudioSourceInfo]:
     for root, a in sorted(apps.items(), key=lambda x: _pretty(x[1]["exe"]).lower()):
         on = a["peak"] >= PLAYING
         where = ", ".join(_clean_device(d) for d in a["devs"])
-        detail = ("gra teraz" if on else "teraz cisza") + (f" · {where}" if where else "")
+        detail = (tr("gra teraz") if on else tr("teraz cisza")) + (f" · {where}" if where else "")
         if exe_count[a["exe"].lower()] > 1:           # dwa osobne okna tej samej aplikacji
             detail += f" · PID {root}"
         info = AudioSourceInfo("process", _pretty(a["exe"]), pid=root, exe=a["exe"], active=on,
@@ -224,7 +225,7 @@ def list_audio_sources() -> list[AudioSourceInfo]:
                 continue
             seen_exes.add(exe.lower())
             windows.append(AudioSourceInfo("process", _pretty(exe), pid=root, exe=exe,
-                                           detail="jeszcze nic nie grała", hidden=True))
+                                           detail=tr("jeszcze nic nie grała"), hidden=True))
     except Exception:
         log.exception("okna")
     windows.sort(key=lambda s: s.label.lower())
@@ -236,8 +237,8 @@ def list_audio_sources() -> list[AudioSourceInfo]:
         sys_on = max(_peak(meter) for _ in range(3)) >= PLAYING
     except Exception:
         out_name, sys_on = "", False
-    devices.append(AudioSourceInfo("system", "Cały dźwięk systemowy", active=sys_on,
-                                   detail="wszystko, co słychać" + (f" · {_clean_device(out_name)}" if out_name else "")))
+    devices.append(AudioSourceInfo("system", tr("Cały dźwięk systemowy"), active=sys_on,
+                                   detail=tr("wszystko, co słychać") + (f" · {_clean_device(out_name)}" if out_name else "")))
     try:
         import pyaudiowpatch as pyaudio
         p = pyaudio.PyAudio()
@@ -253,14 +254,14 @@ def list_audio_sources() -> list[AudioSourceInfo]:
                 virtual = any(v in d["name"].lower() for v in _VIRTUAL_DEVICES)
                 dup = name.lower() in seen_mics
                 seen_mics.add(name.lower())
-                detail = "domyślny" if i == default_in else ("urządzenie wirtualne" if virtual else "")
-                devices.append(AudioSourceInfo("mic", f"Mikrofon: {name}", device_index=i, detail=detail,
+                detail = tr("domyślny") if i == default_in else (tr("urządzenie wirtualne") if virtual else "")
+                devices.append(AudioSourceInfo("mic", tr("Mikrofon: {name}", name=name), device_index=i, detail=detail,
                                                hidden=(virtual or dup) and i != default_in))
         finally:
             p.terminate()
     except Exception:
         log.exception("mikrofony")
-    devices.sort(key=lambda s: (s.kind != "system", s.hidden, s.detail != "domyślny"))
+    devices.sort(key=lambda s: (s.kind != "system", s.hidden, s.detail != tr("domyślny")))
     return playing + devices + idle + windows
 
 
@@ -486,7 +487,7 @@ class _PyAudioSource:
         self.dev = dev
         self.channels = max(1, int(dev["maxInputChannels"]))
         self.rate = int(dev["defaultSampleRate"])
-        self.name = f"WASAPI: {dev['name']}"
+        self.name = tr("WASAPI: {x}", x=dev['name'])
         self.stream = None
 
     def _callback(self, in_data, frame_count, time_info, status):
@@ -524,8 +525,8 @@ def open_source(info: AudioSourceInfo, cb, backend: str = "auto"):
             except Exception as e:  # noqa: BLE001
                 log.exception("backend %s", name)
                 errors.append(f"{name}: {e}")
-        raise RuntimeError("Nie udało się przechwycić dźwięku aplikacji.\n" + "\n".join(errors) +
-                           "\n\nSpróbuj opcji „Cały dźwięk systemowy”.")
+        raise RuntimeError(tr("Nie udało się przechwycić dźwięku aplikacji.\n") + "\n".join(errors) +
+                           tr("\n\nSpróbuj opcji „Cały dźwięk systemowy”."))
     src = _PyAudioSource(cb, loopback=(info.kind == "system"), device_index=info.device_index)
     src.start()
     return src

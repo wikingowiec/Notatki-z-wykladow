@@ -19,6 +19,7 @@ import json
 import os
 import re
 import threading
+from .i18n import tr
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from typing import Optional
 def safe_name(text: str, max_len: int = 60) -> str:
     text = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", text).strip().strip(".")
     text = re.sub(r"\s+", " ", text)
-    return text[:max_len].strip() or "Wykład"
+    return text[:max_len].strip() or "Wykład"  # i18n: nie
 
 
 def fmt_time(seconds: float) -> str:
@@ -58,10 +59,10 @@ class LectureMeta:
 
 
 MARK_KINDS = {
-    "important": "Ważne",
-    "exam": "Na egzamin",
-    "interesting": "Ciekawe",
-    "unclear": "Niejasne",
+    "important": tr("Ważne"),
+    "exam": tr("Na egzamin"),
+    "interesting": tr("Ciekawe"),
+    "unclear": tr("Niejasne"),
 }
 
 
@@ -76,7 +77,7 @@ class Lecture:
     @classmethod
     def create(cls, library: Path, title: str, subject: str) -> "Lecture":
         now = datetime.now()
-        title = title.strip() or f"Wykład {now:%d.%m.%Y %H:%M}"
+        title = title.strip() or tr("Wykład {now:%d.%m.%Y %H:%M}", now=now)
         name = f"{now:%Y-%m-%d_%H-%M} {safe_name(title)}"
         folder = Path(library) / name
         i = 2

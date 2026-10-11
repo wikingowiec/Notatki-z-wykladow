@@ -430,6 +430,7 @@ def build_qss(t: Tokens) -> str:
                   f'stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/></g></svg>')
     lens_css = (f"background-image: url({lens}); background-repeat: no-repeat; background-position: left center; "
                 f"background-origin: border;") if lens else ""
+    # i18n: nie – arkusz stylów
     return f"""
 * {{ font-family: {FONT}; font-size: {pt('body')}; color: {t.text}; outline: none; }}
 QMainWindow, QDialog {{ background: {t.window}; }}

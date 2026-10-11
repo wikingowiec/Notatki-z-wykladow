@@ -11,8 +11,9 @@ from PySide6.QtWidgets import QGridLayout, QPushButton, QWidget
 
 from ..storage import fmt_time
 from .theme import T, qcolor
+from ..i18n import tr
 
-KINDS = [("def", "Definicje"), ("wz", "Wzory"), ("prz", "Przykłady"), ("waz", "Ważne")]
+KINDS = [("def", tr("Definicje")), ("wz", tr("Wzory")), ("prz", tr("Przykłady")), ("waz", tr("Ważne"))]
 
 
 def anchor_positions(reader) -> dict[str, float]:
@@ -68,7 +69,7 @@ class JumpButtons(QWidget):
             b = self.buttons[k]
             b.setText(f"{name} {n}" if n else name)
             b.setEnabled(bool(n))
-            b.setToolTip(f"Następna ramka: {name.lower()}" if n else f"W tej notatce nie ma: {name.lower()}")
+            b.setToolTip(tr("Następna ramka: {lower}", lower=name.lower()) if n else tr("W tej notatce nie ma: {lower}", lower=name.lower()))
 
 
 class LectureTimeline(QWidget):

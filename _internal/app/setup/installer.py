@@ -24,7 +24,8 @@ from PySide6.QtCore import QObject, Signal
 from . import state
 from .. import ollama_local
 from ..perf import MODEL_GB, WHISPER_GB
-from ..system import IS_MAC, mac_ssl_certs
+from ..system import IS_MAC, IS_STORE, mac_ssl_certs
+from ..i18n import tr
 
 log = logging.getLogger(__name__)
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0      # CREATE_NO_WINDOW
@@ -49,7 +50,9 @@ class Step:
 
 
 def _gb(n: float) -> str:
-    return f"{n / 1e9:.1f}".replace(".", ",") + " GB" if n >= 1e9 else f"{n / 1e6:.0f} MB"
+    """6,7 GB / 6.7 GB (według języka interfejsu), poniżej 1 GB w MB."""
+    from ..i18n import gb
+    return gb(n)
 
 
 class Installer(QObject):
@@ -67,16 +70,16 @@ class Installer(QObject):
         self.marker = m
         models = self._models()
         self.steps = [
-            Step("pip", "Biblioteki aplikacji", 2.6 if m.get("req_hash") != state.req_hash() else 0.02, self._pip),
-            Step("whisper", "Model rozpoznawania mowy",
+            Step("pip", tr("Biblioteki aplikacji"), 2.6 if m.get("req_hash") != state.req_hash() else 0.02, self._pip),
+            Step("whisper", tr("Model rozpoznawania mowy"),
                  0.02 if m.get("whisper") == self.s.whisper_model else WHISPER_GB.get(self.s.whisper_model, 1.5),
                  self._whisper),
-            Step("ollama", "Ollama – lokalne AI", 0.02 if m.get("ai_done") else (0.2 if IS_MAC else 1.0), self._ollama),
-            Step("models", "Modele AI do notatek",
+            Step("ollama", tr("Ollama – lokalne AI"), 0.02 if m.get("ai_done") else (0.2 if IS_MAC else 1.0), self._ollama),
+            Step("models", tr("Modele AI do notatek"),
                  0.02 if m.get("ai_done") else sum(self._model_gb(x) for x in models), self._models_step),
         ]
-        if not IS_MAC:        # na Macu aplikacja jest w Aplikacjach / Launchpadzie
-            self.steps.append(Step("shortcut", "Skrót na pulpicie", 0.02, self._shortcut))
+        if not IS_MAC and not IS_STORE:   # Mac: aplikacja jest w Aplikacjach; Store: skrót w menu Start robi paczka
+            self.steps.append(Step("shortcut", tr("Skrót na pulpicie"), 0.02, self._shortcut))
 
     # ------------------------------------------------------------------ sterowanie
     def start(self):
@@ -128,7 +131,7 @@ class Installer(QObject):
                 st.note = str(e)[:200]
                 self.step_changed.emit(i, "warn")
         state.save_marker(complete=True, req_hash=state.req_hash(), version=self._version())
-        self.progress.emit(1.0, "Gotowe")
+        self.progress.emit(1.0, tr("Gotowe"))
         self.completed.emit()
 
     @staticmethod
@@ -143,9 +146,9 @@ class Installer(QObject):
     def _friendly(e: Exception) -> str:
         t = str(e)
         if "getaddrinfo" in t or "Temporary failure" in t or "NewConnectionError" in t or "urlopen error" in t:
-            return "Brak połączenia z internetem. Sprawdź sieć i spróbuj ponownie."
+            return tr("Brak połączenia z internetem. Sprawdź sieć i spróbuj ponownie.")
         if "No space" in t or "Errno 28" in t:
-            return "Za mało miejsca na dysku. Zwolnij kilka GB i spróbuj ponownie."
+            return tr("Za mało miejsca na dysku. Zwolnij kilka GB i spróbuj ponownie.")
         return t[-600:]
 
     # ------------------------------------------------------------------ pomocnicze
@@ -167,7 +170,7 @@ class Installer(QObject):
         rc = p.wait()
         self._proc = None
         if rc != 0:
-            raise RuntimeError("\n".join(x for x in tail if x.strip())[-800:] or f"kod błędu {rc}")
+            raise RuntimeError("\n".join(x for x in tail if x.strip())[-800:] or tr("kod błędu {rc}", rc=rc))
         return rc
 
     def _download(self, url: str, dest: Path, on_bytes: Callable[[int, int], None]):
@@ -194,11 +197,11 @@ class Installer(QObject):
         est = 2.6e9
 
         def on_line(line: str):
-            m = re.match(r"Collecting ([\w.\-\[\]]+)", line)
+            m = re.match(r"Collecting ([\w.\-\[\]]+)", line)  # i18n: nie
             if m:
                 seen["name"] = m.group(1).split("[")[0]
                 self._report(i, (seen["total"] + seen["cur"]) / max(est, seen["total"] + 1),
-                             f"Sprawdzam: {seen['name']}")
+                             tr("Sprawdzam: {x}", x=seen['name']))
                 return
             m = re.match(r"\s*Downloading \S+ \(([\d.]+) (kB|MB|GB)\)", line)
             if m:
@@ -211,10 +214,10 @@ class Installer(QObject):
                 seen["cur"] = float(m.group(1))
                 done = seen["total"] + seen["cur"]
                 self._report(i, min(0.95, done / max(est, done + 1)),
-                             f"Pobieram biblioteki: {seen['name']} · {_gb(seen['cur'])} z {_gb(float(m.group(2)))}")
+                             tr("Pobieram biblioteki: {x} · {gb} z {gb2}", x=seen['name'], gb=_gb(seen['cur']), gb2=_gb(float(m.group(2)))))
                 return
             if line.startswith("Installing collected packages"):
-                self._report(i, 0.96, "Instaluję biblioteki…")
+                self._report(i, 0.96, tr("Instaluję biblioteki…"))
 
         base = [py, "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location",
                 "--progress-bar", "raw"]
@@ -230,7 +233,7 @@ class Installer(QObject):
                 raise
         if not IS_MAC:        # Windows OCR osobno – bez niego aplikacja działa (Mac: Apple Vision jest w głównej liście)
             try:
-                self._report(i, 0.98, "Odczyt tekstu ze slajdów (OCR)…")
+                self._report(i, 0.98, tr("Odczyt tekstu ze slajdów (OCR)…"))
                 self._run_proc(base + ["-r", str(state.BASE / "requirements-ocr.txt")], None, cwd=str(state.BASE))
             except Exception as e:  # noqa: BLE001
                 log.warning("OCR niedostępny: %s", e)
@@ -287,7 +290,7 @@ class Installer(QObject):
         while t.is_alive():
             self._check()
             size = _dir_size(folder / "blobs")
-            self._report(i, min(0.99, size / total), f"Pobieram model rozpoznawania mowy · {_gb(size)} z {_gb(total)}")
+            self._report(i, min(0.99, size / total), tr("Pobieram model rozpoznawania mowy · {gb} z {gb2}", gb=_gb(size), gb2=_gb(total)))
             time.sleep(0.5)
         if err:
             raise err[0]
@@ -329,8 +332,9 @@ class Installer(QObject):
             import tempfile
             dest = Path(tempfile.gettempdir()) / "OllamaSetup.exe"
             self._download(OLLAMA_SETUP_URL, dest, lambda d, t: self._report(
-                i, 0.85 * d / t if t else 0.3, f"Pobieram Ollamę · {_gb(d)}" + (f" z {_gb(t)}" if t else "")))
-            self._report(i, 0.9, "Instaluję Ollamę…")
+                i, 0.85 * d / t if t else 0.3, (tr("Pobieram Ollamę · {gb} z {total}", gb=_gb(d), total=_gb(t)) if t else
+                                             tr("Pobieram Ollamę · {gb}", gb=_gb(d)))))
+            self._report(i, 0.9, tr("Instaluję Ollamę…"))
             self._run_proc([str(dest), "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES", "/SP-"])
             for _ in range(20):
                 exe = self.find_ollama()
@@ -338,12 +342,12 @@ class Installer(QObject):
                     break
                 time.sleep(1)
             if not exe:
-                raise RuntimeError("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download.")
+                raise RuntimeError(tr("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download."))
         if not self._ollama_up():
-            self._report(i, 0.95, "Uruchamiam Ollamę…")
+            self._report(i, 0.95, tr("Uruchamiam Ollamę…"))
             ollama_local.start(self.s.ollama_url, wait=20, exe=exe)
         if not self._ollama_up():
-            raise RuntimeError("Ollama nie odpowiada.")
+            raise RuntimeError(tr("Ollama nie odpowiada."))
         return "done"
 
     def _install_ollama_mac(self, i: int) -> str:
@@ -351,8 +355,9 @@ class Installer(QObject):
         import tempfile
         dest = Path(tempfile.gettempdir()) / "Ollama-darwin.zip"
         self._download(OLLAMA_MAC_URL, dest, lambda d, t: self._report(
-            i, 0.85 * d / t if t else 0.3, f"Pobieram Ollamę · {_gb(d)}" + (f" z {_gb(t)}" if t else "")))
-        self._report(i, 0.9, "Rozpakowuję Ollamę…")
+            i, 0.85 * d / t if t else 0.3, (tr("Pobieram Ollamę · {gb} z {total}", gb=_gb(d), total=_gb(t)) if t else
+                                             tr("Pobieram Ollamę · {gb}", gb=_gb(d)))))
+        self._report(i, 0.9, tr("Rozpakowuję Ollamę…"))
         apps = ollama_local.MAC_APP_DIR
         apps.mkdir(parents=True, exist_ok=True)
         shutil.rmtree(apps / "Ollama.app", ignore_errors=True)
@@ -363,7 +368,7 @@ class Installer(QObject):
             pass
         exe = self.find_ollama()
         if not exe:
-            raise RuntimeError("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download.")
+            raise RuntimeError(tr("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download."))
         return exe
 
     # ------------------------------------------------------------------ 4. modele AI
@@ -389,7 +394,7 @@ class Installer(QObject):
         if self.marker.get("ai_done"):
             return "done"
         if not self._ollama_up():
-            raise RuntimeError("Ollama nie działa – modele pobiorą się przy pierwszych notatkach.")
+            raise RuntimeError(tr("Ollama nie działa – modele pobiorą się przy pierwszych notatkach."))
         models = self._models()
         have = self._installed()
         todo = [m for m in models if m not in have and f"{m}:latest" not in have]
@@ -411,7 +416,8 @@ class Installer(QObject):
                         total, comp = d.get("total") or 0, d.get("completed") or 0
                         f = comp / total if total else 0.0
                         big = total > 2e8
-                        det = f"Pobieram model {short}" + (f" · {_gb(comp)} z {_gb(total)}" if big else "…")
+                        det = (tr("Pobieram model {short} · {gb} z {total}", short=short, gb=_gb(comp), total=_gb(total))
+                               if big else tr("Pobieram model {short}", short=short) + "…")
                         self._report(i, (done_w + w * (f if big else 0.02)) / tot, det)
             except Cancelled:
                 raise
@@ -420,7 +426,8 @@ class Installer(QObject):
                 problems.append(short)
             done_w += w
         if problems:
-            raise RuntimeError("Nie pobrano: " + ", ".join(problems) + " – pobiorą się przy pierwszych notatkach.")
+            raise RuntimeError(tr("Nie pobrano: {models} – pobiorą się przy pierwszych notatkach.",
+                                  models=", ".join(problems)))
         state.save_marker(ai_done=True)
         return "done"
 
@@ -438,6 +445,7 @@ class Installer(QObject):
 def create_shortcuts(exe: Path) -> None:
     """Skrót „Wykłady” na pulpicie i w menu Start (PowerShell bez okna)."""
     import tempfile
+    # i18n: nie – skrypt PowerShell
     ps = f"""
 $ws = New-Object -ComObject WScript.Shell
 foreach ($dir in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {{

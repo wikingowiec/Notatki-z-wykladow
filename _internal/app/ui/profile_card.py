@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QWidget
 from .. import perf
 from . import theme as TH
 from .theme import T, qcolor
+from ..i18n import tr
 
 
 class ProfileCard(QWidget):
@@ -30,7 +31,7 @@ class ProfileCard(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(200, 160 if compact else 206)
-        self.setAccessibleName(f"Profil {self.title}")
+        self.setAccessibleName(tr("Profil {title}", title=self.title))
 
     def set_state(self, selected: bool | None = None, recommended: bool | None = None, size_text: str | None = None):
         if selected is not None:
@@ -136,7 +137,7 @@ class ProfileCard(QWidget):
             fb.setWeight(QFont.Weight.Bold)
             fb.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.6)
             p.setFont(fb)
-            txt = "POLECANY"
+            txt = tr("POLECANY")
             bw = p.fontMetrics().horizontalAdvance(txt) + 22
             badge = QRectF(r.right() - 18 - bw, r.top() - 10, bw, 21)
             p.setPen(QPen(qcolor(t.surface), 2))

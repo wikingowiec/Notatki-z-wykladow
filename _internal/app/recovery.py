@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .storage import Lecture, list_lectures
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def repair(lec: Lecture) -> Recovered:
     m = lec.meta
     if m.status == "przetwarzanie":
         m.status = "nagrany"
-        m.error = "Generowanie notatek zostało przerwane (aplikacja się zamknęła)."
+        m.error = tr("Generowanie notatek zostało przerwane (aplikacja się zamknęła).")
         lec.save_meta()
         return Recovered(lec, "processing", m.duration)
 
@@ -71,7 +72,7 @@ def repair(lec: Lecture) -> Recovered:
             except Exception as e:  # noqa: BLE001
                 log.exception("naprawa audio")
                 rec.ok = False
-                rec.message = f"Nie udało się odczytać nagrania: {e}"
+                rec.message = tr("Nie udało się odczytać nagrania: {e}", e=e)
                 dur = max(dur, 0.0)
         p["duration"] = round(dur, 1)
         total = max(total, float(p.get("offset", 0)) + dur)

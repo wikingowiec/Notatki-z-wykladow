@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlideScribe – polityka prywatności</title>
+<meta name="description" content="Polityka prywatności aplikacji SlideScribe (Wykłady): wszystko działa lokalnie, nagrania i notatki nie opuszczają komputera. Privacy policy in English below.">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* kolory motywu „Zeszyt” z _internal/app/ui/tokens.py (jak index.html) */
+  :root {
+    --bg: #F4F1EA; --surface: #FFFDF8; --surface2: #F5F1E8; --line: #E1DACB; --line2: #CFC6B3;
+    --ink: #1E2320; --ink2: #4F5650; --ink3: #676C66;
+    --accent: #2F6B55; --accentSoft: #DCE8E0; --accentText: #24563F;
+    --mark: #F6E1A0;
+    --shadow: 0 6px 20px rgba(40, 35, 20, .06);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --surface: #1B201E; --surface2: #222826; --line: #2D3431; --line2: #3D4641;
+      --ink: #E7EBE7; --ink2: #B0B8B2; --ink3: #8E9791;
+      --accent: #6DBE9A; --accentSoft: #203A2F; --accentText: #8DD2B2;
+      --mark: #5A4913;
+      --shadow: 0 1px 4px rgba(0, 0, 0, .35);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 400 16px/1.65 Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  a { color: var(--accentText); }
+  h1, h2, h3 { font-family: Fraunces, Georgia, serif; font-weight: 600; line-height: 1.2; margin: 0; }
+  h1 { font-size: 40px; letter-spacing: -.01em; margin-bottom: 12px; }
+  h1 mark { background: linear-gradient(transparent 55%, var(--mark) 55%); color: inherit; padding: 0 2px; }
+  h2 { font-size: 28px; margin-bottom: 8px; }
+  h3 { font-size: 19px; margin: 28px 0 6px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  .lead { color: var(--ink2); font-size: 18px; margin: 0; }
+  .muted { color: var(--ink3); font-size: 14px; }
+  p { margin: 8px 0; }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 6px 0; color: var(--ink2); }
+  li b { color: var(--ink); }
+
+  header { padding: 56px 0 40px; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; text-decoration: none; color: var(--ink); }
+  .brand img { width: 48px; height: 48px; }
+  .brand span { font-family: Fraunces, Georgia, serif; font-size: 22px; font-weight: 600; }
+  .langs { margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .langs a {
+    display: inline-block; padding: 6px 14px; border-radius: 999px; text-decoration: none; font-size: 14px;
+    font-weight: 600; background: var(--accentSoft); color: var(--accentText);
+  }
+  section { padding: 48px 0; border-top: 1px solid var(--line); }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px;
+    box-shadow: var(--shadow); margin: 20px 0 8px;
+  }
+  .card p:first-child { margin-top: 0; }
+  .card p:last-child { margin-bottom: 0; }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--accentText); background: var(--accentSoft); border-radius: 8px; padding: 3px 8px; margin-bottom: 12px;
+  }
+  footer { padding: 32px 0 48px; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink3); }
+  footer a { margin-right: 12px; }
+
+  @media (max-width: 480px) {
+    .wrap { padding: 0 16px; }
+    header { padding: 32px 0 28px; }
+    section { padding: 36px 0; }
+    h1 { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="./"><img src="logo.png" alt=""><span>SlideScribe</span></a>
+    <h1>Polityka prywatności · <mark>Privacy policy</mark></h1>
+    <p class="lead">SlideScribe (w wersji z GitHuba: „Wykłady”) działa w całości na Twoim komputerze.
+      Nagrania i notatki nie opuszczają komputera.</p>
+    <p class="muted">Obowiązuje od 11 października 2026 · Effective October 11, 2026</p>
+    <nav class="langs" aria-label="Język / Language">
+      <a href="#pl" lang="pl">Polski</a>
+      <a href="#en" lang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<section id="pl" lang="pl">
+  <div class="wrap">
+    <span class="tag">Polski</span>
+    <h2>Polityka prywatności SlideScribe</h2>
+
+    <div class="card">
+      <p><b>W skrócie:</b> aplikacja nie ma kont, analityki, reklam ani telemetrii. Autor nie zbiera, nie otrzymuje
+        i nie przechowuje żadnych Twoich danych. Wszystko, co nagrasz i co powstanie z nagrań, zostaje na Twoim
+        komputerze.</p>
+    </div>
+
+    <h3>Kto odpowiada za aplikację</h3>
+    <p>SlideScribe tworzy Wiktor Wystrychowski (wydawca w Microsoft Store: Wikingowiec). Kontakt:
+      <a href="mailto:wiktor.wystrychowski@gmail.com">wiktor.wystrychowski@gmail.com</a>.</p>
+
+    <h3>Jakie dane przetwarza aplikacja – i gdzie</h3>
+    <p>Wyłącznie lokalnie, na Twoim komputerze:</p>
+    <ul>
+      <li><b>Dźwięk</b> z aplikacji, którą wybierzesz (np. przeglądarki z wykładem), i – jeśli go włączysz –
+        z mikrofonu. Nagrywanie zaczyna się tylko wtedy, gdy klikniesz „Nagrywaj”.</li>
+      <li><b>Zrzuty ekranu</b> wybranego monitora lub jego fragmentu, żeby zapisać slajdy.</li>
+      <li><b>Pliki</b>, które sam dodasz (nagrania, filmy, zdjęcia tablicy, slajdy).</li>
+      <li><b>To, co z nich powstaje:</b> transkrypcja, notatki, ściąga, fiszki, egzamin próbny, statystyki nauki.</li>
+      <li><b>Ustawienia i dziennik zdarzeń (log)</b> – służą tylko do działania aplikacji i diagnozy na Twoim komputerze.</li>
+    </ul>
+    <p>Wykłady zapisują się w folderze biblioteki (domyślnie Dokumenty\Wykłady), ustawienia i log w folderze
+      danych aplikacji Windows. Rozpoznawanie mowy (faster-whisper) i tworzenie notatek (Ollama z lokalnym
+      modelem językowym) odbywają się na Twoim komputerze – dane nie są wysyłane do żadnej usługi AI w chmurze.</p>
+
+    <h3>Co aplikacja pobiera z internetu</h3>
+    <p>Internet jest potrzebny tylko przy pierwszym uruchomieniu (i gdy wybierzesz nowy model). Aplikacja
+      <b>pobiera</b> wtedy:</p>
+    <ul>
+      <li>Pythona i biblioteki programu (python.org, pypi.org),</li>
+      <li>model rozpoznawania mowy (huggingface.co),</li>
+      <li>program Ollama – lokalny silnik AI (ollama.com) – i modele językowe do notatek (rejestr modeli Ollamy).</li>
+    </ul>
+    <p>Przy pobieraniu te serwery widzą zwykłe dane techniczne połączenia (np. adres IP), jak przy każdym
+      pobieraniu pliku – obowiązują wtedy ich własne zasady prywatności. Aplikacja nie wysyła do nich Twoich
+      nagrań, notatek ani innych danych. Wersja z GitHuba sprawdza też dostępność nowych wersji na GitHubie;
+      wersję z Microsoft Store aktualizuje Microsoft Store.</p>
+
+    <h3>Funkcje, które sam włączasz</h3>
+    <ul>
+      <li><b>Notatki na telefon:</b> jeśli wskażesz folder synchronizowany z chmurą (np. Dysk Google, OneDrive,
+        iCloud), aplikacja zapisze w nim pliki PDF z notatkami, a wysyła je dalej program tej usługi – na jej zasadach.
+        Funkcja jest domyślnie wyłączona.</li>
+      <li><b>Eksport i udostępnianie</b> (PDF, HTML, Anki) – pliki zapisują się tam, gdzie wskażesz.</li>
+    </ul>
+
+    <h3>Uprawnienia</h3>
+    <p>Mikrofon jest używany tylko podczas nagrywania z włączonym mikrofonem. Przechwytywanie dźwięku aplikacji
+      i zrzuty ekranu działają tylko w trakcie nagrywania, które sam uruchamiasz. Dostęp do mikrofonu możesz w
+      każdej chwili odebrać w Ustawieniach systemu Windows (Prywatność → Mikrofon).</p>
+
+    <h3>Udostępnianie danych, konta, reklamy</h3>
+    <p>Aplikacja nie ma kont użytkowników, nie wyświetla reklam, nie używa narzędzi analitycznych ani plików
+      cookie i nie przekazuje danych nikomu – bo żadne dane do autora nie trafiają.</p>
+
+    <h3>Przechowywanie i usuwanie</h3>
+    <p>Dane leżą na Twoim komputerze tak długo, jak chcesz. Wykład usuniesz w aplikacji albo kasując jego folder.
+      Po odinstalowaniu SlideScribe z Microsoft Store znikają biblioteki programu i ustawienia; wykłady w folderze
+      biblioteki, pobrane modele mowy (%USERPROFILE%\.cache\huggingface) i modele Ollamy (%USERPROFILE%\.ollama)
+      zostają – możesz je usunąć ręcznie.</p>
+
+    <h3>Dzieci</h3>
+    <p>Aplikacja nie zbiera danych, więc nie zbiera ich także od dzieci.</p>
+
+    <h3>Zmiany</h3>
+    <p>Jeśli ta polityka się zmieni, nowa wersja pojawi się na tej stronie z nową datą obowiązywania.</p>
+  </div>
+</section>
+
+<section id="en" lang="en">
+  <div class="wrap">
+    <span class="tag">English</span>
+    <h2>SlideScribe privacy policy</h2>
+
+    <div class="card">
+      <p><b>In short:</b> the app has no accounts, analytics, ads or telemetry. The author does not collect, receive
+        or store any of your data. Everything you record, and everything created from your recordings, stays on
+        your computer.</p>
+    </div>
+
+    <h3>Who is responsible</h3>
+    <p>SlideScribe is made by Wiktor Wystrychowski (Microsoft Store publisher: Wikingowiec). Contact:
+      <a href="mailto:wiktor.wystrychowski@gmail.com">wiktor.wystrychowski@gmail.com</a>.</p>
+
+    <h3>What data the app processes – and where</h3>
+    <p>Only locally, on your computer:</p>
+    <ul>
+      <li><b>Audio</b> from the app you choose (e.g. the browser playing a lecture) and – if you turn it on – from
+        your microphone. Recording starts only when you click “Record”.</li>
+      <li><b>Screenshots</b> of the selected monitor or area, to capture slides.</li>
+      <li><b>Files</b> you add yourself (recordings, videos, whiteboard photos, slides).</li>
+      <li><b>What is created from them:</b> transcript, notes, cheat sheet, flashcards, practice exam, study statistics.</li>
+      <li><b>Settings and the log file</b> – used only to run the app and troubleshoot it on your computer.</li>
+    </ul>
+    <p>Lectures are saved in the library folder (by default Documents\Wykłady); settings and the log are kept in
+      the app's Windows data folder. Speech recognition (faster-whisper) and note generation (Ollama with a local
+      language model) run on your computer – no data is sent to any cloud AI service.</p>
+
+    <h3>What the app downloads from the internet</h3>
+    <p>An internet connection is needed only on first launch (and when you pick a new model). The app then
+      <b>downloads</b>:</p>
+    <ul>
+      <li>Python and the app's libraries (python.org, pypi.org),</li>
+      <li>the speech recognition model (huggingface.co),</li>
+      <li>Ollama – a local AI engine (ollama.com) – and the language models used for notes (Ollama's model registry).</li>
+    </ul>
+    <p>Like any download, these servers see ordinary technical connection data (such as your IP address), under
+      their own privacy policies. The app does not send them your recordings, notes or any other data. The GitHub
+      version also checks GitHub for new versions; the Microsoft Store version is updated by the Microsoft Store.</p>
+
+    <h3>Features you turn on yourself</h3>
+    <ul>
+      <li><b>Notes on your phone:</b> if you choose a cloud-synced folder (e.g. Google Drive, OneDrive, iCloud), the
+        app saves PDF notes there and that service's own app uploads them, under its terms. This feature is off by
+        default.</li>
+      <li><b>Export and sharing</b> (PDF, HTML, Anki) – files are saved where you choose.</li>
+    </ul>
+
+    <h3>Permissions</h3>
+    <p>The microphone is used only while recording with the microphone turned on. App audio capture and
+      screenshots are active only during a recording you start yourself. You can revoke microphone access at any
+      time in Windows Settings (Privacy → Microphone).</p>
+
+    <h3>Sharing, accounts, advertising</h3>
+    <p>The app has no user accounts, shows no ads, uses no analytics tools or cookies and shares no data with
+      anyone – because no data ever reaches the author.</p>
+
+    <h3>Retention and deletion</h3>
+    <p>Your data stays on your computer for as long as you want. Delete a lecture in the app or by removing its
+      folder. Uninstalling SlideScribe from the Microsoft Store removes the app's libraries and settings; lectures
+      in the library folder, downloaded speech models (%USERPROFILE%\.cache\huggingface) and Ollama models
+      (%USERPROFILE%\.ollama) remain – you can delete them manually.</p>
+
+    <h3>Children</h3>
+    <p>The app collects no data, so it collects no data from children either.</p>
+
+    <h3>Changes</h3>
+    <p>If this policy changes, the new version will be published on this page with a new effective date.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>SlideScribe · Wiktor Wystrychowski · <a href="mailto:wiktor.wystrychowski@gmail.com">wiktor.wystrychowski@gmail.com</a></p>
+    <a href="./">Strona aplikacji</a>
+    <a href="https://apps.microsoft.com/detail/9MWK9Z8V2V7W">Microsoft Store</a>
+    <a href="https://github.com/wikingowiec/Notatki-z-wykladow">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -14,11 +14,12 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .storage import Lecture
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 GDRIVE_DOWNLOAD = "https://www.google.com/drive/download/"
 ICLOUD_DOWNLOAD = "https://apps.microsoft.com/detail/9pktq5699m62"
-SUBFOLDER = "Wykłady"
+SUBFOLDER = "Wykłady"  # i18n: nie
 last_error = ""
 
 
@@ -55,9 +56,9 @@ def detect() -> list[CloudFolder]:
     """Foldery chmury znalezione na tym komputerze (Dysk Google najpierw)."""
     found: list[CloudFolder] = []
     home = Path.home()
-    names = ("Mój dysk", "My Drive", "Moje dokumenty na Dysku")
+    names = ("Mój dysk", "My Drive", "Moje dokumenty na Dysku")  # i18n: nie
     cands = [Path(d) / n for d in _drive_letters() for n in names]
-    cands += [home / "Google Drive" / "Mój dysk", home / "Google Drive" / "My Drive", home / "Mój dysk",
+    cands += [home / "Google Drive" / "Mój dysk", home / "Google Drive" / "My Drive", home / "Mój dysk",  # i18n: nie
               home / "My Drive", home / "Google Drive"]
     if sys.platform == "darwin":       # Dysk Google na Macu: ~/Library/CloudStorage/GoogleDrive-<konto>/Mój dysk
         try:
@@ -68,7 +69,7 @@ def detect() -> list[CloudFolder]:
     for c in cands:
         try:
             if c.is_dir() and not any(f.root == c for f in found):
-                found.append(CloudFolder("gdrive", f"Dysk Google ({c})", c))
+                found.append(CloudFolder("gdrive", tr("Dysk Google ({c})", c=c), c))
                 break
         except OSError:
             pass

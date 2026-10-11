@@ -10,25 +10,27 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFileDialog, QLineEdit
 
 from ..config import log_path
 from ..llm import Ollama
-from .controls import GroupSection, SegmentedControl, StatusDot, ToggleSwitch, hbox, label
+from .controls import GroupSection, SegmentedControl, StatusDot, ToggleSwitch, hbox, label, show_if
 from .record_tab import _centered
 from . import tokens as TK
 from .. import perf
-from ..system import IS_MAC, LIVE_RECORDING, system_name
+from ..config import APP_NAME
+from ..system import IS_MAC, IS_STORE, LIVE_RECORDING, system_name
 from .theme import theme
+from ..i18n import tr
 
 VISION_MODELS = [
-    ("qwen3-vl:8b-instruct", "Qwen3-VL 8B – czyta schematy, wykresy i wzory (polecany), ~6 GB"),
-    ("gemma3:12b", "Gemma 3 12B – dobry polski, ~8 GB"),
-    ("qwen3-vl:4b-instruct", "Qwen3-VL 4B – szybszy, słabsze karty, ~3 GB"),
+    ("qwen3-vl:8b-instruct", tr("Qwen3-VL 8B – czyta schematy, wykresy i wzory (polecany), ~6 GB")),
+    ("gemma3:12b", tr("Gemma 3 12B – dobry polski, ~8 GB")),
+    ("qwen3-vl:4b-instruct", tr("Qwen3-VL 4B – szybszy, słabsze karty, ~3 GB")),
 ]
 RECOMMENDED_MODELS = [
-    ("SpeakLeash/bielik-11b-v3.0-instruct:Q4_K_M", "Bielik 11B – polski model (polecany), ~7 GB"),
-    ("gemma3:12b", "Gemma 3 12B – bardzo dobry polski, ~8 GB"),
-    ("qwen3:14b", "Qwen3 14B – mocny, ~9 GB"),
-    ("SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0", "Bielik 4.5B – lżejszy i szybszy, ~5 GB"),
+    ("SpeakLeash/bielik-11b-v3.0-instruct:Q4_K_M", tr("Bielik 11B – polski model (polecany), ~7 GB")),
+    ("gemma3:12b", tr("Gemma 3 12B – bardzo dobry polski, ~8 GB")),
+    ("qwen3:14b", tr("Qwen3 14B – mocny, ~9 GB")),
+    ("SpeakLeash/bielik-4.5b-v3.0-instruct:Q8_0", tr("Bielik 4.5B – lżejszy i szybszy, ~5 GB")),
 ]
-THEMES = [("system", "Jak system"), ("light", "Jasny"), ("dark", "Ciemny")]
+THEMES = [("system", tr("Jak system")), ("light", tr("Jasny")), ("dark", tr("Ciemny"))]
 
 
 class ThemeCard(QWidget):
@@ -43,7 +45,7 @@ class ThemeCard(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumSize(200, 150)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setToolTip(f"Motyw {TK.THEME_LABELS[name]}")
+        self.setToolTip(tr("Motyw {x}", x=TK.THEME_LABELS[name]))
 
     def sizeHint(self):
         from PySide6.QtCore import QSize
@@ -142,7 +144,7 @@ class SettingsTab(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(26)
         from .controls import Heading
-        v.addWidget(Heading("Ustawienia", "Zmiany zapisują się od razu. Wszystko działa na tym komputerze."))
+        v.addWidget(Heading(tr("Ustawienia"), tr("Zmiany zapisują się od razu. Wszystko działa na tym komputerze.")))
 
         # ---------------- Ogólne ----------------
         self.appearance = SegmentedControl([t for _m, t in THEMES])
@@ -150,18 +152,18 @@ class SettingsTab(QWidget):
         self.appearance.changed.connect(self._theme_changed)
         self.lib_path = label(self.s.library_dir, "secondary")
         self.lib_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        b_lib = QPushButton("Zmień…")
+        b_lib = QPushButton(tr("Zmień…"))
         b_lib.clicked.connect(self._pick_lib)
-        b_open = QPushButton("Otwórz")
+        b_open = QPushButton(tr("Otwórz"))
         b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.s.library_dir)))
         self.auto = ToggleSwitch(self.s.auto_generate_notes)
-        self.scale = combo([(0.9, "90%"), (1.0, "100% – domyślny"), (1.1, "110%"), (1.25, "125%"), (1.5, "150%")],
+        self.scale = combo([(0.9, "90%"), (1.0, tr("100% – domyślny")), (1.1, "110%"), (1.25, "125%"), (1.5, "150%")],
                            None, 180)
         i = min(range(self.scale.count()), key=lambda k: abs(self.scale.itemData(k) - float(self.s.ui_scale or 1.0)))
         self.scale.setCurrentIndex(i)
         self.scale.currentIndexChanged.connect(self._scale_changed)
         from .controls import AdaptiveBox
-        gw = GroupSection("Wygląd", "Motyw zmienia kolory, fonty i zaokrąglenia. Zmiana działa od razu.")
+        gw = GroupSection(tr("Wygląd"), tr("Motyw zmienia kolory, fonty i zaokrąglenia. Zmiana działa od razu."))
         cards = AdaptiveBox(threshold=640, spacing=12)
         self.theme_cards = {}
         for n in TK.THEMES:
@@ -174,35 +176,46 @@ class SettingsTab(QWidget):
         wl.setContentsMargins(16, 16, 16, 16)
         wl.addWidget(cards)
         gw.add(wrap)
-        gw.add_row("Tryb", self.appearance, f"Jasny – papier, ciemny – tablica. „Jak system” – zgodnie z {system_name()}.")
+        gw.add_row(tr("Tryb"), self.appearance, tr("Jasny – papier, ciemny – tablica. „Jak system” – zgodnie z {system_name}.", system_name=system_name()))
         self._mark_theme()
         v.addWidget(gw)
-        g = GroupSection("Ogólne")
-        self.scale_row = g.add_row("Rozmiar interfejsu", self.scale,
-                                   "Większy na dużym monitorze, mniejszy na małym ekranie. Działa po ponownym uruchomieniu.")
-        r = g.add_row("Folder biblioteki", hbox(b_open, b_lib, spacing=6))
+        g = GroupSection(tr("Ogólne"))
+        # język interfejsu – opis po obu językach, żeby dało się go znaleźć niezależnie od obecnego
+        self.ui_lang = combo([("", "Jak system / System"), ("pl", "Polski"), ("en", "English")],  # i18n: nie
+                             getattr(self.s, "ui_language", "") or "", 200)
+        self.b_restart = QPushButton(tr("Uruchom ponownie"))
+        self.b_restart.setObjectName("primary")
+        self.b_restart.clicked.connect(self._restart_app)
+        show_if(self.b_restart, False)
+        self.lang_row = g.add_row("Język aplikacji / App language", hbox(  # i18n: nie
+                                  self.ui_lang, self.b_restart, spacing=8),
+                                  tr("Zmiana działa po ponownym uruchomieniu aplikacji."))
+        self.ui_lang.currentIndexChanged.connect(self._ui_lang_changed)
+        self.scale_row = g.add_row(tr("Rozmiar interfejsu"), self.scale,
+                                   tr("Większy na dużym monitorze, mniejszy na małym ekranie. Działa po ponownym uruchomieniu."))
+        r = g.add_row(tr("Folder biblioteki"), hbox(b_open, b_lib, spacing=6))
         r.subtitle.setText(self.s.library_dir)
         r.subtitle.show()
         self.lib_row = r
         self.goal = QSpinBox()
         self.goal.setRange(5, 300)
         self.goal.setSingleStep(5)
-        self.goal.setSuffix(" fiszek")
+        self.goal.setSuffix(tr(" fiszek"))
         self.goal.setValue(int(getattr(self.s, "daily_goal", 20) or 20))
         self.goal.valueChanged.connect(lambda v: (setattr(self.s, "daily_goal", int(v)), self.s.save()))
-        g.add_row("Cel dzienny", self.goal, "Ile fiszek dziennie chcesz powtórzyć – pierścień na ekranie Fiszki.")
-        g.add_row("Notatki po nagraniu", self.auto,
-                  "Po zakończeniu nagrania automatycznie twórz notatki, podsumowanie i fiszki.")
+        g.add_row(tr("Cel dzienny"), self.goal, tr("Ile fiszek dziennie chcesz powtórzyć – pierścień na ekranie Fiszki."))
+        g.add_row(tr("Notatki po nagraniu"), self.auto,
+                  tr("Po zakończeniu nagrania automatycznie twórz notatki, podsumowanie i fiszki."))
         v.addWidget(g)
 
         # ---------------- Wydajność ----------------
         from .profile_card import ProfileCard
-        gp = GroupSection("Wydajność", "Profil dobiera modele i tryby pracy do mocy komputera. Pojedyncze ustawienia "
-                                       "możesz potem zmieniać niżej – wtedy profil zmienia się na „Własne”.")
-        b_hw = QPushButton("Sprawdź ponownie")
+        gp = GroupSection(tr("Wydajność"), tr("Profil dobiera modele i tryby pracy do mocy komputera. Pojedyncze ustawienia "
+                                       "możesz potem zmieniać niżej – wtedy profil zmienia się na „Własne”."))
+        b_hw = QPushButton(tr("Sprawdź ponownie"))
         b_hw.clicked.connect(lambda: self._detect_hw(True))
-        self.hw_row = gp.add_row("Twój komputer", b_hw)
-        self.hw_row.subtitle.setText("Sprawdzam sprzęt…")
+        self.hw_row = gp.add_row(tr("Twój komputer"), b_hw)
+        self.hw_row.subtitle.setText(tr("Sprawdzam sprzęt…"))
         self.hw_row.subtitle.show()
         pcards = AdaptiveBox(threshold=640, spacing=12)
         self.profile_cards = {}
@@ -216,11 +229,11 @@ class SettingsTab(QWidget):
         pl.setContentsMargins(16, 16, 16, 12)
         pl.addWidget(pcards)
         gp.add(pw)
-        self.btn_get = QPushButton("Pobierz brakujące")
+        self.btn_get = QPushButton(tr("Pobierz brakujące"))
         self.btn_get.setObjectName("primary")
         self.btn_get.clicked.connect(self._pull_missing)
         self.btn_get.hide()
-        self.perf_row = gp.add_row("Profil", self.btn_get)
+        self.perf_row = gp.add_row(tr("Profil"), self.btn_get)
         self.perf_row.subtitle.show()
         self.perf_bar = QProgressBar()
         self.perf_bar.setTextVisible(False)
@@ -237,36 +250,36 @@ class SettingsTab(QWidget):
         v.addWidget(self.phone)
 
         # ---------------- Transkrypcja ----------------
-        self.w_model = combo([("large-v3", "large-v3 – najdokładniejszy"),
-                              ("large-v3-turbo", "large-v3-turbo – szybszy"),
-                              ("medium", "medium – słabsze karty"), ("small", "small – najszybszy")], self.s.whisper_model)
-        self.lang = combo([("auto", "Wykryj automatycznie"), ("pl", "Polski"), ("en", "Angielski"), ("de", "Niemiecki"),
-                           ("es", "Hiszpański"), ("fr", "Francuski")], self.s.language)
-        self.beam = combo([(1, "Szybko"), (2, "Zrównoważona"), (5, "Najdokładniej")],
+        self.w_model = combo([("large-v3", tr("large-v3 – najdokładniejszy")),
+                              ("large-v3-turbo", tr("large-v3-turbo – szybszy")),
+                              ("medium", tr("medium – słabsze karty")), ("small", tr("small – najszybszy"))], self.s.whisper_model)
+        self.lang = combo([("auto", tr("Wykryj automatycznie")), ("pl", tr("Polski")), ("en", tr("Angielski")), ("de", tr("Niemiecki")),
+                           ("es", tr("Hiszpański")), ("fr", tr("Francuski"))], self.s.language)
+        self.beam = combo([(1, tr("Szybko")), (2, tr("Zrównoważona")), (5, tr("Najdokładniej"))],
                           int(getattr(self.s, "whisper_beam", 5)), 200)
-        devices = [("auto", "Automatycznie"), ("cpu", "Procesor")] if IS_MAC else \
-            [("auto", "Automatycznie"), ("cuda", "Karta graficzna (CUDA)"), ("cpu", "Procesor")]
+        devices = [("auto", tr("Automatycznie")), ("cpu", tr("Procesor"))] if IS_MAC else \
+            [("auto", tr("Automatycznie")), ("cuda", tr("Karta graficzna (CUDA)")), ("cpu", tr("Procesor"))]
         self.w_device = combo(devices, self.s.whisper_device)
         self.chunk = QSpinBox()
         self.chunk.setRange(8, 60)
         self.chunk.setSuffix(" s")
         self.chunk.setValue(int(self.s.live_chunk_seconds))
         self.gpu_dot = StatusDot("gray")
-        self.gpu_text = label("Nie sprawdzono", "secondary")
-        b_gpu = QPushButton("Sprawdź")
+        self.gpu_text = label(tr("Nie sprawdzono"), "secondary")
+        b_gpu = QPushButton(tr("Sprawdź"))
         b_gpu.clicked.connect(self._check_gpu)
-        g = GroupSection("Transkrypcja", "Rozpoznawanie mowy (Whisper) działa lokalnie na komputerze.")
-        g.add_row("Język wykładów", self.lang, "Język, w którym mówi prowadzący. Transkrypcja zawsze zostaje w tym "
-                                              "języku – język notatek ustawisz w „Notatki AI”.")
-        g.add_row("Model", self.w_model, "Dokładniejszy model = lepszy tekst, ale wolniejsza transkrypcja." if IS_MAC
-                  else "Dokładniejszy model = lepszy tekst, ale większe obciążenie karty.")
-        g.add_row("Dokładność", self.beam, "„Szybko” rozpoznaje mowę ok. 2× szybciej kosztem drobnych pomyłek.")
-        g.add_row("Urządzenie", self.w_device, "Na Macu mowę rozpoznaje procesor (rdzenie wydajnościowe)." if IS_MAC
+        g = GroupSection(tr("Transkrypcja"), tr("Rozpoznawanie mowy (Whisper) działa lokalnie na komputerze."))
+        g.add_row(tr("Język wykładów"), self.lang, tr("Język, w którym mówi prowadzący. Transkrypcja zawsze zostaje w tym "
+                                              "języku – język notatek ustawisz w „Notatki AI”."))
+        g.add_row(tr("Model"), self.w_model, tr("Dokładniejszy model = lepszy tekst, ale wolniejsza transkrypcja.") if IS_MAC
+                  else tr("Dokładniejszy model = lepszy tekst, ale większe obciążenie karty."))
+        g.add_row(tr("Dokładność"), self.beam, tr("„Szybko” rozpoznaje mowę ok. 2× szybciej kosztem drobnych pomyłek."))
+        g.add_row(tr("Urządzenie"), self.w_device, tr("Na Macu mowę rozpoznaje procesor (rdzenie wydajnościowe).") if IS_MAC
                   else "")
         if LIVE_RECORDING:
-            g.add_row("Fragment na żywo co", self.chunk, "Co ile sekund dopisywać tekst podczas wykładu.")
+            g.add_row(tr("Fragment na żywo co"), self.chunk, tr("Co ile sekund dopisywać tekst podczas wykładu."))
         if not IS_MAC:          # CUDA – tylko karty NVIDIA (Windows)
-            g.add_row("Karta graficzna", hbox(self.gpu_dot, self.gpu_text, b_gpu, spacing=8))
+            g.add_row(tr("Karta graficzna"), hbox(self.gpu_dot, self.gpu_text, b_gpu, spacing=8))
         v.addWidget(g)
 
         # ---------------- Slajdy ----------------
@@ -289,39 +302,39 @@ class SettingsTab(QWidget):
         self.interval.setSuffix(" s")
         self.interval.setValue(self.s.slide_interval)
         self.ocr = ToggleSwitch(self.s.ocr_enabled)
-        g = GroupSection("Wykrywanie slajdów")
-        g.add_row("Próg zmiany slajdu", hbox(self.sens, self.sens_val, spacing=8),
-                  "Jaka część obrazu musi się zmienić. Łapie za dużo – zwiększ. Gubi slajdy – zmniejsz.")
-        g.add_row("Slajd musi stać przez", self.stable, "Chroni przed zapisywaniem przejść i animacji.")
+        g = GroupSection(tr("Wykrywanie slajdów"))
+        g.add_row(tr("Próg zmiany slajdu"), hbox(self.sens, self.sens_val, spacing=8),
+                  tr("Jaka część obrazu musi się zmienić. Łapie za dużo – zwiększ. Gubi slajdy – zmniejsz."))
+        g.add_row(tr("Slajd musi stać przez"), self.stable, tr("Chroni przed zapisywaniem przejść i animacji."))
         if LIVE_RECORDING:
-            g.add_row("Sprawdzaj ekran co", self.interval)
-        g.add_row("Odczytuj tekst ze slajdów", self.ocr,
-                  f"OCR {'Apple Vision' if IS_MAC else 'Windows'} – treść slajdów trafia do notatek.")
+            g.add_row(tr("Sprawdzaj ekran co"), self.interval)
+        g.add_row(tr("Odczytuj tekst ze slajdów"), self.ocr,
+                  tr("OCR {x} – treść slajdów trafia do notatek.", x='Apple Vision' if IS_MAC else 'Windows'))
         v.addWidget(g)
 
         # ---------------- Dźwięk ----------------
-        backends = [("auto", "Automatycznie"), ("sck", "ScreenCaptureKit")] if IS_MAC else             [("auto", "Automatycznie"), ("proctap", "proc-tap"), ("native", "Wbudowany (WASAPI)")]
+        backends = [("auto", tr("Automatycznie")), ("sck", "ScreenCaptureKit")] if IS_MAC else             [("auto", tr("Automatycznie")), ("proctap", "proc-tap"), ("native", tr("Wbudowany (WASAPI)"))]
         self.audio_backend = combo(backends, self.s.audio_backend)
-        g = GroupSection("Dźwięk", "Zmień, jeśli przy nagrywaniu wybranej aplikacji pasek poziomu dźwięku stoi w miejscu."
-                         + (" „Automatycznie” = Core Audio (macOS 14.4+), a gdy się nie uda – ScreenCaptureKit."
+        g = GroupSection(tr("Dźwięk"), tr("Zmień, jeśli przy nagrywaniu wybranej aplikacji pasek poziomu dźwięku stoi w miejscu.")
+                         + (tr(" „Automatycznie” = Core Audio (macOS 14.4+), a gdy się nie uda – ScreenCaptureKit.")
                             if IS_MAC else ""))
-        g.add_row("Przechwytywanie aplikacji", self.audio_backend)
+        g.add_row(tr("Przechwytywanie aplikacji"), self.audio_backend)
         self.autostop = QSpinBox()
         self.autostop.setRange(0, 60)
         self.autostop.setSuffix(" min")
-        self.autostop.setSpecialValueText("wyłączony")
+        self.autostop.setSpecialValueText(tr("wyłączony"))
         self.autostop.setValue(int(self.s.auto_stop_minutes))
-        g.add_row("Autostop po ciszy", self.autostop,
-                  "Gdy tyle minut nic nie słychać albo zamkniesz aplikację z wykładem, nagrywanie zakończy się "
-                  "po 60 s (możesz to anulować).")
+        g.add_row(tr("Autostop po ciszy"), self.autostop,
+                  tr("Gdy tyle minut nic nie słychać albo zamkniesz aplikację z wykładem, nagrywanie zakończy się "
+                  "po 60 s (możesz to anulować)."))
         v.addWidget(g)
         g.setVisible(LIVE_RECORDING)    # przechwytywanie dźwięku – Windows i macOS 14.4+
 
         # ---------------- Zgody macOS ----------------
         if IS_MAC and LIVE_RECORDING:
             from .permission_panel import PermissionPanel
-            g = GroupSection("Zgody macOS", "macOS pyta o zgodę osobno na mikrofon, dźwięk aplikacji i nagrywanie "
-                                            "ekranu. Wszystko zostaje na tym Macu.")
+            g = GroupSection(tr("Zgody macOS"), tr("macOS pyta o zgodę osobno na mikrofon, dźwięk aplikacji i nagrywanie "
+                                            "ekranu. Wszystko zostaje na tym Macu."))
             self.perms = PermissionPanel(show_granted=True)
             self.perms.restart_requested.connect(self._restart_app)
             g.add(self.perms)
@@ -329,20 +342,20 @@ class SettingsTab(QWidget):
 
         # ---------------- AI ----------------
         self.ai_dot = StatusDot("gray")
-        self.ai_text = label("Sprawdzanie…", "secondary", wrap=True)
+        self.ai_text = label(tr("Sprawdzanie…"), "secondary", wrap=True)
         self.ai_text.setOpenExternalLinks(True)
-        b_ai = QPushButton("Odśwież")
+        b_ai = QPushButton(tr("Odśwież"))
         b_ai.clicked.connect(self.check_ollama)
         self.model = QComboBox()
         self.model.setEditable(True)
         self.model.setMinimumWidth(260)
-        self.btn_pull = QPushButton("Pobierz")
+        self.btn_pull = QPushButton(tr("Pobierz"))
         self.btn_pull.clicked.connect(lambda: self._pull(self.model))
         self.pull_bar = QProgressBar()
         self.pull_bar.setTextVisible(False)
         self.pull_bar.setRange(0, 1000)
         self.pull_bar.hide()
-        self.ctx = combo([(8192, "8 tys. tokenów"), (16384, "16 tys. tokenów"), (32768, "32 tys. tokenów")],
+        self.ctx = combo([(8192, tr("8 tys. tokenów")), (16384, tr("16 tys. tokenów")), (32768, tr("32 tys. tokenów"))],
                          self.s.ollama_ctx, 200)
         self.cards = QSpinBox()
         self.cards.setRange(1, 10)
@@ -351,35 +364,35 @@ class SettingsTab(QWidget):
         self.live_model = QComboBox()
         self.live_model.setEditable(True)
         self.live_model.setMinimumWidth(260)
-        self.btn_pull_live = QPushButton("Pobierz")
+        self.btn_pull_live = QPushButton(tr("Pobierz"))
         self.btn_pull_live.clicked.connect(lambda: self._pull(self.live_model))
         self.url = QLineEdit(self.s.ollama_url)
         self.url.setMinimumWidth(260)
-        g = GroupSection("Notatki AI", "Notatki tworzy lokalny model w programie Ollama – bez internetu i bez opłat. "
-                                       "Polecane: " + "; ".join(d for _m, d in RECOMMENDED_MODELS) + ".")
-        g.add_row("Stan", hbox(self.ai_dot, self.ai_text, b_ai, spacing=8), stretch=True)
+        g = GroupSection(tr("Notatki AI"), tr("Notatki tworzy lokalny model w programie Ollama – bez internetu i bez opłat. "
+                                       "Polecane: ") + "; ".join(d for _m, d in RECOMMENDED_MODELS) + ".")
+        g.add_row(tr("Stan"), hbox(self.ai_dot, self.ai_text, b_ai, spacing=8), stretch=True)
         from ..prompts import NOTES_LANGS
-        self.notes_lang = combo([("", "Jak wykład")] + NOTES_LANGS, self.s.notes_language or "")
-        g.add_row("Język notatek", self.notes_lang,
-                  "Domyślny język notatek, fiszek i podsumowania. „Jak wykład” – w języku, w którym mówi prowadzący. "
+        self.notes_lang = combo([("", tr("Jak wykład"))] + [(c, tr(n)) for c, n in NOTES_LANGS], self.s.notes_language or "")
+        g.add_row(tr("Język notatek"), self.notes_lang,
+                  tr("Domyślny język notatek, fiszek i podsumowania. „Jak wykład” – w języku, w którym mówi prowadzący. "
                   "Inny język: terminy fachowe dostaną oryginał w nawiasie, a cytaty i definicje słowo w słowo "
-                  "zostaną w oryginale. Możesz to zmienić przy każdej notatce.")
-        self.model_row = g.add_row("Model notatek (po wykładzie)", hbox(self.model, self.btn_pull, spacing=6))
-        self.model_row.subtitle.setText("Mocniejszy model – pełna notatka, podsumowanie, fiszki, pytania i egzaminy.")
+                  "zostaną w oryginale. Możesz to zmienić przy każdej notatce."))
+        self.model_row = g.add_row(tr("Model notatek (po wykładzie)"), hbox(self.model, self.btn_pull, spacing=6))
+        self.model_row.subtitle.setText(tr("Mocniejszy model – pełna notatka, podsumowanie, fiszki, pytania i egzaminy."))
         self.model_row.subtitle.show()
-        lm = g.add_row("Model na żywo (w trakcie)", hbox(self.live_model, self.btn_pull_live, spacing=6))
-        lm.subtitle.setText("Lżejszy model do notatek w trakcie nagrywania – zostawia miejsce na karcie dla "
-                            "rozpoznawania mowy. Po zakończeniu notatka powstaje od nowa mocniejszym modelem.")
+        lm = g.add_row(tr("Model na żywo (w trakcie)"), hbox(self.live_model, self.btn_pull_live, spacing=6))
+        lm.subtitle.setText(tr("Lżejszy model do notatek w trakcie nagrywania – zostawia miejsce na karcie dla "
+                            "rozpoznawania mowy. Po zakończeniu notatka powstaje od nowa mocniejszym modelem."))
         lm.subtitle.show()
         g.add(self._wrap(self.pull_bar))
         self.reuse = ToggleSwitch(bool(getattr(self.s, "reuse_live_notes", False)))
         live_rows = [lm]
-        live_rows.append(g.add_row("Notatki i pytania na żywo", self.live_notes,
-                  "Notatki powstają w trakcie nagrywania, a pytania można zadawać od razu. Whisper działa wtedy w "
-                  "oszczędniejszym trybie, żeby oba modele zmieściły się w pamięci karty graficznej."))
-        live_rows.append(g.add_row("Szybkie zakończenie", self.reuse,
-                  "Fragmenty napisane w trakcie nagrywania zostają w notatce – po wykładzie dopisuje się tylko reszta, "
-                  "fiszki i podsumowanie. Dużo szybciej, ale te fragmenty pisał lżejszy model."))
+        live_rows.append(g.add_row(tr("Notatki i pytania na żywo"), self.live_notes,
+                  tr("Notatki powstają w trakcie nagrywania, a pytania można zadawać od razu. Whisper działa wtedy w "
+                  "oszczędniejszym trybie, żeby oba modele zmieściły się w pamięci karty graficznej.")))
+        live_rows.append(g.add_row(tr("Szybkie zakończenie"), self.reuse,
+                  tr("Fragmenty napisane w trakcie nagrywania zostają w notatce – po wykładzie dopisuje się tylko reszta, "
+                  "fiszki i podsumowanie. Dużo szybciej, ale te fragmenty pisał lżejszy model.")))
         if not LIVE_RECORDING:      # Mac: bez nagrywania na żywo
             for row in live_rows:
                 row.setVisible(False)
@@ -394,16 +407,16 @@ class SettingsTab(QWidget):
             self.vision_model.setCurrentIndex(i_)
         else:
             self.vision_model.setEditText(self.s.vision_model)
-        g.add_row("Opisuj obrazy na slajdach", self.describe,
-                  "Zdjęcia, schematy, wykresy i tabele ze slajdów dostają opis w notatkach („Na slajdzie”), a model "
-                  "dokładniej odczytuje tekst i wzory. Dodaje ok. 5 s na slajd po wykładzie.")
-        g.add_row("Model do slajdów (widzi obrazy)", self.vision_model,
-                  "Pobiera się sam przy pierwszym użyciu.")
+        g.add_row(tr("Opisuj obrazy na slajdach"), self.describe,
+                  tr("Zdjęcia, schematy, wykresy i tabele ze slajdów dostają opis w notatkach („Na slajdzie”), a model "
+                  "dokładniej odczytuje tekst i wzory. Dodaje ok. 5 s na slajd po wykładzie."))
+        g.add_row(tr("Model do slajdów (widzi obrazy)"), self.vision_model,
+                  tr("Pobiera się sam przy pierwszym użyciu."))
         self.describe.toggled.connect(self.vision_model.setEnabled)
         self.vision_model.setEnabled(self.describe.isChecked())
-        g.add_row("Fiszek na fragment wykładu", self.cards)
-        g.add_row("Kontekst modelu", self.ctx, "Więcej = model widzi dłuższe fragmenty, ale zużywa więcej pamięci karty.")
-        g.add_row("Adres serwera Ollama", self.url)
+        g.add_row(tr("Fiszek na fragment wykładu"), self.cards)
+        g.add_row(tr("Kontekst modelu"), self.ctx, tr("Więcej = model widzi dłuższe fragmenty, ale zużywa więcej pamięci karty."))
+        g.add_row(tr("Adres serwera Ollama"), self.url)
         v.addWidget(g)
 
         # ---------------- Aktualizacje ----------------
@@ -411,12 +424,13 @@ class SettingsTab(QWidget):
         v.addWidget(self.updates)
 
         # ---------------- Pomoc ----------------
-        b_log = QPushButton("Otwórz log")
+        b_log = QPushButton(tr("Otwórz log"))
         b_log.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_path()))))
-        debug = ("w Terminalu wpisz „/Applications/Wykłady.app/Contents/MacOS/Wyklady --debug” (komunikaty w oknie "
-                 "Terminala)" if IS_MAC else "uruchom „Wykłady.exe --debug” (okno z komunikatami)")
-        g = GroupSection("Pomoc", f"Gdy coś nie działa, {debug} albo prześlij treść logu.")
-        g.add_row("Dziennik zdarzeń", b_log)
+        debug = (tr("w Terminalu wpisz „/Applications/Wykłady.app/Contents/MacOS/Wyklady --debug” (komunikaty w oknie "
+                 "Terminala)") if IS_MAC else tr("uruchom „Wykłady.exe --debug” (okno z komunikatami)"))
+        g = GroupSection(tr("Pomoc"), tr("Gdy coś nie działa, prześlij treść logu.") if IS_STORE else
+                         tr("Gdy coś nie działa, {debug} albo prześlij treść logu.", debug=debug))
+        g.add_row(tr("Dziennik zdarzeń"), b_log)
         v.addWidget(g)
 
         # ---------------- O aplikacji ----------------
@@ -456,8 +470,18 @@ class SettingsTab(QWidget):
         QTimer.singleShot(400, self.check_ollama)
         QTimer.singleShot(200, lambda: self._detect_hw(False))
 
+    def _ui_lang_changed(self, _i: int):
+        from .. import i18n
+        code = self.ui_lang.currentData() or ""
+        self.s.ui_language = code
+        self.s.save()
+        changed = (code or i18n.system_language()) != i18n.lang()
+        self.lang_row.subtitle.setText(tr("Zapisano – nowy język będzie widoczny po ponownym uruchomieniu aplikacji.")
+                                       if changed else tr("Zmiana działa po ponownym uruchomieniu aplikacji."))
+        show_if(self.b_restart, changed)
+
     def _restart_app(self):
-        """Mac: zgoda na nagrywanie ekranu działa dopiero po ponownym uruchomieniu."""
+        """Ponowne uruchomienie: nowy język interfejsu, na Macu zgoda na nagrywanie ekranu."""
         w = self.window()
         if hasattr(w, "_restart_after_update"):
             w._restart_after_update()
@@ -477,10 +501,10 @@ class SettingsTab(QWidget):
         h.addWidget(logo, 0, Qt.AlignmentFlag.AlignTop)
         v = QVBoxLayout()
         v.setSpacing(4)
-        v.addWidget(label(f"Wykłady {version.VERSION}", "title3"))
-        txt = label(f"Aplikacja stworzona przez <b>{version.AUTHOR}</b> wyłącznie w celach osobistych – do własnej "
-                    "nauki. Udostępniana bez gwarancji. Wszystko działa lokalnie: nagrania, notatki i fiszki nie opuszczają "
-                    "Twojego komputera. Pamiętaj o zasadach uczelni dotyczących nagrywania zajęć.", "secondary", wrap=True)
+        v.addWidget(label(f"{APP_NAME} {version.VERSION}", "title3"))
+        txt = label(tr("Aplikacja stworzona przez <b>{author}</b> wyłącznie w celach osobistych – do własnej nauki. "
+                       "Udostępniana bez gwarancji. Wszystko działa lokalnie: nagrania, notatki i fiszki nie "
+                       "opuszczają Twojego komputera. Pamiętaj o zasadach uczelni dotyczących nagrywania zajęć.", author=version.AUTHOR), "secondary", wrap=True)
         txt.setTextFormat(Qt.TextFormat.RichText)
         v.addWidget(txt)
         links = QHBoxLayout()
@@ -495,7 +519,7 @@ class SettingsTab(QWidget):
             b.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
             links.addWidget(b)
         if version.REPO:
-            b = QPushButton("Strona projektu")
+            b = QPushButton(tr("Strona projektu"))
             b.setObjectName("plain")
             set_icon(b, "books", "accent", 14)
             b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(f"https://github.com/{version.REPO}")))
@@ -539,10 +563,10 @@ class SettingsTab(QWidget):
             return
         self.s.ui_scale = new
         self.s.save()
-        self.scale_row.subtitle.setText("Zapisano – nowy rozmiar będzie widoczny po ponownym uruchomieniu aplikacji.")
+        self.scale_row.subtitle.setText(tr("Zapisano – nowy rozmiar będzie widoczny po ponownym uruchomieniu aplikacji."))
 
     def _pick_lib(self):
-        d = QFileDialog.getExistingDirectory(self, "Folder biblioteki", self.s.library_dir)
+        d = QFileDialog.getExistingDirectory(self, tr("Folder biblioteki"), self.s.library_dir)
         if d:
             self.s.library_dir = d
             self.lib_row.subtitle.setText(d)
@@ -554,7 +578,7 @@ class SettingsTab(QWidget):
         combo.clear()
         names = list(installed) + [m for m, _d in RECOMMENDED_MODELS if m not in installed]
         for n in names:
-            combo.addItem(n + ("" if n in installed else "  (do pobrania)"), n)
+            combo.addItem(n + ("" if n in installed else "  " + tr("(do pobrania)")), n)
         i = combo.findData(cur)
         if i >= 0:
             combo.setCurrentIndex(i)
@@ -570,7 +594,7 @@ class SettingsTab(QWidget):
     @staticmethod
     def _combo_model(combo: QComboBox) -> str:
         data = combo.currentData()
-        text = combo.currentText().replace("  (do pobrania)", "").strip()
+        text = combo.currentText().replace("  " + tr("(do pobrania)"), "").strip()
         return str(data) if data and text == str(data) else text
 
     def current_model(self) -> str:
@@ -594,15 +618,15 @@ class SettingsTab(QWidget):
         self.btn_pull_live.setEnabled(state != "down" and not has(live))
         if state == "down":
             self.ai_dot.set("red")
-            self.ai_text.setText("Ollama nie działa. Zainstaluj ją (<a href='https://ollama.com/download'>ollama.com</a>) "
-                                 "albo uruchom install.bat.")
+            self.ai_text.setText(tr("Ollama nie działa. Zainstaluj ją (<a href='https://ollama.com/download'>ollama.com</a>) "
+                                 "albo uruchom install.bat."))
         elif has(main) and has(live):
             self.ai_dot.set("green")
-            self.ai_text.setText("Gotowe – oba modele są pobrane.")
+            self.ai_text.setText(tr("Gotowe – oba modele są pobrane."))
         else:
             missing = [m for m in (main, live) if not has(m)]
             self.ai_dot.set("orange")
-            self.ai_text.setText("Ollama działa, ale brakuje modelu: " + ", ".join(dict.fromkeys(missing)) + ".")
+            self.ai_text.setText(tr("Ollama działa, ale brakuje modelu: ") + ", ".join(dict.fromkeys(missing)) + ".")
 
     def _pull(self, combo: QComboBox):
         model = self._combo_model(combo)
@@ -620,9 +644,9 @@ class SettingsTab(QWidget):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_pull_progress(self, status: str, frac: float):
-        self.ai_text.setText(f"Pobieranie: {status}")
+        self.ai_text.setText(tr("Pobieranie: {status}", status=status))
         if self._pulling_many:
-            self.perf_row.subtitle.setText(f"Pobieranie: {status}")
+            self.perf_row.subtitle.setText(tr("Pobieranie: {status}", status=status))
         for bar in (self.pull_bar, self.perf_bar):
             if frac < 0:
                 bar.setRange(0, 0)
@@ -647,7 +671,7 @@ class SettingsTab(QWidget):
 
     def _detect_hw(self, refresh: bool):
         if refresh:
-            self.hw_row.subtitle.setText("Sprawdzam sprzęt…")
+            self.hw_row.subtitle.setText(tr("Sprawdzam sprzęt…"))
 
         def work():
             try:
@@ -662,10 +686,10 @@ class SettingsTab(QWidget):
         self.hw = hw
         if hw:
             key, why = perf.recommend(hw)
-            self.hw_row.subtitle.setText(f"{perf.describe(hw)}<br>Polecany profil: <b>{perf.LABELS[key]}</b>. {why}")
+            self.hw_row.subtitle.setText(tr("{describe}<br>Polecany profil: <b>{x}</b>. {why}", describe=perf.describe(hw), x=perf.LABELS[key], why=why))
             self.hw_row.subtitle.setTextFormat(Qt.TextFormat.RichText)
         else:
-            self.hw_row.subtitle.setText("Nie udało się sprawdzić sprzętu.")
+            self.hw_row.subtitle.setText(tr("Nie udało się sprawdzić sprzętu."))
         self._update_profiles()
 
     def _check_whisper(self):
@@ -699,7 +723,7 @@ class SettingsTab(QWidget):
         cur = perf.current(self.s, hw) if hw else (getattr(self.s, "hw_profile", "") or "")
         for k, c in self.profile_cards.items():
             gb = perf.download_gb(k, hw, with_libs=False)
-            c.set_state(selected=k == cur, recommended=k == rec, size_text=f"Do pobrania ok. {perf.fmt_gb(gb)}")
+            c.set_state(selected=k == cur, recommended=k == rec, size_text=tr("Do pobrania ok. {fmt_gb}", fmt_gb=perf.fmt_gb(gb)))
         if self._pulling_many:
             return
         installed = getattr(self, "_installed", [])
@@ -707,20 +731,21 @@ class SettingsTab(QWidget):
         self._missing = [m for m in self._needed_models() if not has(m)] if self._ollama_up else []
         parts = []
         if not cur:
-            parts.append("<b>Własne ustawienia</b> – coś zmieniono ręcznie. Kliknij profil, żeby wrócić do gotowego "
-                         "zestawu.")
+            parts.append(tr("<b>Własne ustawienia</b> – coś zmieniono ręcznie. Kliknij profil, żeby wrócić do gotowego "
+                         "zestawu."))
         else:
             parts.append(f"<b>{perf.LABELS[cur]}</b>.")
         todo = [(m.split("/")[-1], perf.model_gb(m)) for m in self._missing]
         if not self._whisper_ok:
-            todo.insert(0, (f"model mowy {self.s.whisper_model}", perf.WHISPER_GB.get(self.s.whisper_model, 1.5)))
+            todo.insert(0, (tr("model mowy {whisper_model}", whisper_model=self.s.whisper_model), perf.WHISPER_GB.get(self.s.whisper_model, 1.5)))
         if todo:
             tot = sum(g for _n, g in todo)
-            parts.append("Do pobrania: " + ", ".join(n for n, _g in todo) + f" – ok. {perf.fmt_gb(tot)}.")
+            parts.append(tr("Do pobrania: {items} – ok. {size}.", items=", ".join(n for n, _g in todo),
+                            size=perf.fmt_gb(tot)))
         elif self._ollama_up:
-            parts.append("Wszystkie modele są pobrane.")
+            parts.append(tr("Wszystkie modele są pobrane."))
         if not self._ollama_up:
-            parts.append("Ollama nie działa – modele AI pobiorą się, gdy ją uruchomisz.")
+            parts.append(tr("Ollama nie działa – modele AI pobiorą się, gdy ją uruchomisz."))
         self.perf_row.subtitle.setTextFormat(Qt.TextFormat.RichText)
         self.perf_row.subtitle.setText(" ".join(parts))
         self.btn_get.setVisible(bool(todo))
@@ -761,7 +786,7 @@ class SettingsTab(QWidget):
                 c.blockSignals(True)
                 i = c.findData(val)
                 if i < 0:
-                    c.addItem(val + "  (do pobrania)", val)
+                    c.addItem(val + "  " + tr("(do pobrania)"), val)
                     i = c.count() - 1
                 c.setCurrentIndex(i)
                 c.blockSignals(False)
@@ -783,7 +808,7 @@ class SettingsTab(QWidget):
         def work():
             try:
                 if whisper:
-                    self.pull_progress.emit(f"model mowy {whisper}…", -1)
+                    self.pull_progress.emit(tr("model mowy {whisper}…", whisper=whisper), -1)
                     from faster_whisper.utils import download_model
                     download_model(whisper)
                 for k, m in enumerate(models, 1):
@@ -796,7 +821,7 @@ class SettingsTab(QWidget):
         threading.Thread(target=work, daemon=True).start()
 
     def _check_gpu(self):
-        self.gpu_text.setText("Sprawdzanie…")
+        self.gpu_text.setText(tr("Sprawdzanie…"))
 
         def work():
             try:
@@ -804,13 +829,13 @@ class SettingsTab(QWidget):
                 import ctranslate2
                 n = ctranslate2.get_cuda_device_count()
                 if cuda_available():
-                    self.gpu_result.emit("green", "Działa – transkrypcja na karcie graficznej.")
+                    self.gpu_result.emit("green", tr("Działa – transkrypcja na karcie graficznej."))
                 elif n > 0:
-                    self.gpu_result.emit("orange", "Brak bibliotek CUDA – uruchom ponownie install.bat.")
+                    self.gpu_result.emit("orange", tr("Brak bibliotek CUDA – uruchom ponownie install.bat."))
                 else:
-                    self.gpu_result.emit("red", "Nie wykryto karty NVIDIA – użyty zostanie procesor.")
+                    self.gpu_result.emit("red", tr("Nie wykryto karty NVIDIA – użyty zostanie procesor."))
             except Exception as e:  # noqa: BLE001
-                self.gpu_result.emit("red", f"Błąd: {e}")
+                self.gpu_result.emit("red", tr("Błąd: {e}", e=e))
         threading.Thread(target=work, daemon=True).start()
 
     def _on_gpu(self, kind: str, text: str):

@@ -7,6 +7,7 @@ import threading
 from typing import Callable, Optional
 
 import requests
+from .i18n import tr
 
 
 class LLMError(RuntimeError):
@@ -52,7 +53,7 @@ class Ollama:
         last = 0.0
         with requests.post(self.url + "/api/pull", json={"model": model, "stream": True}, stream=True, timeout=(10, 600)) as r:
             if not r.ok:
-                raise LLMError(f"Nie udało się pobrać modelu {model}: {r.text[:300]}")
+                raise LLMError(tr("Nie udało się pobrać modelu {model}: {x}", model=model, x=r.text[:300]))
             for line in r.iter_lines():
                 if cancel is not None and cancel.is_set():
                     raise Cancelled()
@@ -79,11 +80,11 @@ class Ollama:
         try:
             r = requests.post(self.url + "/api/chat", json=payload, stream=True, timeout=(10, 900))
         except requests.ConnectionError as e:
-            raise LLMError("Brak połączenia z Ollamą. Czy Ollama jest uruchomiona?") from e
+            raise LLMError(tr("Brak połączenia z Ollamą. Czy Ollama jest uruchomiona?")) from e
         out = []
         with r:
             if not r.ok:
-                raise LLMError(f"Ollama zwróciła błąd {r.status_code}: {r.text[:300]}")
+                raise LLMError(tr("Ollama zwróciła błąd {status_code}: {x}", status_code=r.status_code, x=r.text[:300]))
             for line in r.iter_lines():
                 if cancel is not None and cancel.is_set():
                     raise Cancelled()

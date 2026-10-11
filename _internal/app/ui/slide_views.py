@@ -13,6 +13,7 @@ from ..storage import fmt_time
 from .controls import show_if, label, set_icon
 from .reader import Reader
 from .theme import T, qcolor
+from ..i18n import tr
 
 INDEX = Qt.ItemDataRole.UserRole
 PATH = Qt.ItemDataRole.UserRole + 1
@@ -30,7 +31,7 @@ class SlideInfo:
 
     @property
     def caption(self) -> str:
-        return f"Slajd {self.index} · {fmt_time(self.t)}"
+        return tr("Slajd {index} · {fmt_time}", index=self.index, fmt_time=fmt_time(self.t))
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +69,9 @@ class _ThumbDelegate(QStyledItemDelegate):
             dpr = pm.devicePixelRatio() or 1.0
             w, h = pm.width() / dpr, pm.height() / dpr
             sc = min(ir.width() / w, ir.height() / h)
-            tr = QRectF(0, 0, w * sc, h * sc)
-            tr.moveCenter(ir.center())
-            p.drawPixmap(tr, pm, QRectF(0, 0, pm.width(), pm.height()))
+            img_r = QRectF(0, 0, w * sc, h * sc)
+            img_r.moveCenter(ir.center())
+            p.drawPixmap(img_r, pm, QRectF(0, 0, pm.width(), pm.height()))
             p.setClipping(False)
         p.setPen(QPen(qcolor(t.accent if hover else t.separator), 2 if hover else 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -93,7 +94,7 @@ class _ThumbDelegate(QStyledItemDelegate):
         p.setFont(f)
         p.setPen(qcolor(t.text2))
         t_ = index.data(TIME)
-        cap = f"Slajd {index.data(INDEX)}" + (f" · {fmt_time(t_)}" if t_ is not None and self.view.show_time else "")
+        cap = tr("Slajd {data}", data=index.data(INDEX)) + (f" · {fmt_time(t_)}" if t_ is not None and self.view.show_time else "")
         p.drawText(QRectF(ir.left(), ir.bottom() + 4, ir.width(), 22), Qt.AlignmentFlag.AlignHCenter, cap)
         p.restore()
 
@@ -150,7 +151,7 @@ class SlideThumbs(QListWidget):
         it.setData(TIME, t)
         it.setData(TEXT, text)
         it.setData(PIX, pixmap if pixmap is not None else self._pixmap(path))
-        it.setToolTip((text or "")[:500] or "Kliknij, aby powiększyć")
+        it.setToolTip((text or "")[:500] or tr("Kliknij, aby powiększyć"))
         self.addItem(it)
         return it
 
@@ -192,7 +193,7 @@ class SlidePreview(QDialog):
 
     def __init__(self, slides: list[SlideInfo], pos: int, parent=None, on_delete=None, extra_buttons=()):
         super().__init__(parent)
-        self.setWindowTitle("Podgląd slajdu")
+        self.setWindowTitle(tr("Podgląd slajdu"))
         self.slides = slides
         self.pos = max(0, min(pos, len(slides) - 1))
         self.on_delete = on_delete
@@ -206,11 +207,11 @@ class SlidePreview(QDialog):
         self.txt.setMaximumHeight(90)
         b_prev = QPushButton()
         set_icon(b_prev, "chevron-left", "text2", 18)
-        b_prev.setToolTip("Poprzedni (←)")
+        b_prev.setToolTip(tr("Poprzedni (←)"))
         b_prev.clicked.connect(lambda: self.go(-1))
         b_next = QPushButton()
         set_icon(b_next, "chevron-right", "text2", 18)
-        b_next.setToolTip("Następny (→)")
+        b_next.setToolTip(tr("Następny (→)"))
         b_next.clicked.connect(lambda: self.go(1))
         row = QHBoxLayout()
         row.addWidget(b_prev)
@@ -222,12 +223,12 @@ class SlidePreview(QDialog):
             b.clicked.connect(lambda _=False, f=fn: f(self.current()))
             row.addWidget(b)
         if on_delete:
-            self.b_del = QPushButton("Usuń slajd")
+            self.b_del = QPushButton(tr("Usuń slajd"))
             self.b_del.setObjectName("destructive")
             set_icon(self.b_del, "trash", "red", 15)
             self.b_del.clicked.connect(self._delete)
             row.addWidget(self.b_del)
-        b_close = QPushButton("Zamknij")
+        b_close = QPushButton(tr("Zamknij"))
         b_close.clicked.connect(self.accept)
         row.addWidget(b_close)
         v = QVBoxLayout(self)
@@ -256,7 +257,7 @@ class SlidePreview(QDialog):
         if s is None:
             self.accept()
             return
-        self.cap.setText(s.caption + f"   ({self.pos + 1} z {len(self.slides)})")
+        self.cap.setText(s.caption + "   " + tr("({i} z {n})", i=self.pos + 1, n=len(self.slides)))
         self.txt.setText(s.text or "")
         show_if(self.txt, s.text)
         self._pm = QPixmap(s.path)
@@ -264,7 +265,7 @@ class SlidePreview(QDialog):
 
     def _fit(self):
         if getattr(self, "_pm", None) is None or self._pm.isNull():
-            self.img.setText("Nie można wczytać obrazu.")
+            self.img.setText(tr("Nie można wczytać obrazu."))
             return
         dpr = self.devicePixelRatioF() or 1.0
         size = self.img.size() * dpr
@@ -317,11 +318,11 @@ def slides_text_html(slides: list[SlideInfo], empty: str = "") -> str:
 class SlideTextPanel(QWidget):
     """Cały tekst ze slajdów w jednym miejscu – z przyciskiem „Kopiuj wszystko”."""
 
-    def __init__(self, title: str = "Tekst slajdów"):
+    def __init__(self, title: str = tr("Tekst slajdów")):
         super().__init__()
         self.slides: list[SlideInfo] = []
         self.head = label(title, "headline")
-        self.b_copy = QPushButton("Kopiuj wszystko")
+        self.b_copy = QPushButton(tr("Kopiuj wszystko"))
         self.b_copy.setObjectName("plain")
         set_icon(self.b_copy, "doc", "accent", 15)
         self.b_copy.clicked.connect(self.copy)
@@ -348,6 +349,6 @@ class SlideTextPanel(QWidget):
 
     def copy(self):
         QApplication.clipboard().setText(slides_plain_text(self.slides))
-        self.b_copy.setText("Skopiowano ✓")
+        self.b_copy.setText(tr("Skopiowano ✓"))
         from PySide6.QtCore import QTimer
-        QTimer.singleShot(1500, lambda: self.b_copy.setText("Kopiuj wszystko"))
+        QTimer.singleShot(1500, lambda: self.b_copy.setText(tr("Kopiuj wszystko")))
