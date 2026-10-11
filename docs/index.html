@@ -107,6 +107,27 @@
     border-radius: 5px; padding: 1px 6px;
   }
 
+
+  /* plakietki pod nagłówkiem */
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; padding: 0; list-style: none; }
+  .badges li {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--accentText);
+    background: var(--accentSoft); border-radius: 999px; padding: 5px 12px;
+  }
+  .badges svg { width: 15px; height: 15px; flex: none; }
+
+  /* funkcje ze zrzutami */
+  .features { display: grid; gap: 40px; }
+  .feature { display: grid; grid-template-columns: 1fr 1.35fr; gap: 32px; align-items: center; }
+  .feature:nth-child(even) .text { order: 2; }
+  .feature .text p { color: var(--ink2); margin: 10px 0 0; }
+  .feature ul { margin: 10px 0 0; padding-left: 20px; color: var(--ink2); font-size: 15px; }
+  .feature li { margin: 4px 0; }
+  @media (max-width: 860px) {
+    .feature { grid-template-columns: 1fr; gap: 16px; }
+    .feature:nth-child(even) .text { order: 0; }
+  }
+
   footer { padding: 32px 0 48px; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink3); }
   footer a { margin-right: 12px; }
 
@@ -133,6 +154,14 @@
       <p class="lead">Aplikacja nagrywa dźwięk i slajdy, rozpoznaje mowę i robi z tego notatki, ściągę, fiszki
         i egzamin próbny. Wszystko działa na Twoim komputerze – bez kont, kluczy API i opłat.</p>
 
+      <ul class="badges" aria-label="Najważniejsze cechy">
+        <li><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.4 4.5v7H3zM11.4 4.4 21 3v8.5h-9.6zM3 12.5h7.4v7L3 18.5zM11.4 12.5H21V21l-9.6-1.4z"/></svg>Windows 10 i 11</li>
+        <li><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.1 5.8c.6-.8 1.1-1.8 1-2.9-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.8 1 .1 2.1-.5 2.7-1.3z"/></svg>Mac z M1–M4</li>
+        <li>Po polsku i po angielsku</li>
+        <li>Bez internetu i kont</li>
+        <li>Za darmo</li>
+      </ul>
+
       <div class="cta">
         <a id="dl" class="btn" href="https://github.com/wikingowiec/Notatki-z-wykladow/releases/latest">
           <span id="dl-icon"></span><span id="dl-text">Pobierz</span>
@@ -149,6 +178,61 @@
     </div>
   </div>
 </header>
+
+<section id="funkcje">
+  <div class="wrap">
+    <h2>Co potrafi</h2>
+    <p class="lead">Nagrywasz zajęcia – stacjonarne albo online – a aplikacja robi resztę.</p>
+    <div class="features">
+      <div class="feature">
+        <div class="text">
+          <h3>Nagrywanie z transkrypcją na żywo</h3>
+          <p>Dźwięk tylko z wybranej aplikacji (Teams, Zoom, przeglądarka) albo z mikrofonu, slajdy prosto z ekranu.</p>
+          <ul>
+            <li>transkrypcja, notatki i miniatury slajdów w trakcie wykładu,</li>
+            <li>„Zaznacz ważne” jednym kliknięciem i pauza,</li>
+            <li>pytania do tego, co już padło na wykładzie.</li>
+          </ul>
+        </div>
+        <div class="shot"><img src="screenshots/live2.png" alt="Nagrywanie: transkrypcja, notatki na żywo i slajdy" loading="lazy" width="1920" height="1080"></div>
+      </div>
+      <div class="feature">
+        <div class="text">
+          <h3>Notatki, które dobrze się czyta</h3>
+          <p>Podsumowanie, tematy z „W skrócie”, zakreślone najważniejsze rzeczy i kolorowe ramki
+            Definicja, Wzór, Przykład, Ważne – razem ze slajdami i odnośnikiem do miejsca w nagraniu.</p>
+          <ul>
+            <li>notatki w języku wykładu albo w innym – np. wykład po angielsku, notatki po polsku,</li>
+            <li>ściąga z samymi definicjami i wzorami,</li>
+            <li>eksport do PDF, także w formacie na telefon.</li>
+          </ul>
+        </div>
+        <div class="shot"><img src="screenshots/notes2.png" alt="Notatka z ramkami, slajdem i spisem treści" loading="lazy" width="1920" height="1080"></div>
+      </div>
+      <div class="feature">
+        <div class="text">
+          <h3>Fiszki i egzamin próbny</h3>
+          <p>Fiszki powstają same, pogrupowane w kategorie. Nauka z powtórkami jak w Anki, cel dzienny
+            i seria dni nauki. Do tego egzamin próbny z pytaniami A–D, prawda/fałsz i otwartymi.</p>
+        </div>
+        <div class="shot"><img src="screenshots/decks.png" alt="Nauka z fiszek" loading="lazy" width="1920" height="1080"></div>
+      </div>
+      <div class="feature">
+        <div class="text">
+          <h3>Dopasowana do Twojego komputera</h3>
+          <p>Aplikacja sama sprawdza procesor, pamięć i kartę graficzną i proponuje profil: Lekki,
+            Zrównoważony albo Pełna moc. Działa też na laptopie bez karty NVIDIA i na Macu z procesorem Apple.</p>
+          <ul>
+            <li>trzy motywy (Zeszyt, Atrament, Akademia), jasny i ciemny,</li>
+            <li>interfejs po polsku i po angielsku,</li>
+            <li>„Odinstaluj” w Ustawieniach usuwa wszystko, co aplikacja pobrała.</li>
+          </ul>
+        </div>
+        <div class="shot"><img src="screenshots/profiles.png" alt="Ustawienia: profile wydajności" loading="lazy" width="750" height="500"></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <section id="wymagania">
   <div class="wrap">

@@ -11,6 +11,8 @@
 
 <p align="center">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-2F6B55">
+  <img alt="macOS – Apple Silicon" src="https://img.shields.io/badge/macOS-M1%E2%80%93M4%20(Apple%20Silicon)-1E2320?logo=apple&logoColor=white">
+  <img alt="Polski i angielski" src="https://img.shields.io/badge/j%C4%99zyk-PL%20%7C%20EN-DCE8E0">
   <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3B5BA5">
   <img alt="Qt 6" src="https://img.shields.io/badge/UI-PySide6%20(Qt%206)-86569A">
   <img alt="AI lokalnie" src="https://img.shields.io/badge/AI-Whisper%20%C2%B7%20Ollama%20%C2%B7%20Bielik-B4553A">
@@ -32,32 +34,40 @@
 
 | | |
 |---|---|
-| 🎙️ **Nagrywanie tylko wybranej aplikacji** | Dźwięk z Teams, Chrome albo Zoom – to, co oglądasz obok w innej aplikacji, nie trafia do nagrania. Albo mikrofon na wykładzie stacjonarnym. |
-| ✍️ **Transkrypcja na żywo** | Whisper large-v3 na karcie NVIDIA, po polsku i po angielsku. |
-| 🖼️ **Slajdy z ekranu** | Wykrywa zmianę slajdu, zapisuje zrzut z godziną i czyta z niego tekst. Rozpoznaje powroty do slajdu i slajdy z animacją. Niechciany zrzut (np. kamerkę) usuwasz jednym „×”. |
+| 🎙️ **Nagrywanie tylko wybranej aplikacji** | Dźwięk z Teams, Chrome albo Zoom – to, co oglądasz obok w innej aplikacji, nie trafia do nagrania. Albo mikrofon na wykładzie stacjonarnym. Przy wyborze źródła widać, co właśnie gra, i można to odsłuchać. |
+| ✍️ **Transkrypcja na żywo** | Whisper na karcie NVIDIA albo na procesorze, po polsku i po angielsku. W trakcie: pauza, „Zaznacz ważne”, pytania do tego, co już padło. |
+| 🖼️ **Slajdy z ekranu** | Wykrywa zmianę slajdu, zapisuje zrzut z godziną i czyta z niego tekst. Obszar slajdu zaznaczysz przed i w trakcie nagrywania – także w nagraniu wideo z pliku. |
 | 📒 **Notatki od AI** | Ollama + polski model Bielik: podsumowanie, tematy z „W skrócie”, zakreślone najważniejsze fakty, ramki *Definicja / Wzór / Przykład / Ważne*, opisy zdjęć i wykresów ze slajdów. |
+| 🌍 **Język notatek** | Notatki w języku wykładu albo w innym – np. wykład po angielsku, notatki po polsku, z terminami w oryginale. Interfejs po polsku i po angielsku. |
 | 🗂️ **Kategorie w kolorach** | Podobne tematy łączą się w kategorie – ten sam kolor w spisie treści, ściądze i fiszkach. |
 | 📋 **Ściąga** | Wszystkie definicje, wzory, przykłady i ważne rzeczy w jednym miejscu, z odnośnikiem do miejsca w notatce. |
-| 🃏 **Fiszki w kategoriach** | Przeglądanie po kategoriach i tematach albo nauka z powtórkami jak w Anki. |
+| 🃏 **Fiszki** | Kategorie i tematy, nauka z powtórkami jak w Anki, cel dzienny i seria dni nauki. |
 | ❓ **Zapytaj notatkę** | Odpowiedzi tylko na podstawie notatek, zawsze z cytatem i odnośnikiem. |
 | 📝 **Egzamin próbny** | Pytania A–D, prawda/fałsz i otwarte z Twoich wykładów. |
-| 📱 **Notatki na telefonie** | Gotowa notatka sama zapisuje się jako PDF w formacie telefonu na Dysku Google. |
+| 📄 **PDF** | Czytelny eksport A4 i w formacie telefonu, który sam trafia na Dysk Google. |
 | 📂 **Z pliku** | Nagranie z dyktafonu (m4a, mp3, wideo) i zdjęcia slajdów z telefonu – dopasowane do nagrania po godzinie albo po treści. |
+| ⚙️ **Profile sprzętu** | Aplikacja sama sprawdza komputer i proponuje profil *Lekki / Zrównoważony / Pełna moc*. „Odinstaluj” w Ustawieniach usuwa wszystko, co pobrała. |
+| 🍎 **Mac** | Maki z procesorem Apple (M1–M4), nagrywanie na żywo od macOS 14.4. |
+| 🎨 **Motywy** | Zeszyt, Atrament i Akademia – każdy jasny i ciemny. |
 
 ## Jak to wygląda
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/live2.png" alt="Nagrywanie"><br><sub><b>Nagrywanie</b> – mowa i tekst ze slajdów na żywo, miniatury z „×” do usuwania</sub></td>
-    <td width="50%"><img src="docs/screenshots/notes2.png" alt="Notatka"><br><sub><b>Notatka</b> – kolorowe ramki, zakreślenia, opisy slajdów</sub></td>
+    <td width="50%"><img src="docs/screenshots/live2.png" alt="Nagrywanie"><br><sub><b>Nagrywanie</b> – transkrypcja, notatki na żywo i slajdy, „Zaznacz ważne” i pauza</sub></td>
+    <td width="50%"><img src="docs/screenshots/notes2.png" alt="Notatka"><br><sub><b>Notatka</b> – kolorowe ramki, zakreślenia, slajdy i oś wykładu</sub></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/cheat.png" alt="Ściąga"><br><sub><b>Ściąga</b> – definicje, wzory, przykłady i ważne rzeczy z odnośnikami</sub></td>
-    <td><img src="docs/screenshots/decks.png" alt="Fiszki"><br><sub><b>Fiszki</b> – kategorie wykładu z postępem nauki</sub></td>
+    <td><img src="docs/screenshots/decks.png" alt="Fiszki"><br><sub><b>Fiszki</b> – nauka z powtórkami, cel dzienny i seria dni</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/deck_dark.png" alt="Kategoria fiszek"><br><sub><b>Kategoria</b> – tematy, definicje i fiszki (motyw „tablica”)</sub></td>
-    <td><img src="docs/screenshots/record.png" alt="Nowa notatka"><br><sub><b>Nowa notatka</b> – wybór źródła dźwięku i obszaru slajdu</sub></td>
+    <td><img src="docs/screenshots/deck_dark.png" alt="Kategoria fiszek"><br><sub><b>Kategoria</b> – tematy, definicje i fiszki (tryb ciemny)</sub></td>
+    <td><img src="docs/screenshots/record.png" alt="Nowa notatka"><br><sub><b>Nowa notatka</b> – źródło dźwięku z podglądem, język wykładu i notatek</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/profiles.png" alt="Profile"><br><sub><b>Profile sprzętu</b> – Lekki, Zrównoważony, Pełna moc</sub></td>
+    <td><img src="docs/screenshots/library_dark.png" alt="Tryb ciemny"><br><sub><b>Tryb ciemny</b> – każdy motyw ma wersję jasną i ciemną</sub></td>
   </tr>
 </table>
 
@@ -65,7 +75,7 @@
 
 1. Wejdź na **[stronę pobierania](https://wikingowiec.github.io/Notatki-z-wykladow/)** i kliknij **Pobierz na Windows** (albo weź plik `Wyklady-…-Windows.zip` z zakładki **[Releases](https://github.com/wikingowiec/Notatki-z-wykladow/releases/latest)**). Rozpakuj go w stałym miejscu, np. `C:\Wykłady`.
 2. Uruchom **`Wykłady.exe`**. To jedyny plik, którego używasz – folder `_internal` zawiera resztę programu.
-3. Przy pierwszym uruchomieniu **ekran z notesem** sam pobierze wszystko, co potrzebne (Python, biblioteki z CUDA, model mowy Whisper, Ollama i modele AI – razem ok. 25 GB). Potem notes się zamyka, otwiera się aplikacja, a na pulpicie pojawia się skrót.
+3. Przy pierwszym uruchomieniu aplikacja sprawdzi komputer i zaproponuje **profil** (Lekki / Zrównoważony / Pełna moc), a potem **ekran z notesem** sam pobierze wszystko, co potrzebne (Python, biblioteki, model mowy Whisper, Ollama i modele AI – od ok. 8 do 25 GB, zależnie od profilu). Potem notes się zamyka, otwiera się aplikacja, a na pulpicie pojawia się skrót.
 
 > **„System Windows ochronił ten komputer”** – `Wykłady.exe` nie ma płatnego podpisu. Kliknij **Więcej informacji → Uruchom mimo to** (jednorazowo).
 
@@ -110,12 +120,12 @@ Zainstaluj **Dysk Google na komputer**, a w **Ustawienia → Notatki na telefoni
 
 | Część | Technologia |
 |---|---|
-| Interfejs | Python 3.12, PySide6 (Qt 6), własne motywy „zeszyt” i „tablica” |
-| Mowa → tekst | faster-whisper (large-v3) na CUDA |
+| Interfejs | Python 3.12, PySide6 (Qt 6), motywy Zeszyt / Atrament / Akademia, polski i angielski |
+| Mowa → tekst | faster-whisper (large-v3 / large-v3-turbo / small – zależnie od profilu), CUDA albo procesor |
 | Notatki, fiszki, pytania | Ollama + Bielik 11B / 4.5B |
-| Opisy slajdów | Qwen3-VL 8B (model „widzący” obrazy) |
-| Slajdy | wykrywanie zmian obrazu, OCR, porównywanie odcisków obrazu i tekstu |
-| Start | mały program `Wykłady.exe` (C), który przy pierwszym uruchomieniu pobiera przenośnego Pythona |
+| Opisy slajdów | Qwen3-VL 8B / 4B (model „widzący” obrazy) |
+| Slajdy | wykrywanie zmian obrazu, OCR (Windows OCR / Apple Vision), porównywanie odcisków obrazu i tekstu |
+| Start | Windows: mały program `Wykłady.exe` (C); Mac: `Wykłady.app` – przy pierwszym uruchomieniu pobierają przenośnego Pythona |
 
 ## Gdy coś nie działa
 
