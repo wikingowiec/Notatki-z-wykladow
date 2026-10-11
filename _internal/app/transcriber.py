@@ -110,8 +110,13 @@ class WhisperEngine:
                 if device == "cpu" and self.model_name.startswith("large") and self.device_pref == "auto" \
                         and sys.platform != "darwin":
                     model_name = "medium"   # na CPU large jest za wolny do pracy na żywo (Mac: M1+ daje radę z turbo)
+                from .uninstall import whisper_cached
+                had = whisper_cached(model_name)
                 m = WhisperModel(model_name, device=device, compute_type=ctype,
                                  cpu_threads=self.cpu_threads if device == "cpu" else 0)
+                if not had:          # pobrał się teraz – przy odinstalowaniu usuwamy tylko takie modele
+                    from .setup.state import remember
+                    remember("whisper_models", model_name)
                 # szybki test, czy biblioteki CUDA (cuBLAS/cuDNN) naprawdę działają
                 list(m.transcribe(np.zeros(SR, dtype=np.float32), language=self.language or "pl")[0])
                 self.model, self.device = m, f"{device}/{ctype}/{model_name}"

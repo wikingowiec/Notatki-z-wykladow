@@ -49,6 +49,13 @@ class Ollama:
 
     def pull(self, model: str, progress: Optional[Callable[[str, float], None]] = None,
              cancel: Optional[threading.Event] = None) -> None:
+        had = self.has_model(model)          # model pobrany już wcześniej (np. przez kogoś innego) – nie jest „nasz”
+        self._pull(model, progress, cancel)
+        if not had:
+            from .setup.state import remember
+            remember("ollama_models", model)
+
+    def _pull(self, model: str, progress, cancel) -> None:
         import time
         last = 0.0
         with requests.post(self.url + "/api/pull", json={"model": model, "stream": True}, stream=True, timeout=(10, 600)) as r:

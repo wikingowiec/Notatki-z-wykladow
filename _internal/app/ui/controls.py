@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import weakref
 
-from PySide6.QtCore import (Property, QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, Signal)
+from PySide6.QtCore import (Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, QSize, Qt, Signal)
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QAbstractButton, QBoxLayout, QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton,
                                QSizePolicy, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget)
@@ -267,6 +267,50 @@ class ToggleSwitch(QAbstractButton):
         p.drawEllipse(QRectF(x, 3.3, 20, 20))
         p.setBrush(qcolor(t.surface if not t.dark else t.ink))
         p.drawEllipse(QRectF(x, 2.5, 20, 20))
+        p.end()
+
+
+# ---------------------------------------------------------------------------
+class CheckBox(QAbstractButton):
+    """Pole do zaznaczenia w kolorach motywu (zaokrąglony kwadrat, ptaszek na kolorze akcentu)."""
+
+    def __init__(self, checked: bool = False, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(checked)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(22, 22)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def sizeHint(self):
+        return QSize(22, 22)
+
+    def paintEvent(self, _e):
+        t = T()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(1.5, 1.5, 19, 19)
+        rad = min(6.0, max(3.0, t.r("xs")))
+        on = self.isChecked()
+        fill = qcolor(t.accent) if on else qcolor(t.surface)
+        edge = qcolor(t.accent) if on else qcolor(t.line2)
+        if not self.isEnabled():
+            fill.setAlpha(110)
+            edge.setAlpha(110)
+        p.setPen(QPen(edge, 1.4))
+        p.setBrush(fill)
+        p.drawRoundedRect(r, rad, rad)
+        if self.hasFocus():
+            p.setPen(QPen(qcolor(t.accent, 90), 2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(r.adjusted(-1, -1, 1, 1), rad + 1, rad + 1)
+        if on:
+            pen = QPen(qcolor(t.on_accent), 2.2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            c = r.center()
+            p.drawPolyline([c + QPointF(-4.5, 0.2), c + QPointF(-1.3, 3.4), c + QPointF(4.8, -3.6)])
         p.end()
 
 

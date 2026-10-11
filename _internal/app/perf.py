@@ -417,17 +417,18 @@ def ollama_env() -> dict:
     env = {**os.environ}
     for k, v in OLLAMA_ENV.items():
         env.setdefault(k, v)
+    set_now: list[str] = []          # zmienne ustawione przez aplikację – odinstalowanie usuwa tylko te
     if IS_MAC:
         for name, val in OLLAMA_ENV.items():
             try:
                 cur = subprocess.run(["/bin/launchctl", "getenv", name], capture_output=True, text=True, timeout=3)
                 if not (cur.stdout or "").strip():
                     subprocess.run(["/bin/launchctl", "setenv", name, val], capture_output=True, timeout=3)
+                    set_now.append(name)
             except (OSError, subprocess.SubprocessError):
                 pass
     if sys.platform == "win32":
         try:
-            import ctypes
             import winreg
             changed = False
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0,
@@ -437,11 +438,25 @@ def ollama_env() -> dict:
                         winreg.QueryValueEx(k, name)
                     except OSError:
                         winreg.SetValueEx(k, name, 0, winreg.REG_SZ, val)
+                        set_now.append(name)
                         changed = True
             if changed:      # powiadom Eksploratora, żeby nowe procesy widziały zmienne
-                res = ctypes.c_ulong()
-                ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0x0002, 3000,
-                                                         ctypes.byref(res))
+                broadcast_env()
+        except Exception:  # noqa: BLE001
+            pass
+    if set_now:
+        try:
+            from .setup.state import remember
+            remember("env_set", *set_now)
         except Exception:  # noqa: BLE001
             pass
     return env
+
+
+def broadcast_env() -> None:
+    """Windows: powiadamia Eksploratora o zmianie zmiennych użytkownika (nowe procesy je zobaczą)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    res = ctypes.c_ulong()
+    ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0x0002, 3000, ctypes.byref(res))

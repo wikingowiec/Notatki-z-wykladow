@@ -60,6 +60,22 @@ def save_marker(**extra) -> None:
     MARKER.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def remember(key: str, *values: str) -> None:
+    """Dopisuje do listy w setup.json (bez powtórzeń) – co zainstalowała aplikacja, żeby przy odinstalowaniu
+    nie usunąć cudzych rzeczy (ollama_models, whisper_models, env_set)."""
+    vals = [v for v in values if v]
+    if not vals:
+        return
+    try:
+        m = load_marker()
+        cur = list(m.get(key) or [])
+        new = [v for v in vals if v not in cur]
+        if new:
+            save_marker(**{key: cur + new})
+    except Exception:  # noqa: BLE001 – zapis śladu nie może psuć instalacji ani pobierania
+        pass
+
+
 def python_console() -> str:
     """python.exe obok pythonw.exe (pip z przechwyconym wyjściem). Na Macu – ten sam Python."""
     exe = Path(sys.executable)

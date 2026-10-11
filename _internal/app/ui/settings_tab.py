@@ -138,6 +138,7 @@ class SettingsTab(QWidget):
         self.s = settings
         self._loading = True
         self.busy_fn = lambda: ""
+        self.uninstall_busy_fn = lambda: ""
 
         col = QWidget()
         v = QVBoxLayout(col)
@@ -435,6 +436,16 @@ class SettingsTab(QWidget):
 
         # ---------------- O aplikacji ----------------
         v.addWidget(self._about())
+
+        # ---------------- Odinstaluj ----------------
+        b_un = QPushButton(tr("Odinstaluj aplikację…"))
+        b_un.setObjectName("danger")
+        b_un.clicked.connect(self._uninstall)
+        g = GroupSection(tr("Odinstaluj"))
+        g.add_row(tr("Usuń aplikację z komputera"), b_un,
+                  tr("Usuwa biblioteki, modele AI i ustawienia – tylko to, co zainstalowała aplikacja. Przed usunięciem "
+                     "zobaczysz listę i zdecydujesz, co zostaje. Notatki i nagrania domyślnie zostają."))
+        v.addWidget(g)
         v.addStretch()
 
         lay = QVBoxLayout(self)
@@ -479,6 +490,29 @@ class SettingsTab(QWidget):
         self.lang_row.subtitle.setText(tr("Zapisano – nowy język będzie widoczny po ponownym uruchomieniu aplikacji.")
                                        if changed else tr("Zmiana działa po ponownym uruchomieniu aplikacji."))
         show_if(self.b_restart, changed)
+
+    def _uninstall(self):
+        """Ustawienia → Odinstaluj: najpierw zakończenie nagrywania / zadań, potem okno potwierdzenia i ekran postępu."""
+        reason = self.uninstall_busy_fn() or (tr("Trwa pobieranie modeli – odinstaluj, gdy się skończy.")
+                                              if self._pulling_many or not self.pull_bar._box.isHidden() else "")
+        if reason:
+            QMessageBox.information(self, tr("Odinstaluj aplikację"), reason)
+            return
+        from .uninstall_dialog import UninstallDialog
+        dlg = UninstallDialog(self.s, self.window())
+        self._uninstall_dlg = dlg            # liczenie rozmiarów w tle wysyła sygnały do okna
+        if dlg.exec() != UninstallDialog.DialogCode.Accepted:
+            return
+        keys = dlg.keys()
+        from ..setup.window import UninstallWindow
+        from ..uninstall import DRY
+        if "settings" in keys and not DRY:
+            self.s.save = lambda *a, **k: None       # przy zamykaniu nie zapisuj ustawień od nowa
+        uw = UninstallWindow(self.s, dlg.plan, keys)
+        w = self.window()
+        w._uninstall_window = uw
+        w.hide()
+        uw.start()
 
     def _restart_app(self):
         """Ponowne uruchomienie: nowy język interfejsu, na Macu zgoda na nagrywanie ekranu."""
@@ -811,6 +845,8 @@ class SettingsTab(QWidget):
                     self.pull_progress.emit(tr("model mowy {whisper}…", whisper=whisper), -1)
                     from faster_whisper.utils import download_model
                     download_model(whisper)
+                    from ..setup.state import remember
+                    remember("whisper_models", whisper)
                 for k, m in enumerate(models, 1):
                     short = m.split("/")[-1]
                     pre = f"{short} ({k}/{len(models)})" if len(models) > 1 else short

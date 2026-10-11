@@ -66,6 +66,8 @@ class Installer(QObject):
         self.s = settings
         self.cancel = threading.Event()
         self._proc: Optional[subprocess.Popen] = None
+        if not state.load_marker():       # świeża instalacja – od początku zapisujemy, co pobiera aplikacja
+            state.save_marker(tracked=True)
         m = state.load_marker()
         self.marker = m
         models = self._models()
@@ -295,6 +297,7 @@ class Installer(QObject):
         if err:
             raise err[0]
         state.save_marker(whisper=name)
+        state.remember("whisper_models", name)
         return "done"
 
     @staticmethod
@@ -326,6 +329,9 @@ class Installer(QObject):
         from ..perf import ollama_env
         ollama_env()                  # zmienne przed instalacją – Ollama wystartuje już z nimi
         exe = self.find_ollama()
+        if exe and "ollama_installed_by_app" not in self.marker:
+            state.save_marker(ollama_installed_by_app=False)      # była przed nami – przy odinstalowaniu zostaje
+            self.marker["ollama_installed_by_app"] = False
         if not exe and IS_MAC:
             exe = self._install_ollama_mac(i)
         elif not exe:
@@ -343,6 +349,7 @@ class Installer(QObject):
                 time.sleep(1)
             if not exe:
                 raise RuntimeError(tr("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download."))
+            state.save_marker(ollama_installed_by_app=True)
         if not self._ollama_up():
             self._report(i, 0.95, tr("Uruchamiam Ollamę…"))
             ollama_local.start(self.s.ollama_url, wait=20, exe=exe)
@@ -369,6 +376,7 @@ class Installer(QObject):
         exe = self.find_ollama()
         if not exe:
             raise RuntimeError(tr("Nie udało się zainstalować Ollamy – pobierz ją z ollama.com/download."))
+        state.save_marker(ollama_installed_by_app=True)
         return exe
 
     # ------------------------------------------------------------------ 4. modele AI
@@ -419,6 +427,7 @@ class Installer(QObject):
                         det = (tr("Pobieram model {short} · {gb} z {total}", short=short, gb=_gb(comp), total=_gb(total))
                                if big else tr("Pobieram model {short}", short=short) + "…")
                         self._report(i, (done_w + w * (f if big else 0.02)) / tot, det)
+                state.remember("ollama_models", m)
             except Cancelled:
                 raise
             except Exception as e:  # noqa: BLE001

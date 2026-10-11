@@ -1265,6 +1265,101 @@ EN: dict[str, str] = {
     "uruchom Wykłady ponownie.":
         "System Settings › Privacy & Security › Screen & System Audio Recording › turn on “Wykłady”, then restart "
         "Wykłady.",
+
+    # ------------------------------------------------------------------ odinstalowanie
+    "Odinstaluj": "Uninstall",
+    "Odinstaluj aplikację": "Uninstall the app",
+    "Odinstaluj aplikację…": "Uninstall the app…",
+    "Usuń aplikację z komputera": "Remove the app from this computer",
+    "Usuwa biblioteki, modele AI i ustawienia – tylko to, co zainstalowała aplikacja. Przed usunięciem zobaczysz "
+    "listę i zdecydujesz, co zostaje. Notatki i nagrania domyślnie zostają.":
+        "Removes libraries, AI models and settings – only what the app installed. Before anything is removed you "
+        "will see a list and decide what stays. Your notes and recordings stay by default.",
+    "Trwa pobieranie modeli – odinstaluj, gdy się skończy.": "Models are downloading – uninstall when it finishes.",
+    "Trwa nagrywanie – zakończ je, zanim odinstalujesz aplikację.":
+        "Recording in progress – stop it before uninstalling the app.",
+    "Trwa: {name}. Odinstaluj aplikację, gdy się skończy (albo przerwij zadanie).":
+        "In progress: {name}. Uninstall the app when it finishes (or cancel the task).",
+    "Odinstalować {app}?": "Uninstall {app}?",
+    "Zaznacz, co usunąć. Usuwamy tylko to, co zainstalowała aplikacja – programy i modele, które były na komputerze "
+    "wcześniej, zostają.":
+        "Choose what to remove. Only things the app installed are removed – programs and models that were on this "
+        "computer before stay.",
+    "Tryb próbny: nic nie zostanie usunięte, lista trafi do logu.":
+        "Dry run: nothing will be removed, the list goes to the log.",
+    "liczę…": "counting…",
+    "Nic nie zaznaczono": "Nothing selected",
+    "Liczę rozmiar…": "Counting the size…",
+    "Zwolnisz ok. {x}": "You will free about {x}",
+    "Zwolnisz ok. {x} – liczę dalej…": "You will free about {x} – still counting…",
+    "Twoje notatki, nagrania i fiszki zostają w folderze {path}.":
+        "Your notes, recordings and flashcards stay in {path}.",
+    "Razem z notatkami, nagraniami i fiszkami.": "Including your notes, recordings and flashcards.",
+    "Sam pakiet SlideScribe usuniesz na końcu w Ustawieniach Windows.":
+        "You will remove the SlideScribe package itself at the end, in Windows Settings.",
+    "Tego nie da się cofnąć.": "This cannot be undone.",
+    "Usuwa się razem z plikami programu.": "Removed together with the program files.",
+    "Usunąć notatki i nagrania?": "Delete notes and recordings?",
+    "Usunąć na zawsze {lectures} z folderu {path}? Razem z nagraniami, slajdami, notatkami i fiszkami. Tego nie da "
+    "się cofnąć.":
+        "Permanently delete {lectures} from {path}? Including recordings, slides, notes and flashcards. This cannot "
+        "be undone.",
+    "Usunąć na zawsze folder {path} z notatkami i fiszkami? Tego nie da się cofnąć.":
+        "Permanently delete the folder {path} with your notes and flashcards? This cannot be undone.",
+    "Usuń na zawsze": "Delete permanently",
+    "Biblioteki aplikacji i Python": "App libraries and Python",
+    "Pobrane przy pierwszym uruchomieniu (folder runtime).": "Downloaded on first launch (the runtime folder).",
+    "Modele rozpoznawania mowy (Whisper)": "Speech recognition models (Whisper)",
+    "Modele AI pobrane przez aplikację (Ollama)": "AI models downloaded by the app (Ollama)",
+    "Ollama": "Ollama",
+    "Zainstalowana przez aplikację.": "Installed by the app.",
+    "Była na komputerze przed aplikacją albo zainstalowano ją osobno – zostaje.":
+        "It was on this computer before the app or was installed separately – it stays.",
+    "Ustawienia, log, pamięć podręczna": "Settings, log, cache",
+    "Ustawienia aplikacji, dziennik zdarzeń i pliki tymczasowe.": "App settings, event log and temporary files.",
+    "Skróty na pulpicie i w menu Start": "Desktop and Start menu shortcuts",
+    "Pliki programu": "Program files",
+    "Wykłady.app trafi do Kosza.": "Wykłady.app will be moved to the Trash.",
+    "Moje notatki, nagrania i fiszki": "My notes, recordings and flashcards",
+    "{app} – odinstalowywanie": "{app} – uninstalling",
+    "Usuwam to, co zainstalowała aplikacja": "Removing what the app installed",
+    "tryb próbny – nic nie jest usuwane": "dry run – nothing is removed",
+    "Odinstalowywanie": "Uninstalling",
+    "Nie wyłączaj komputera – to potrwa chwilę.": "Don't turn off the computer – this will take a moment.",
+    "Gotowe – zwolniono {x}": "Done – {x} freed",
+    "Nie wszystko się udało – {title}: {note}": "Not everything worked – {title}: {note}",
+    "Python i biblioteki": "Python and libraries",
+    "Modele mowy (Whisper)": "Speech models (Whisper)",
+    "Modele AI (Ollama)": "AI models (Ollama)",
+    "Ustawienia i log": "Settings and log",
+    "Skróty": "Shortcuts",
+    "Notatki i nagrania": "Notes and recordings",
+    "szczegóły w logu": "details in the log",
+    "Reszta plików usunie się sama zaraz po zamknięciu aplikacji.":
+        "The remaining files will be removed automatically right after the app closes.",
+    "Na koniec usuń sam pakiet: po kliknięciu „Zamknij” otworzą się Ustawienia Windows – kliknij SlideScribe → "
+    "Odinstaluj.":
+        "Finally, remove the package itself: after you click “Close”, Windows Settings will open – click "
+        "SlideScribe → Uninstall.",
+    "Wszystko usunięte.": "Everything removed.",
+    "Sprzątanie po zamknięciu": "Cleanup after closing",
+    "Zatrzymuję Ollamę i zwalniam modele…": "Stopping Ollama and unloading models…",
+    "Usuwam modele AI…": "Removing AI models…",
+    "Przenoszę Ollamę do Kosza…": "Moving Ollama to the Trash…",
+    "Usuwam pozostałości Ollamy…": "Removing Ollama leftovers…",
+    "Odinstalowuję Ollamę…": "Uninstalling Ollama…",
+    "Deinstalator Ollamy nie skończył – usuń Ollamę w Ustawieniach Windows → Aplikacje.":
+        "The Ollama uninstaller didn't finish – remove Ollama in Windows Settings → Apps.",
+    "Usuwam model mowy {x}…": "Removing speech model {x}…",
+    "Usuwam wykład: {x}": "Deleting lecture: {x}",
+    "Usuwam notatki…": "Deleting notes…",
+    "Usuwam skróty…": "Removing shortcuts…",
+    "Usuwam ustawienia i log…": "Removing settings and log…",
+    "Python i biblioteki usuną się po zamknięciu aplikacji": "Python and libraries will be removed after the app closes",
+    "To folder z kodem źródłowym (git) – pliki programu zostają.":
+        "This is a source code folder (git) – program files stay.",
+    "Przenoszę Wykłady.app do Kosza…": "Moving Wykłady.app to the Trash…",
+    "Pliki programu usuną się po zamknięciu aplikacji": "Program files will be removed after the app closes",
 }
 
 # liczba mnoga: pierwsza polska forma z tn(...) → (1 sztuka, wiele)
