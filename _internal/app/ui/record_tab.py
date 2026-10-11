@@ -22,14 +22,15 @@ from .controls import (show_if, ModeCard, SegmentedControl, GroupSection, LevelM
                        rounded_pixmap, set_icon)
 from .theme import T, qcolor, theme
 from .widgets import RoiDialog, ask_video_roi, bgr_to_qpixmap, run_async
+from ..i18n import tr
 
 if TYPE_CHECKING:     # moduły nagrywania (WASAPI / Core Audio, zrzuty ekranu) ładują się tylko z nagrywaniem na żywo
     from ..screen_capture import VideoSourceInfo
     from ..session import RecordingSession
 
 log = logging.getLogger(__name__)
-SOON_TIP = ("Nagrywanie na żywo na Macu wymaga macOS 14.4 (Sonoma) lub nowszego. Zaktualizuj system albo dodaj "
-            "nagranie lub wideo z pliku.")
+SOON_TIP = (tr("Nagrywanie na żywo na Macu wymaga macOS 14.4 (Sonoma) lub nowszego. Zaktualizuj system albo dodaj "
+            "nagranie lub wideo z pliku."))
 
 
 class _NoAudioPicker(QWidget):
@@ -89,25 +90,20 @@ def _centered(inner: QWidget, max_w: int = 700) -> QScrollArea:
     return sc
 
 
-PL_DAYS = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
-PL_MONTHS = ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września",
-             "października", "listopada", "grudnia"]
-
-
 def today_line() -> str:
-    import datetime as _dt
-    d = _dt.date.today()
-    return f"{PL_DAYS[d.weekday()]}, {d.day} {PL_MONTHS[d.month - 1]}"
+    """„sobota, 10 października” / „Saturday, October 10”."""
+    from ..i18n import date_long
+    return date_long()
 
 
 def greeting() -> str:
     import datetime as _dt
     h = _dt.datetime.now().hour
     if 5 <= h < 12:
-        return "Dzień dobry! Co dziś notujemy?"
+        return tr("Dzień dobry! Co dziś notujemy?")
     if 12 <= h < 18:
-        return "Miłego popołudnia! Co dziś notujemy?"
-    return "Dobry wieczór! Co dziś notujemy?"
+        return tr("Miłego popołudnia! Co dziś notujemy?")
+    return tr("Dobry wieczór! Co dziś notujemy?")
 
 
 
@@ -118,17 +114,17 @@ def short_audio(label: str) -> str:
     for pre in ("Microsoft ", "Google "):
         if t.startswith(pre) and len(t) > len(pre) + 2:
             t = t[len(pre):]
-    if t.lower().startswith("cały dźwięk"):
-        return "dźwięk systemu"
+    if t.lower().startswith(("cały dźwięk", tr("Cały dźwięk").lower())):  # i18n: nie (stare etykiety)
+        return tr("dźwięk systemu")
     return t[:22]
 
 
 def short_video(info) -> str:
     import re as _re
     if info.kind == "monitor":
-        return f"Monitor {info.index}"
-    t = _re.sub(r"\s+", " ", info.title or info.label or "okno").strip()
-    return ("Okno: " + t)[:26]
+        return tr("Monitor {index}", index=info.index)
+    t = _re.sub(r"\s+", " ", info.title or info.label or tr("okno")).strip()
+    return (tr("Okno: ") + t)[:26]
 
 
 class RecordTab(QWidget):
@@ -191,21 +187,21 @@ class RecordTab(QWidget):
         v.setSpacing(22)
 
         from .controls import Heading
-        self.heading = Heading("Nowa notatka", greeting() + " Wybierz rodzaj notatki – transkrypcja, notatki i "
-                               "fiszki zrobią się same.", today_line())
+        self.heading = Heading(tr("Nowa notatka"), greeting() + tr(" Wybierz rodzaj notatki – transkrypcja, notatki i "
+                               "fiszki zrobią się same."), today_line())
         self.setup_title = self.heading.title
         v.addWidget(self.heading)
 
         from PySide6.QtWidgets import QGridLayout
         from ..ui.theme import MODE_COLOR
         self.modes = {
-            "av": ModeCard("screen-audio", "Dźwięk + slajdy", "Nagrywa dźwięk wykładu i łapie slajdy z ekranu.",
+            "av": ModeCard("screen-audio", tr("Dźwięk + slajdy"), tr("Nagrywa dźwięk wykładu i łapie slajdy z ekranu."),
                            MODE_COLOR["av"]),
-            "audio": ModeCard("mic", "Tylko dźwięk", "Nagranie z aplikacji albo mikrofonu – notatki z tego, co mówi "
-                              "prowadzący.", MODE_COLOR["audio"]),
-            "slides": ModeCard("display", "Tylko slajdy", "Zrzuty slajdów z ekranu – notatki z treści slajdów.",
+            "audio": ModeCard("mic", tr("Tylko dźwięk"), tr("Nagranie z aplikacji albo mikrofonu – notatki z tego, co mówi "
+                              "prowadzący."), MODE_COLOR["audio"]),
+            "slides": ModeCard("display", tr("Tylko slajdy"), tr("Zrzuty slajdów z ekranu – notatki z treści slajdów."),
                                MODE_COLOR["slides"]),
-            "files": ModeCard("import", "Z pliku", "Nagranie z Dyktafonu (m4a), mp3 lub wideo + zdjęcia slajdów.",
+            "files": ModeCard("import", tr("Z pliku"), tr("Nagranie z Dyktafonu (m4a), mp3 lub wideo + zdjęcia slajdów."),
                               MODE_COLOR["files"]),
         }
         peers = list(self.modes.values())
@@ -213,7 +209,7 @@ class RecordTab(QWidget):
             c.peers = peers
         if not LIVE_RECORDING:
             for key in ("av", "audio", "slides"):
-                self.modes[key].set_soon("Wymaga macOS 14.4", SOON_TIP)
+                self.modes[key].set_soon(tr("Wymaga macOS 14.4"), SOON_TIP)
         self.mode_grid = QGridLayout()
         self.mode_grid.setSpacing(8)
         self._mode_cols = 0
@@ -228,7 +224,7 @@ class RecordTab(QWidget):
         cb = QHBoxLayout(self.cont_banner)
         cb.setContentsMargins(14, 10, 10, 10)
         self.cont_text = label("", "", wrap=True)
-        btn_cc = QPushButton("Nowa notatka zamiast tego")
+        btn_cc = QPushButton(tr("Nowa notatka zamiast tego"))
         btn_cc.setObjectName("plain")
         btn_cc.clicked.connect(self.cancel_continue)
         cb.addWidget(self.cont_text, 1)
@@ -246,15 +242,15 @@ class RecordTab(QWidget):
 
         # Wykład
         self.title = QLineEdit()
-        self.title.setPlaceholderText("np. Analiza matematyczna – wykład 3")
+        self.title.setPlaceholderText(tr("np. Analiza matematyczna – wykład 3"))
         self.title.setMinimumWidth(300)
         self.subject = QComboBox()
         self.subject.setEditable(True)
-        self.subject.lineEdit().setPlaceholderText("np. Analiza matematyczna")
+        self.subject.lineEdit().setPlaceholderText(tr("np. Analiza matematyczna"))
         self.subject.setMinimumWidth(300)
-        g1 = GroupSection("Wykład", "Pusty tytuł = data i godzina. Przedmiot grupuje wykłady w bibliotece.")
-        g1.add_row("Tytuł", self.title)
-        g1.add_row("Przedmiot", self.subject)
+        g1 = GroupSection(tr("Wykład"), tr("Pusty tytuł = data i godzina. Przedmiot grupuje wykłady w bibliotece."))
+        g1.add_row(tr("Tytuł"), self.title)
+        g1.add_row(tr("Przedmiot"), self.subject)
         self.g_lecture = g1
 
         # Źródła
@@ -269,17 +265,17 @@ class RecordTab(QWidget):
         self.video_combo.setMinimumWidth(200)
         self.video_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.video_combo.setMinimumContentsLength(30)
-        self.btn_refresh_video = icon_button("refresh", "Odśwież listę ekranów i okien")
+        self.btn_refresh_video = icon_button("refresh", tr("Odśwież listę ekranów i okien"))
         self.btn_refresh_video.clicked.connect(self.refresh_video)
         self.video_combo.currentIndexChanged.connect(self._video_changed)
 
         self.preview = QLabel()
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumHeight(120)
-        self.btn_roi = QPushButton("Zaznacz obszar slajdu…")
+        self.btn_roi = QPushButton(tr("Zaznacz obszar slajdu…"))
         set_icon(self.btn_roi, "crop", "text2", 16)
         self.btn_roi.clicked.connect(self.pick_roi)
-        self.btn_roi_clear = QPushButton("Cały obraz")
+        self.btn_roi_clear = QPushButton(tr("Cały obraz"))
         self.btn_roi_clear.setObjectName("plain")
         self.btn_roi_clear.clicked.connect(self._clear_roi)
         self.roi_label = label("", "footnote", wrap=True)
@@ -292,13 +288,13 @@ class RecordTab(QWidget):
         pv.addWidget(self.roi_label)
         self.preview_box = prev_box
 
-        self.g_audio = GroupSection("Dźwięk", "Dźwięk nagrywa się tylko z wybranej aplikacji – inne programy (np. muzyka "
+        self.g_audio = GroupSection(tr("Dźwięk"), tr("Dźwięk nagrywa się tylko z wybranej aplikacji – inne programy (np. muzyka "
                                               "w tle) nie trafią do nagrania. Aplikacja z wykładem sama pojawi się na "
-                                              "górze listy, gdy zacznie grać. Na zajęciach stacjonarnych wybierz mikrofon.")
-        self.row_audio = self.g_audio.add_row("Źródło dźwięku")
+                                              "górze listy, gdy zacznie grać. Na zajęciach stacjonarnych wybierz mikrofon."))
+        self.row_audio = self.g_audio.add_row(tr("Źródło dźwięku"))
         self.g_audio.add(self.audio_picker)
-        self.g_slides = GroupSection("Slajdy")
-        self.row_video = self.g_slides.add_row("Ekran lub okno", hbox(self.video_combo, self.btn_refresh_video, spacing=4))
+        self.g_slides = GroupSection(tr("Slajdy"))
+        self.row_video = self.g_slides.add_row(tr("Ekran lub okno"), hbox(self.video_combo, self.btn_refresh_video, spacing=4))
         # uwaga pod polem, gdy ostatnio użytego źródła teraz nie ma (Ctrl+Shift+R)
         for r in (self.row_audio, self.row_video):
             r.subtitle.setObjectName("fieldWarn")
@@ -311,28 +307,28 @@ class RecordTab(QWidget):
 
         # Opcje
         self.live_cb = ToggleSwitch(True)
-        g3 = GroupSection("Opcje")
+        g3 = GroupSection(tr("Opcje"))
         self.lang_combo = QComboBox()
-        for code, name in [("auto", "Wykryj automatycznie"), ("pl", "Polski"), ("en", "Angielski"),
-                           ("de", "Niemiecki"), ("es", "Hiszpański"), ("fr", "Francuski")]:
+        for code, name in [("auto", tr("Wykryj automatycznie")), ("pl", tr("Polski")), ("en", tr("Angielski")),
+                           ("de", tr("Niemiecki")), ("es", tr("Hiszpański")), ("fr", tr("Francuski"))]:
             self.lang_combo.addItem(name, code)
         i = self.lang_combo.findData(self.settings.language)
         self.lang_combo.setCurrentIndex(max(0, i))
-        g3.add_row("Język wykładu", self.lang_combo, "Język, w którym mówi prowadzący – w nim powstanie transkrypcja.")
+        g3.add_row(tr("Język wykładu"), self.lang_combo, tr("Język, w którym mówi prowadzący – w nim powstanie transkrypcja."))
         from ..prompts import NOTES_LANGS
         self.notes_lang_combo = QComboBox()
-        for code, name in [("", "Jak wykład")] + NOTES_LANGS:
+        for code, name in [("", tr("Jak wykład"))] + [(c, tr(n)) for c, n in NOTES_LANGS]:
             self.notes_lang_combo.addItem(name, code)
         self.set_notes_lang(self.settings.notes_language)
-        g3.add_row("Język notatek", self.notes_lang_combo,
-                   "Notatki, fiszki i podsumowanie powstaną w tym języku – np. wykład po angielsku, notatki po polsku. "
-                   "Terminy fachowe dostaną oryginał w nawiasie.")
-        self.row_live = g3.add_row("Transkrypcja na żywo", self.live_cb,
-                   "Tekst pojawia się w trakcie wykładu. Wyłącz, by odciążyć kartę graficzną – transkrypcja zrobi się po zakończeniu.")
+        g3.add_row(tr("Język notatek"), self.notes_lang_combo,
+                   tr("Notatki, fiszki i podsumowanie powstaną w tym języku – np. wykład po angielsku, notatki po polsku. "
+                   "Terminy fachowe dostaną oryginał w nawiasie."))
+        self.row_live = g3.add_row(tr("Transkrypcja na żywo"), self.live_cb,
+                   tr("Tekst pojawia się w trakcie wykładu. Wyłącz, by odciążyć kartę graficzną – transkrypcja zrobi się po zakończeniu."))
         self.live_notes_cb = ToggleSwitch(self.settings.live_notes)
-        self.row_live_notes = g3.add_row("Notatki i pytania na żywo", self.live_notes_cb,
-                   "AI pisze notatki z każdego zakończonego fragmentu (po zmianie slajdu albo co kilka minut), "
-                   "a Ty możesz zadawać pytania w trakcie wykładu. Mocniej obciąża kartę graficzną.")
+        self.row_live_notes = g3.add_row(tr("Notatki i pytania na żywo"), self.live_notes_cb,
+                   tr("AI pisze notatki z każdego zakończonego fragmentu (po zmianie slajdu albo co kilka minut), "
+                   "a Ty możesz zadawać pytania w trakcie wykładu. Mocniej obciąża kartę graficzną."))
         self.live_cb.toggled.connect(self.live_notes_cb.setEnabled)
         self.g_opts = g3
 
@@ -359,7 +355,7 @@ class RecordTab(QWidget):
 
         # stały pasek na dole – przycisk nagrywania zawsze widoczny
         self.btn_start = RecordButton(62)
-        self.btn_start.setToolTip("Rozpocznij nagrywanie")
+        self.btn_start.setToolTip(tr("Rozpocznij nagrywanie"))
         self.btn_start.clicked.connect(self.start)
         footer = QFrame()
         footer.setObjectName("footerBar")
@@ -368,12 +364,12 @@ class RecordTab(QWidget):
         fl.setSpacing(16)
         cap = QVBoxLayout()
         cap.setSpacing(2)
-        self.start_caption = label("Rozpocznij nagrywanie", "headline")
+        self.start_caption = label(tr("Rozpocznij nagrywanie"), "headline")
         cap.addWidget(self.start_caption)
-        self.setup_status = label("Nagrywanie możesz zakończyć w dowolnym momencie.", "footnote", wrap=True)
+        self.setup_status = label(tr("Nagrywanie możesz zakończyć w dowolnym momencie."), "footnote", wrap=True)
         self.setup_status.setMaximumWidth(420)
         cap.addWidget(self.setup_status)
-        self.btn_create = QPushButton("Utwórz notatkę")
+        self.btn_create = QPushButton(tr("Utwórz notatkę"))
         self.btn_create.setObjectName("big")
         self.btn_create.setMinimumSize(220, 44)
         set_icon(self.btn_create, "sparkles", "on_accent", 17)
@@ -448,24 +444,24 @@ class RecordTab(QWidget):
         self.audio_files = QListWidget()
         self.audio_files.setMaximumHeight(110)
         self.audio_files.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        b_add_a = QPushButton("Dodaj nagranie…")
+        b_add_a = QPushButton(tr("Dodaj nagranie…"))
         set_icon(b_add_a, "plus", "text2", 14)
         b_add_a.clicked.connect(self._pick_audio)
-        b_del_a = QPushButton("Usuń")
+        b_del_a = QPushButton(tr("Usuń"))
         b_del_a.setObjectName("plain")
         b_del_a.clicked.connect(lambda: [self.audio_files.takeItem(self.audio_files.row(i))
                                          for i in self.audio_files.selectedItems()])
-        self.btn_file_roi = QPushButton("Obszar slajdu…")
+        self.btn_file_roi = QPushButton(tr("Obszar slajdu…"))
         self.btn_file_roi.setObjectName("plain")
         set_icon(self.btn_file_roi, "crop", "text2", 14)
-        self.btn_file_roi.setToolTip("Zaznacz, w której części filmu jest slajd (bez kamerki prowadzącego i czatu)")
+        self.btn_file_roi.setToolTip(tr("Zaznacz, w której części filmu jest slajd (bez kamerki prowadzącego i czatu)"))
         self.btn_file_roi.clicked.connect(lambda: self._edit_file_roi(self.audio_files.currentItem()))
         self.btn_file_roi.setEnabled(False)
         self.audio_files.currentItemChanged.connect(
             lambda it, _p: self.btn_file_roi.setEnabled(it is not None and self._is_video_item(it)))
         self.audio_files.itemDoubleClicked.connect(self._edit_file_roi)
-        ga = GroupSection("Nagranie", "Dyktafon z iPhone'a (.m4a), mp3, wav albo wideo (mp4, mov). Kilka plików = kolejne "
-                                      "części jednego wykładu (w podanej kolejności). Pliki możesz też przeciągnąć tutaj.")
+        ga = GroupSection(tr("Nagranie"), tr("Dyktafon z iPhone'a (.m4a), mp3, wav albo wideo (mp4, mov). Kilka plików = kolejne "
+                                      "części jednego wykładu (w podanej kolejności). Pliki możesz też przeciągnąć tutaj."))
         wa = QWidget()
         la = QVBoxLayout(wa)
         la.setContentsMargins(12, 10, 12, 10)
@@ -482,25 +478,25 @@ class RecordTab(QWidget):
         self.photo_files.setSpacing(6)
         self.photo_files.setMinimumHeight(130)
         self.photo_files.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        b_add_p = QPushButton("Dodaj zdjęcia…")
+        b_add_p = QPushButton(tr("Dodaj zdjęcia…"))
         set_icon(b_add_p, "photos", "text2", 14)
         b_add_p.clicked.connect(self._pick_photos)
-        b_del_p = QPushButton("Usuń")
+        b_del_p = QPushButton(tr("Usuń"))
         b_del_p.setObjectName("plain")
         b_del_p.clicked.connect(lambda: [self.photo_files.takeItem(self.photo_files.row(i))
                                          for i in self.photo_files.selectedItems()])
         self.straighten_cb = ToggleSwitch(True)
-        gp = GroupSection("Zdjęcia slajdów (opcjonalnie)",
-                          "Zdjęcia z telefonu (JPG, HEIC, PNG). Każde zostanie dopasowane do miejsca w nagraniu – po "
+        gp = GroupSection(tr("Zdjęcia slajdów (opcjonalnie)"),
+                          tr("Zdjęcia z telefonu (JPG, HEIC, PNG). Każde zostanie dopasowane do miejsca w nagraniu – po "
                           "godzinie zrobienia zdjęcia, a gdy się nie da, po treści slajdu. Bez nagrania notatka powstanie "
-                          "z samych zdjęć.")
+                          "z samych zdjęć."))
         wp = QWidget()
         lp = QVBoxLayout(wp)
         lp.setContentsMargins(12, 10, 12, 10)
         lp.addWidget(self.photo_files)
         lp.addWidget(hbox(b_add_p, b_del_p, "stretch"))
         gp.add(wp)
-        gp.add_row("Wyprostuj zdjęcia", self.straighten_cb, "Wykrywa slajd na zdjęciu i prostuje perspektywę.")
+        gp.add_row(tr("Wyprostuj zdjęcia"), self.straighten_cb, tr("Wykrywa slajd na zdjęciu i prostuje perspektywę."))
         v.addWidget(ga)
         v.addWidget(gp)
         self.files_box = box
@@ -511,8 +507,8 @@ class RecordTab(QWidget):
         from pathlib import Path as _P
         from ..jobs import AUDIO_EXT
         pat = " ".join(f"*{e}" for e in AUDIO_EXT)
-        paths, _ = QFileDialog.getOpenFileNames(self, "Wybierz nagranie", str(_P.home()),
-                                                f"Nagrania ({pat});;Wszystkie pliki (*.*)")
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("Wybierz nagranie"), str(_P.home()),
+                                                tr("Nagrania ({pat});;Wszystkie pliki (*.*)", pat=pat))
         self._add_audio(paths)
 
     def _add_audio(self, paths):
@@ -541,7 +537,7 @@ class RecordTab(QWidget):
 
     def _ask_file_rois(self, items):
         for k, it in enumerate(items, 1):
-            title = "Zaznacz obszar slajdu" + (f" ({k}/{len(items)})" if len(items) > 1 else "")
+            title = tr("Zaznacz obszar slajdu") + (f" ({k}/{len(items)})" if len(items) > 1 else "")
             try:
                 if not self._edit_file_roi(it, title):
                     break
@@ -556,15 +552,15 @@ class RecordTab(QWidget):
         ok, roi = ask_video_roi(self, path, it.data(self._ROI_ROLE), title)
         if ok:
             it.setData(self._ROI_ROLE, tuple(roi) if roi else None)
-            it.setText(_P(path).name + ("  ·  slajd: zaznaczony obszar" if roi else "  ·  slajd: cały obraz"))
+            it.setText(_P(path).name + (tr("  ·  slajd: zaznaczony obszar") if roi else tr("  ·  slajd: cały obraz")))
         return ok
 
     def _pick_photos(self):
         from pathlib import Path as _P
         from ..photos import PHOTO_EXT
         pat = " ".join(f"*{e}" for e in PHOTO_EXT)
-        paths, _ = QFileDialog.getOpenFileNames(self, "Wybierz zdjęcia slajdów", str(_P.home()),
-                                                f"Zdjęcia ({pat});;Wszystkie pliki (*.*)")
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("Wybierz zdjęcia slajdów"), str(_P.home()),
+                                                tr("Zdjęcia ({pat});;Wszystkie pliki (*.*)", pat=pat))
         self._add_photos(paths)
 
     def _add_photos(self, paths):
@@ -635,12 +631,12 @@ class RecordTab(QWidget):
         self.btn_start.setVisible(rec)
         self.btn_create.setVisible(not rec)
         self.start_caption.setVisible(rec)
-        self.start_caption.setText("Rozpocznij zrzuty slajdów" if mode == "slides" else "Rozpocznij nagrywanie")
+        self.start_caption.setText(tr("Rozpocznij zrzuty slajdów") if mode == "slides" else tr("Rozpocznij nagrywanie"))
         self.setup_status.setText({
-            "av": "Nagrywanie możesz zakończyć w dowolnym momencie.",
-            "audio": "Nagrywanie możesz zakończyć w dowolnym momencie.",
-            "slides": "Notatka powstanie z tekstu na slajdach (bez dźwięku).",
-            "files": "Transkrypcja i notatki zrobią się w tle – postęp zobaczysz w bibliotece.",
+            "av": tr("Nagrywanie możesz zakończyć w dowolnym momencie."),
+            "audio": tr("Nagrywanie możesz zakończyć w dowolnym momencie."),
+            "slides": tr("Notatka powstanie z tekstu na slajdach (bez dźwięku)."),
+            "files": tr("Transkrypcja i notatki zrobią się w tle – postęp zobaczysz w bibliotece."),
         }[mode])
         if mode in ("av", "slides") and self._preview_img is None:
             QTimer.singleShot(50, self._video_changed)
@@ -680,11 +676,11 @@ class RecordTab(QWidget):
                 mp.request(kind)
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("Potrzebna zgoda macOS")
+            box.setWindowTitle(tr("Potrzebna zgoda macOS"))
             box.setText(mp.TITLE[kind])
             box.setInformativeText(mp.WHY[kind] + "\n\n" + mp.WHERE[kind])
-            open_btn = box.addButton("Otwórz Ustawienia systemowe", QMessageBox.ButtonRole.AcceptRole)
-            box.addButton("Anuluj", QMessageBox.ButtonRole.RejectRole)
+            open_btn = box.addButton(tr("Otwórz Ustawienia systemowe"), QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(tr("Anuluj"), QMessageBox.ButtonRole.RejectRole)
             box.exec()
             if box.clickedButton() is open_btn:
                 mp.open_settings(kind)
@@ -700,7 +696,7 @@ class RecordTab(QWidget):
             if it.data(self._ROI_ROLE):
                 rois[it.data(Qt.ItemDataRole.UserRole)] = tuple(it.data(self._ROI_ROLE))
         if not audio and not photos:
-            QMessageBox.information(self, "Nowa notatka", "Dodaj nagranie albo zdjęcia slajdów.")
+            QMessageBox.information(self, tr("Nowa notatka"), tr("Dodaj nagranie albo zdjęcia slajdów."))
             return
         subject = self.subject.currentText().strip()
         self.settings.last_subject = subject
@@ -746,7 +742,7 @@ class RecordTab(QWidget):
         self.dot = PulseDot("red")
         info = QVBoxLayout()
         info.setSpacing(2)
-        self.rec_label = label("NAGRYWANIE", "recLabel")
+        self.rec_label = label(tr("NAGRYWANIE"), "recLabel")
         self.live_title = label("", "title2")
         self.live_sub = label("", "footnote")
         self.live_sub.setMinimumWidth(80)
@@ -759,7 +755,7 @@ class RecordTab(QWidget):
         info.addWidget(self.live_title)
         info.addWidget(self.live_sub)
         self.meter = LevelMeter(28)
-        self.meter.setToolTip("Poziom dźwięku – powinien się ruszać, gdy prowadzący mówi")
+        self.meter.setToolTip(tr("Poziom dźwięku – powinien się ruszać, gdy prowadzący mówi"))
         self.meter.setMinimumWidth(110)
         self.meter.setMaximumWidth(170)
         self.time_label = label("00:00", "timer")
@@ -771,16 +767,16 @@ class RecordTab(QWidget):
         except Exception:  # noqa: BLE001
             pass
         self._mark_kind = "important"
-        self.btn_mark = QPushButton("Zaznacz ważne")
+        self.btn_mark = QPushButton(tr("Zaznacz ważne"))
         self.btn_mark.setObjectName("mark")
         self.btn_mark.setCheckable(True)
-        self.btn_mark.setToolTip("Zaznacz ważny fragment (Ctrl+M): kliknij, gdy się zaczyna – zaznaczenie obejmie też "
-                                 "ostatnie ~20 s – i kliknij ponownie, gdy się kończy.")
+        self.btn_mark.setToolTip(tr("Zaznacz ważny fragment (Ctrl+M): kliknij, gdy się zaczyna – zaznaczenie obejmie też "
+                                 "ostatnie ~20 s – i kliknij ponownie, gdy się kończy."))
         set_icon(self.btn_mark, "highlighter", "text", 16)
         self.btn_mark.toggled.connect(self._toggle_mark)
         self.btn_mark_kind = QToolButton()
         self.btn_mark_kind.setObjectName("icon")
-        self.btn_mark_kind.setToolTip("Rodzaj zaznaczenia")
+        self.btn_mark_kind.setToolTip(tr("Rodzaj zaznaczenia"))
         self.btn_mark_kind.setFixedSize(30, 44)
         set_icon(self.btn_mark_kind, "chevron-down", "text2", 14)
         self.btn_mark_kind.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -792,13 +788,13 @@ class RecordTab(QWidget):
         self.btn_mark_kind.setMenu(km)
         self.btn_pause = QPushButton("")
         self.btn_pause.setCheckable(True)
-        self.btn_pause.setToolTip("Pauza – dźwięk, transkrypcja i slajdy się zatrzymują, czas stoi")
+        self.btn_pause.setToolTip(tr("Pauza – dźwięk, transkrypcja i slajdy się zatrzymują, czas stoi"))
         self.btn_pause.setFixedSize(46, 44)
         set_icon(self.btn_pause, "pause", "text", 18)
         self.btn_pause.toggled.connect(self._toggle_pause)
-        self.btn_stop = QPushButton("Zakończ")
+        self.btn_stop = QPushButton(tr("Zakończ"))
         self.btn_stop.setObjectName("danger")
-        self.btn_stop.setToolTip("Zakończ nagrywanie – notatki zrobią się same")
+        self.btn_stop.setToolTip(tr("Zakończ nagrywanie – notatki zrobią się same"))
         set_icon(self.btn_stop, "stop", "on_red", 16)
         self.btn_stop.clicked.connect(self.stop)
         for b_ in (self.btn_mark, self.btn_mark_kind, self.btn_pause, self.btn_stop):
@@ -841,10 +837,10 @@ class RecordTab(QWidget):
         ab = QHBoxLayout(self.autostop)
         ab.setContentsMargins(16, 10, 12, 10)
         self.autostop_text = label("", "headline", wrap=True)
-        b_keep = QPushButton("Nagrywaj dalej")
+        b_keep = QPushButton(tr("Nagrywaj dalej"))
         b_keep.setObjectName("primary")
         b_keep.clicked.connect(self._autostop_cancel)
-        b_now = QPushButton("Zakończ teraz")
+        b_now = QPushButton(tr("Zakończ teraz"))
         b_now.clicked.connect(lambda: (self.autostop.hide(), self.stop()))
         ab.addWidget(self.autostop_text, 1)
         ab.addWidget(b_now)
@@ -879,11 +875,11 @@ class RecordTab(QWidget):
         ct = QVBoxLayout(self.col_t)
         ct.setContentsMargins(0, 0, 0, 0)
         ct.setSpacing(8)
-        self.t_follow = QPushButton("↓ Na bieżąco")
+        self.t_follow = QPushButton(tr("↓ Na bieżąco"))
         self.t_follow.setObjectName("plain")
         self.t_follow.clicked.connect(lambda: self._scroll_transcript(True))
         self.t_follow.hide()
-        h, _ = col_head("TRANSKRYPCJA", self.t_follow)
+        h, _ = col_head(tr("TRANSKRYPCJA"), self.t_follow)
         ct.addLayout(h)
         ct.addWidget(self.transcript, 1)
 
@@ -893,7 +889,7 @@ class RecordTab(QWidget):
         self.live_notes_status = label("", "caption", wrap=True)
         self.live_ask_field = QLineEdit()
         self.live_ask_field.setObjectName("askInput")
-        self.live_ask_field.setPlaceholderText("Zapytaj o to, co już padło na wykładzie…  (Ctrl K)")
+        self.live_ask_field.setPlaceholderText(tr("Zapytaj o to, co już padło na wykładzie…  (Ctrl K)"))
         self.live_ask_field.returnPressed.connect(self._ask_from_field)
         notes_page = QWidget()
         nl = QVBoxLayout(notes_page)
@@ -908,7 +904,7 @@ class RecordTab(QWidget):
         al = QVBoxLayout(ask_page)
         al.setContentsMargins(0, 0, 0, 0)
         al.setSpacing(6)
-        self.btn_ask_back = QPushButton("Notatki")
+        self.btn_ask_back = QPushButton(tr("Notatki"))
         self.btn_ask_back.setObjectName("back")
         set_icon(self.btn_ask_back, "chevron-left", "accent_text", 16)
         self.btn_ask_back.clicked.connect(lambda: self._show_notes_page(0))
@@ -921,7 +917,7 @@ class RecordTab(QWidget):
         cn = QVBoxLayout(self.col_n)
         cn.setContentsMargins(0, 0, 0, 0)
         cn.setSpacing(8)
-        h, self.notes_head = col_head("NOTATKI NA ŻYWO")
+        h, self.notes_head = col_head(tr("NOTATKI NA ŻYWO"))
         cn.addLayout(h)
         cn.addWidget(self.notes_stack, 1)
 
@@ -937,14 +933,14 @@ class RecordTab(QWidget):
         cs = QVBoxLayout(self.col_s)
         cs.setContentsMargins(0, 0, 0, 0)
         cs.setSpacing(8)
-        self.btn_live_roi = QPushButton("Zmień obszar slajdu")
+        self.btn_live_roi = QPushButton(tr("Zmień obszar slajdu"))
         self.btn_live_roi.setObjectName("plain")
         self.btn_live_roi.setCursor(Qt.CursorShape.PointingHandCursor)
         set_icon(self.btn_live_roi, "crop", "text2", 14)
-        self.btn_live_roi.setToolTip("Zaznacz na nowo, gdzie na ekranie jest slajd – nagrywanie trwa dalej, "
-                                     "złapane slajdy zostają")
+        self.btn_live_roi.setToolTip(tr("Zaznacz na nowo, gdzie na ekranie jest slajd – nagrywanie trwa dalej, "
+                                     "złapane slajdy zostają"))
         self.btn_live_roi.clicked.connect(self._change_live_roi)
-        h, self.slides_title = col_head("SLAJDY · 0", self.btn_live_roi)
+        h, self.slides_title = col_head(tr("SLAJDY · 0"), self.btn_live_roi)
         cs.addLayout(h)
         cs.addWidget(self.cur_slide)
         cs.addWidget(self.dup_hint)
@@ -963,7 +959,7 @@ class RecordTab(QWidget):
         self.live_split = split
 
         # wąskie okno (9:16): zakładki zamiast kolumn
-        self.live_seg = SegmentedControl(["Transkrypcja", "Notatki AI", "Zapytaj"], style="tabs")
+        self.live_seg = SegmentedControl([tr("Transkrypcja"), tr("Notatki AI"), tr("Zapytaj")], style="tabs")
         self.live_seg.changed.connect(self._narrow_tab)
         self.narrow_stack = QStackedWidget()
         self.narrow_box = QWidget()
@@ -1072,7 +1068,7 @@ class RecordTab(QWidget):
     def _pause_text(self):
         narrow = self._live_mode == "narrow"
         paused = self.is_paused()
-        self.btn_pause.setText(("Wznów" if paused else "Pauza") if narrow else "")
+        self.btn_pause.setText((tr("Wznów") if paused else tr("Pauza")) if narrow else "")
 
     def _narrow_tab(self, i: int):
         self.live_seg.set_current(i)
@@ -1128,7 +1124,7 @@ class RecordTab(QWidget):
         for k, s_ in enumerate(subs):
             self.subject.addItem(s_)
             self.subject.setItemData(k, subject_color(s_), C_COLOR)
-            self.subject.setItemData(k, "Przedmiot", C_TAG)
+            self.subject.setItemData(k, tr("Przedmiot"), C_TAG)
         self.subject.setEditText(cur)
 
     def refresh_audio(self):
@@ -1138,8 +1134,8 @@ class RecordTab(QWidget):
     def _apply_audio(self):
         self._match_want_audio()
         active = sum(1 for s in self.audio_picker.sources if s.kind == "process" and s.active)
-        self.setup_status.setText("Nagrywanie możesz zakończyć w dowolnym momencie." if active else
-                                  "Żadna aplikacja teraz nie gra – włącz dźwięk wykładu i odśwież listę.")
+        self.setup_status.setText(tr("Nagrywanie możesz zakończyć w dowolnym momencie.") if active else
+                                  tr("Żadna aplikacja teraz nie gra – włącz dźwięk wykładu i odśwież listę."))
 
     def refresh_video(self):
         prev = self.video_combo.currentText()
@@ -1197,7 +1193,7 @@ class RecordTab(QWidget):
             img, err = res
             self._preview_img = img
             if img is None:
-                self.roi_label.setText("Nie udało się pobrać podglądu. " + (err or ""))
+                self.roi_label.setText(tr("Nie udało się pobrać podglądu. ") + (err or ""))
             self._render_preview()
         run_async(work, done)
 
@@ -1217,7 +1213,7 @@ class RecordTab(QWidget):
                 g.close()
         self._preview_img = img
         if img is None:
-            self.roi_label.setText("Nie udało się pobrać podglądu. " + (getattr(g, "last_error", "") or ""))
+            self.roi_label.setText(tr("Nie udało się pobrać podglądu. ") + (getattr(g, "last_error", "") or ""))
         self._render_preview()
 
     def _render_preview(self):
@@ -1247,8 +1243,8 @@ class RecordTab(QWidget):
             p.drawRoundedRect(r, 4, 4)
             p.end()
         self.preview.setPixmap(rounded_pixmap(pix, 10))
-        self.roi_label.setText("Slajdy będą wykrywane tylko w zaznaczonym obszarze." if roi else
-                               "Wykrywanie obejmuje cały obraz. Jeśli obok slajdu jest kamerka lub czat, zaznacz sam slajd.")
+        self.roi_label.setText(tr("Slajdy będą wykrywane tylko w zaznaczonym obszarze.") if roi else
+                               tr("Wykrywanie obejmuje cały obraz. Jeśli obok slajdu jest kamerka lub czat, zaznacz sam slajd."))
         show_if(self.btn_roi_clear, roi)
 
     def pick_roi(self):
@@ -1276,7 +1272,7 @@ class RecordTab(QWidget):
             return
         img = sess.current_frame()
         if img is None:
-            QMessageBox.information(self, "Obszar slajdu", "Nie ma jeszcze zrzutu ekranu – spróbuj za chwilę.")
+            QMessageBox.information(self, tr("Obszar slajdu"), tr("Nie ma jeszcze zrzutu ekranu – spróbuj za chwilę."))
             return
         dlg = RoiDialog(img, sess.roi, self)
         if not dlg.exec() or self.session is not sess:
@@ -1295,8 +1291,8 @@ class RecordTab(QWidget):
         if lr.get("video") and lr["video"].get("key") == key:
             lr["roi"] = list(roi) if roi else None
             self.settings.save()
-        self.video_status.setText("Obszar slajdu zmieniony – kolejne slajdy będą wykrywane w nowym obszarze."
-                                  if roi else "Slajdy są teraz wykrywane na całym obrazie.")
+        self.video_status.setText(tr("Obszar slajdu zmieniony – kolejne slajdy będą wykrywane w nowym obszarze.")
+                                  if roi else tr("Slajdy są teraz wykrywane na całym obrazie."))
 
     def _clear_roi(self):
         info = self._current_video()
@@ -1339,7 +1335,7 @@ class RecordTab(QWidget):
         mode = lr.get("mode")
         if mode not in self.modes:
             keys = "⌘⇧R" if IS_MAC else "Ctrl+Shift+R"
-            self._set_status(f"Najpierw nagraj coś raz zwykłym sposobem – potem {keys} wypełni te same ustawienia.")
+            self._set_status(tr("Najpierw nagraj coś raz zwykłym sposobem – potem {keys} wypełni te same ustawienia.", keys=keys))
             return
         self.modes[mode].setChecked(True)
         self.subject.setEditText(lr.get("subject", self.settings.last_subject) or "")
@@ -1384,8 +1380,8 @@ class RecordTab(QWidget):
             self.audio_picker.set_current(idx)
             self._field_warn(self.row_audio, "")
         else:
-            name = want.get("label") or "ostatnie źródło dźwięku"
-            self._field_warn(self.row_audio, f"Ostatnio było „{name}”, teraz nie gra – włącz wykład i odśwież listę.")
+            name = want.get("label") or tr("ostatnie źródło dźwięku")
+            self._field_warn(self.row_audio, tr("Ostatnio było „{name}”, teraz nie gra – włącz wykład i odśwież listę.", name=name))
 
     def _match_want_video(self):
         want = self._want_video
@@ -1397,9 +1393,9 @@ class RecordTab(QWidget):
             self.video_combo.setCurrentIndex(idx)
             self._field_warn(self.row_video, "")
         else:
-            name = want.get("label") or "ostatni ekran"
-            todo = "otwórz to okno" if str(want.get("key", "")).startswith("window:") else "podłącz ten ekran"
-            self._field_warn(self.row_video, f"Ostatnio było „{name}”, teraz jest niedostępne – {todo} i odśwież listę.")
+            name = want.get("label") or tr("ostatni ekran")
+            todo = tr("otwórz to okno") if str(want.get("key", "")).startswith("window:") else tr("podłącz ten ekran")
+            self._field_warn(self.row_video, tr("Ostatnio było „{name}”, teraz jest niedostępne – {todo} i odśwież listę.", name=name, todo=todo))
 
     # ------------------------------------------------------------------ nagrywanie
     def is_recording(self) -> bool:
@@ -1461,7 +1457,7 @@ class RecordTab(QWidget):
         self.dup_hint.hide()
         self._cur_slide_index = 0
         self._titems, self._tmarks, self._t_follow = [], [], True
-        self.slides_title.setText("SLAJDY · 0")
+        self.slides_title.setText(tr("SLAJDY · 0"))
         self.video_status.setText("")
         self.meter.reset()
         self._live_roi_key = self._video_key(video) if video else None
@@ -1508,24 +1504,24 @@ class RecordTab(QWidget):
         self.btn_pause.blockSignals(True)
         self.btn_pause.setChecked(False)
         self.btn_pause.blockSignals(False)
-        self.rec_label.setText("NAGRYWANIE")
+        self.rec_label.setText(tr("NAGRYWANIE"))
         self._marks_count = 0
-        self.live_title.setText(lecture.meta.title + (f"  ·  część {sess.part_index}" if sess.is_continuation else ""))
+        self.live_title.setText(lecture.meta.title + (tr("  ·  część {part_index}", part_index=sess.part_index) if sess.is_continuation else ""))
         src = audio.label if audio else ""
-        self.live_sub.setText(" · ".join(x for x in [subject, f"dźwięk: {src}" if audio else "bez dźwięku",
-                                                      f"slajdy: {self.video_combo.currentText()}" if video else "bez slajdów"] if x))
+        self.live_sub.setText(" · ".join(x for x in [subject, tr("dźwięk: {src}", src=src) if audio else tr("bez dźwięku"),
+                                                      tr("slajdy: {src}", src=self.video_combo.currentText()) if video else tr("bez slajdów")] if x))
         if audio is None:
-            self._set_status("Zrzuty slajdów – notatka powstanie z ich treści po zakończeniu.")
+            self._set_status(tr("Zrzuty slajdów – notatka powstanie z ich treści po zakończeniu."))
         else:
-            self._set_status("Ładowanie modelu rozpoznawania mowy…" if sess.live else
-                             "Nagrywanie – transkrypcja zrobi się po zakończeniu.")
+            self._set_status(tr("Ładowanie modelu rozpoznawania mowy…") if sess.live else
+                             tr("Nagrywanie – transkrypcja zrobi się po zakończeniu."))
         for w_ in (self.meter, self.btn_mark, self.btn_mark_kind):
             w_.setVisible(audio is not None)
         show_if(self.btn_live_roi, sess.slide_rec is not None)
         self._has_text = False
         if continuing:            # pokaż dotychczasową transkrypcję – nowa część dopisze się pod nią
             self._titems = [dict(x, kind="seg") for x in lecture.load_segments()[-40:]]
-            self._titems.append({"kind": "note", "text": f"część {sess.part_index}"})
+            self._titems.append({"kind": "note", "text": tr("część {part_index}", part_index=sess.part_index)})
         self._render_transcript()
         self._setup_live_panels(sess)
         self.btn_stop.setEnabled(True)
@@ -1542,21 +1538,21 @@ class RecordTab(QWidget):
         self.live_seg.buttons[0].setEnabled(sess.audio_info is not None)
         self.live_seg.buttons[2].setEnabled(sess.live)
         self.live_ask_field.setEnabled(sess.live)
-        self.live_ask_field.setPlaceholderText("Zapytaj o to, co już padło na wykładzie…  (Ctrl K)" if sess.live else
-                                              "Pytania działają, gdy włączona jest transkrypcja na żywo.")
+        self.live_ask_field.setPlaceholderText(tr("Zapytaj o to, co już padło na wykładzie…  (Ctrl K)") if sess.live else
+                                              tr("Pytania działają, gdy włączona jest transkrypcja na żywo."))
         self._show_notes_page(0)
-        self.notes_head.setText("NOTATKI NA ŻYWO" if on else "NOTATKI")
+        self.notes_head.setText(tr("NOTATKI NA ŻYWO") if on else tr("NOTATKI"))
         if on:
             self.live_notes_view.setHtml(
-                f"<body style='color:{t.text2}'><p>Pierwszy fragment notatek pojawi się po zmianie slajdu albo po "
-                "kilku minutach mowy. Kolejne będą się dopisywać w trakcie wykładu.</p>"
+                tr("<body style='color:{text2}'><p>Pierwszy fragment notatek pojawi się po zmianie slajdu albo "
+                   "po kilku minutach mowy. Kolejne będą się dopisywać w trakcie wykładu.</p>", text2=t.text2)
                 + self._skeleton() + "</body>")
-            self.live_notes_status.setText("Ładowanie…")
+            self.live_notes_status.setText(tr("Ładowanie…"))
         else:
             self.live_notes_view.setHtml(
-                f"<body style='color:{t.text2}'><p><b style='color:{t.text}'>Notatki na żywo są wyłączone.</b></p>"
-                "<p>Notatka powstanie po zakończeniu nagrywania. Możesz je włączyć w opcjach przed nagraniem "
-                "(„Notatki i pytania na żywo”).</p></body>")
+                tr("<body style='color:{text2}'><p><b style='color:{text}'>Notatki na żywo są "
+                   "wyłączone.</b></p><p>Notatka powstanie po zakończeniu nagrywania. Możesz je włączyć w "
+                   "opcjach przed nagraniem („Notatki i pytania na żywo”).</p></body>", text2=t.text2, text=t.text))
             self.live_notes_status.setText("")
         lec = sess.lecture
 
@@ -1578,7 +1574,7 @@ class RecordTab(QWidget):
         s = self.session
         ln = getattr(s, "live_notes", None) if s is not None else None
         if ln is not None and getattr(ln, "busy", False):
-            return skeleton_html("Piszę ten fragment…")
+            return skeleton_html(tr("Piszę ten fragment…"))
         mins = 0
         try:
             from ..notes_pipeline import MAX_WORDS
@@ -1586,8 +1582,8 @@ class RecordTab(QWidget):
             mins = max(1, round((MAX_WORDS - words) / 140))
         except Exception:  # noqa: BLE001
             pass
-        return skeleton_html(f"Piszę po zmianie slajdu albo za ~{mins} min" if mins else
-                             "Piszę po zmianie slajdu albo za kilka minut")
+        return skeleton_html(tr("Piszę po zmianie slajdu albo za ~{mins} min", mins=mins) if mins else
+                             tr("Piszę po zmianie slajdu albo za kilka minut"))
 
     def _on_notes_update(self):
         s = self.session
@@ -1618,15 +1614,15 @@ class RecordTab(QWidget):
             QTimer.singleShot(50, lambda: self.live_notes_view.scrollToAnchor(anchor))
 
     def _placeholder_html(self) -> str:
-        return (f"<p style='color:{T().text3}'>Pierwszy fragment tekstu pojawi się po około 20–30 sekundach "
-                "od rozpoczęcia mowy.</p>")
+        return (tr("<p style='color:{text3}'>Pierwszy fragment tekstu pojawi się po około 20–30 sekundach od "
+                   "rozpoczęcia mowy.</p>", text3=T().text3))
 
     def stop(self):
         if self.session is None:
             return
         sess = self.session
         self.btn_stop.setEnabled(False)
-        self._set_status("Kończenie – zapisywanie nagrania i dokończenie transkrypcji…")
+        self._set_status(tr("Kończenie – zapisywanie nagrania i dokończenie transkrypcji…"))
 
         def work():
             try:
@@ -1654,7 +1650,7 @@ class RecordTab(QWidget):
         self.cancel_continue()
         self.autostop.hide()
         self.refresh_subjects()
-        self.setup_status.setText(f"Zapisano „{lecture.meta.title}” ({fmt_time(lecture.meta.duration)}).")
+        self.setup_status.setText(tr("Zapisano „{title}” ({fmt_time}).", title=lecture.meta.title, fmt_time=fmt_time(lecture.meta.duration)))
         self.recording_state.emit(False)
         self.recording_finished.emit(lecture, needs_file)
 
@@ -1670,10 +1666,9 @@ class RecordTab(QWidget):
         n = len(lecture.audio_parts()) + 1
         kind = lecture.meta.kind if lecture.meta.kind in self.modes else "av"
         self.modes[kind].setChecked(True)
-        self.setup_title.setText("Kontynuacja notatki")
-        self.cont_text.setText(f"<b>{html.escape(lecture.meta.title)}</b> – część {n}. Nagranie, slajdy albo zdjęcia "
-                               f"dopiszą się do tej samej notatki (czas biegnie dalej od "
-                               f"{fmt_time(lecture.meta.duration)}). Możesz wybrać dowolny rodzaj poniżej.")
+        self.setup_title.setText(tr("Kontynuacja notatki"))
+        self.cont_text.setText(tr("<b>{escape}</b> – część {n}. Nagranie, slajdy albo zdjęcia dopiszą się do tej samej notatki "
+                                  "(czas biegnie dalej od {fmt_time}). Możesz wybrać dowolny rodzaj poniżej.", escape=html.escape(lecture.meta.title), n=n, fmt_time=fmt_time(lecture.meta.duration)))
         self.cont_banner.show()
         self.title.setText(lecture.meta.title)
         self.subject.setEditText(lecture.meta.subject)
@@ -1683,7 +1678,7 @@ class RecordTab(QWidget):
     def cancel_continue(self):
         self.continue_lecture = None
         self.cont_banner.hide()
-        self.setup_title.setText("Nowa notatka")
+        self.setup_title.setText(tr("Nowa notatka"))
         self.title.setEnabled(True)
         self.subject.setEnabled(True)
         self.title.clear()
@@ -1693,7 +1688,7 @@ class RecordTab(QWidget):
         from ..storage import MARK_KINDS
         self._mark_kind = kind
         if not self.btn_mark.isChecked():
-            self.btn_mark.setText("Zaznacz ważne" if kind == "important" else f"Zaznacz: {MARK_KINDS.get(kind, kind)}")
+            self.btn_mark.setText(tr("Zaznacz ważne") if kind == "important" else tr("Zaznacz: {get}", get=MARK_KINDS.get(kind, kind)))
 
     def _toggle_mark(self, on: bool):
         s = self.session
@@ -1705,10 +1700,10 @@ class RecordTab(QWidget):
                 self.btn_pause.setChecked(False)
             mk = s.start_mark(self._mark_kind)
             self._tmarks.append({"start": mk["start"], "end": None, "kind": mk["kind"]})
-            self.btn_mark.setText("Zakończ zaznaczanie")
+            self.btn_mark.setText(tr("Zakończ zaznaczanie"))
             self.btn_mark_kind.setEnabled(False)
-            self._set_status(f"Zaznaczanie od {fmt_time(mk['start'])} ({MARK_KINDS.get(mk['kind'])}) – kliknij "
-                             "„Zakończ zaznaczanie” (Ctrl+M), gdy fragment się skończy.")
+            self._set_status(tr("Zaznaczanie od {fmt_time} ({get}) – kliknij „Zakończ zaznaczanie” (Ctrl+M), gdy fragment "
+                                "się skończy.", fmt_time=fmt_time(mk['start']), get=MARK_KINDS.get(mk['kind'])))
         else:
             mk = s.end_mark()
             self.btn_mark_kind.setEnabled(True)
@@ -1717,8 +1712,8 @@ class RecordTab(QWidget):
                 self._tmarks[-1]["end"] = mk["end"] if mk else s.now()
             if mk:
                 self._marks_count += 1
-                self._set_status(f"Zaznaczono {fmt_time(mk['start'])}–{fmt_time(mk['end'])} · "
-                                 f"{MARK_KINDS.get(mk['kind'])}. W notatce pojawi się ramka „Ważne” z tym fragmentem.")
+                self._set_status(tr("Zaznaczono {fmt_time}–{fmt_time2} · {get}. W notatce pojawi się ramka „Ważne” z tym "
+                                    "fragmentem.", fmt_time=fmt_time(mk['start']), fmt_time2=fmt_time(mk['end']), get=MARK_KINDS.get(mk['kind'])))
         self._render_transcript()
 
     # ------------------------------------------------------------------ pauza
@@ -1733,18 +1728,18 @@ class RecordTab(QWidget):
             if self.btn_mark.isChecked():
                 self.btn_mark.setChecked(False)
             s.pause()
-            self.rec_label.setText("PAUZA")
+            self.rec_label.setText(tr("PAUZA"))
             self._pause_text()
             set_icon(self.btn_pause, "play", "text", 18)
-            self.btn_pause.setToolTip("Wznów nagrywanie")
-            self._set_status("Pauza – dźwięk, transkrypcja i slajdy nie są nagrywane. Czas stoi.")
+            self.btn_pause.setToolTip(tr("Wznów nagrywanie"))
+            self._set_status(tr("Pauza – dźwięk, transkrypcja i slajdy nie są nagrywane. Czas stoi."))
         else:
             s.resume()
-            self.rec_label.setText("NAGRYWANIE")
+            self.rec_label.setText(tr("NAGRYWANIE"))
             self._pause_text()
             set_icon(self.btn_pause, "pause", "text", 18)
-            self.btn_pause.setToolTip("Pauza – dźwięk, transkrypcja i slajdy się zatrzymują, czas stoi")
-            self._set_status("Nagrywanie wznowione.")
+            self.btn_pause.setToolTip(tr("Pauza – dźwięk, transkrypcja i slajdy się zatrzymują, czas stoi"))
+            self._set_status(tr("Nagrywanie wznowione."))
             import time as _t
             self._last_sound = _t.monotonic()
         self._render_transcript()
@@ -1768,22 +1763,23 @@ class RecordTab(QWidget):
             try:
                 import psutil
                 if not psutil.pid_exists(info.pid):
-                    reason = "Aplikacja, z której nagrywasz dźwięk, została zamknięta."
+                    reason = tr("Aplikacja, z której nagrywasz dźwięk, została zamknięta.")
+                    self._autostop_closed = True
             except Exception:
                 pass
         silent = now - self._last_sound
         if not reason and silent >= minutes * 60 and now >= self._autostop_snooze:
-            reason = f"Od {int(silent // 60)} min nic nie słychać – wygląda na to, że wykład się skończył."
+            reason = tr("Od {x} min nic nie słychać – wygląda na to, że wykład się skończył.", x=int(silent // 60))
         if reason and self._autostop_deadline is None:
             self._autostop_deadline = now + 60
             self._autostop_reason = reason
             self.autostop.show()
         if self._autostop_deadline is not None:
-            if s.level_db() > -45 and "zamknięta" not in self._autostop_reason:
+            if s.level_db() > -45 and not getattr(self, "_autostop_closed", False):
                 self._autostop_cancel()        # znowu słychać wykład
                 return
             left = int(self._autostop_deadline - now)
-            self.autostop_text.setText(f"{self._autostop_reason} Nagrywanie zakończy się za {max(0, left)} s.")
+            self.autostop_text.setText(tr("{autostop_reason} Nagrywanie zakończy się za {x} s.", autostop_reason=self._autostop_reason, x=max(0, left)))
             if left <= 0:
                 self.autostop.hide()
                 self._autostop_deadline = None
@@ -1792,6 +1788,7 @@ class RecordTab(QWidget):
     def _autostop_cancel(self):
         import time as _t
         self._autostop_deadline = None
+        self._autostop_closed = False
         self.autostop.hide()
         self._last_sound = _t.monotonic()
         self._autostop_snooze = _t.monotonic() + 5 * 60
@@ -1814,9 +1811,9 @@ class RecordTab(QWidget):
         if self._ticks % 300 == 0 and s.live_notes_enabled:
             self._on_notes_update()
             if s.whisper_ready and s.pending_seconds() > 90:
-                self._set_status(f"Transkrypcja nie nadąża (opóźnienie {int(s.pending_seconds())} s) – nadrobi po zakończeniu.")
+                self._set_status(tr("Transkrypcja nie nadąża (opóźnienie {x} s) – nadrobi po zakończeniu.", x=int(s.pending_seconds())))
             if s.recorder and s.recorder.error:
-                self._set_status(f"Błąd dźwięku: {s.recorder.error}")
+                self._set_status(tr("Błąd dźwięku: {error}", error=s.recorder.error))
         if self._ticks % 10 == 0:
             self._check_autostop()
 
@@ -1831,8 +1828,8 @@ class RecordTab(QWidget):
         t = T()
         s = self.session
         if s is not None and s.audio_info is None:
-            self.transcript.setHtml(f"<p style='color:{t.text2}'>Tryb „Tylko slajdy” – bez dźwięku i transkrypcji. "
-                                    "Złapane slajdy widać po prawej; notatka powstanie z ich treści.</p>")
+            self.transcript.setHtml(tr("<p style='color:{text2}'>Tryb „Tylko slajdy” – bez dźwięku i transkrypcji. Złapane slajdy "
+                                       "widać po prawej; notatka powstanie z ich treści.</p>", text2=t.text2))
             return
         items = self._titems[-500:]
         if not any(x["kind"] == "seg" for x in items):
@@ -1879,7 +1876,7 @@ class RecordTab(QWidget):
     def _on_slide(self, index: int, is_new: bool, path: str, t: float, updated: bool = False):
         if updated and path:
             self.slides.update_slide(index, path, self._slide_text_of(index))
-            self._set_status(f"Slajd {index} uzupełniony (animacja) – zrzut podmieniony.")
+            self._set_status(tr("Slajd {index} uzupełniony (animacja) – zrzut podmieniony.", index=index))
         elif is_new and path:
             prev = self.slides.infos()[-1] if self.slides.count() else None
             self.slides.add_slide(index, path, t, self._slide_text_of(index))
@@ -1888,7 +1885,7 @@ class RecordTab(QWidget):
             if prev is not None:
                 self._check_duplicate(prev.index, index)
         elif not is_new:
-            self._set_status(f"Powrót do slajdu {index} ({fmt_time(t)}).")
+            self._set_status(tr("Powrót do slajdu {index} ({fmt_time}).", index=index, fmt_time=fmt_time(t)))
             self._titems.append({"kind": "slide", "index": index, "t": t})
         if not updated:
             self._cur_slide_index = index
@@ -1909,7 +1906,7 @@ class RecordTab(QWidget):
             lambda: near_duplicate(ia.path, ib.path, self._slide_text_of(a), self._slide_text_of(b)), done))
 
     def _slides_changed(self):
-        self.slides_title.setText(f"SLAJDY · {self.slides.count()}")
+        self.slides_title.setText(tr("SLAJDY · {count}", count=self.slides.count()))
         infos = self.slides.infos()
         for x in infos:
             if not x.text:
@@ -1941,11 +1938,11 @@ class RecordTab(QWidget):
             if self._cur_slide_index == index:
                 self._cur_slide_index = 0
             self._slides_changed()
-            self._set_status(f"Usunięto slajd {index}. Jeśli ten sam obraz wróci (np. kamerka), nie zapisze się ponownie.")
+            self._set_status(tr("Usunięto slajd {index}. Jeśli ten sam obraz wróci (np. kamerka), nie zapisze się ponownie.", index=index))
         return ok
 
     def _on_video_status(self, text: str):
-        self.video_status.setText((text + " – przywróć okno albo wybierz cały monitor.") if text else "")
+        self.video_status.setText((text + tr(" – przywróć okno albo wybierz cały monitor.")) if text else "")
 
 
     def open_files_mode(self):

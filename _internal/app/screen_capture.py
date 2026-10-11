@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+from .i18n import tr
 
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -34,7 +35,7 @@ def list_monitors() -> list[VideoSourceInfo]:
         import mss
         with mss.mss() as sct:
             for i, m in enumerate(sct.monitors[1:], start=1):
-                out.append(VideoSourceInfo("monitor", f"🖥 Monitor {i}  ({m['width']}×{m['height']})", index=i))
+                out.append(VideoSourceInfo("monitor", tr("🖥 Monitor {i}  ({x}×{x2})", i=i, x=m['width'], x2=m['height']), index=i))
     except Exception:
         pass
     return out
@@ -137,10 +138,10 @@ class WindowGrabber:
         user32 = ctypes.windll.user32
         gdi32 = ctypes.windll.gdi32
         if not self.exists():
-            self.last_error = "Okno zostało zamknięte"
+            self.last_error = tr("Okno zostało zamknięte")
             return None
         if self.is_minimized():
-            self.last_error = "Okno jest zminimalizowane"
+            self.last_error = tr("Okno jest zminimalizowane")
             return None
         rect = wintypes.RECT()
         user32.GetWindowRect(self.hwnd, ctypes.byref(rect))
@@ -158,7 +159,7 @@ class WindowGrabber:
         try:
             ok = user32.PrintWindow(wintypes.HWND(self.hwnd), wintypes.HDC(mem_dc), 2)  # PW_RENDERFULLCONTENT
             if not ok:
-                self.last_error = "PrintWindow nie powiodło się"
+                self.last_error = tr("PrintWindow nie powiodło się")
                 return None
 
             class BITMAPINFOHEADER(ctypes.Structure):

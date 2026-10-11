@@ -12,8 +12,9 @@ from PySide6.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
 from .. import mac_permissions as mp
 from .controls import StatusDot, hbox, label, show_if
+from ..i18n import tr
 
-STATE_TEXT = {mp.GRANTED: "Zgoda udzielona", mp.DENIED: "Brak zgody", mp.UNKNOWN: "macOS jeszcze nie pytał"}
+STATE_TEXT = {mp.GRANTED: tr("Zgoda udzielona"), mp.DENIED: tr("Brak zgody"), mp.UNKNOWN: tr("macOS jeszcze nie pytał")}
 STATE_DOT = {mp.GRANTED: "green", mp.DENIED: "red", mp.UNKNOWN: "orange"}
 
 
@@ -32,12 +33,12 @@ class _PermRow(QFrame):
         lay.addWidget(hbox(self.dot, self.title, "stretch", self.state, spacing=8))
         self.text = label("", "footnote", wrap=True)
         lay.addWidget(self.text)
-        self.btn_ask = QPushButton("Zezwól…")
+        self.btn_ask = QPushButton(tr("Zezwól…"))
         self.btn_ask.setObjectName("primary")
-        self.btn_settings = QPushButton("Otwórz Ustawienia systemowe")
-        self.btn_restart = QPushButton("Uruchom ponownie")
+        self.btn_settings = QPushButton(tr("Otwórz Ustawienia systemowe"))
+        self.btn_restart = QPushButton(tr("Uruchom ponownie"))
         self.btn_restart.setObjectName("plain")
-        self.btn_restart.setToolTip("macOS włącza nagrywanie ekranu dopiero po ponownym uruchomieniu aplikacji")
+        self.btn_restart.setToolTip(tr("macOS włącza nagrywanie ekranu dopiero po ponownym uruchomieniu aplikacji"))
         self.buttons = hbox(self.btn_ask, self.btn_settings, self.btn_restart, "stretch", spacing=6)
         lay.addWidget(self.buttons)
 
@@ -49,11 +50,11 @@ class _PermRow(QFrame):
         elif st == mp.DENIED and self.kind != mp.SCREEN:
             self.text.setText(mp.WHY[self.kind] + "\n" + mp.WHERE[self.kind])
         elif self.kind == mp.SCREEN:
-            self.text.setText(mp.WHY[self.kind] + " Kliknij „Zezwól…”, a jeśli macOS nie zapyta – "
+            self.text.setText(mp.WHY[self.kind] + tr(" Kliknij „Zezwól…”, a jeśli macOS nie zapyta – ")
                               + mp.WHERE[self.kind][0].lower() + mp.WHERE[self.kind][1:])
         else:
-            self.text.setText(mp.WHY[self.kind] + " macOS zapyta o zgodę przy pierwszym nagrywaniu – "
-                              "możesz zezwolić już teraz.")
+            self.text.setText(mp.WHY[self.kind] + tr(" macOS zapyta o zgodę przy pierwszym nagrywaniu – "
+                              "możesz zezwolić już teraz."))
         # odmowy macOS nie pyta drugi raz – zostają Ustawienia (ekran: prośba rejestruje Wykłady na liście)
         show_if(self.btn_ask, st == mp.UNKNOWN or (self.kind == mp.SCREEN and st != mp.GRANTED))
         show_if(self.btn_settings, st != mp.GRANTED)

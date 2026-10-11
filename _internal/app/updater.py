@@ -30,12 +30,13 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from . import version
-from .system import IS_MAC, app_bundle
+from .system import IS_MAC, IS_STORE, app_bundle
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 INTERNAL = Path(__file__).resolve().parents[1]
 ROOT = INTERNAL.parent
-EXE = "Wykłady.exe"
+EXE = "Wykłady.exe"  # i18n: nie
 KEEP = {"runtime", "__pycache__"}
 
 
@@ -85,7 +86,7 @@ def release_asset(rel: dict, platform: Optional[str] = None) -> tuple[str, bool]
 def check(repo: str) -> Optional[UpdateInfo]:
     """Najnowsza wersja w repozytorium (None = nie ma nowszej). Wyjątek = problem z siecią/repozytorium."""
     if not repo:
-        raise RuntimeError("Nie ustawiono repozytorium na GitHubie (np. „uzytkownik/wyklady”).")
+        raise RuntimeError(tr("Nie ustawiono repozytorium na GitHubie (np. „uzytkownik/wyklady”)."))
     if IS_MAC:          # na Macu tylko wydania (paczka .dmg) – archiwum gałęzi nie ma Wykłady.app
         rel = json.loads(_get(f"https://api.github.com/repos/{repo}/releases/latest"))
         url, manual = release_asset(rel, "darwin")
@@ -101,7 +102,7 @@ def check(repo: str) -> Optional[UpdateInfo]:
         info = UpdateInfo(rel.get("tag_name", "").lstrip("vV"), rel.get("body") or "", url, "release", manual)
     except urllib.error.HTTPError as e:
         if e.code != 404:
-            raise RuntimeError(f"GitHub odpowiedział błędem {e.code}.") from e
+            raise RuntimeError(tr("GitHub odpowiedział błędem {code}.", code=e.code)) from e
         path = "_internal/app/version.py"
         try:   # API nie ma kilkuminutowego opóźnienia jak raw.githubusercontent.com
             raw = _get(f"https://api.github.com/repos/{repo}/contents/{path}?ref={version.BRANCH}",
@@ -110,7 +111,7 @@ def check(repo: str) -> Optional[UpdateInfo]:
             raw = _get(f"https://raw.githubusercontent.com/{repo}/{version.BRANCH}/{path}").decode("utf-8")
         m = re.search(r'VERSION\s*=\s*"([^"]+)"', raw)
         if not m:
-            raise RuntimeError("W repozytorium nie ma pliku _internal/app/version.py.")
+            raise RuntimeError(tr("W repozytorium nie ma pliku _internal/app/version.py."))
         info = UpdateInfo(m.group(1), "", f"https://github.com/{repo}/archive/refs/heads/{version.BRANCH}.zip", "branch")
     return info if newer(info.version) else None
 
@@ -125,7 +126,7 @@ def download(info: UpdateInfo, progress: Optional[Callable[[int, int], None]] = 
         done = 0
         while True:
             if cancel is not None and cancel.is_set():
-                raise RuntimeError("Anulowano.")
+                raise RuntimeError(tr("Anulowano."))
             chunk = r.read(1 << 18)
             if not chunk:
                 break
@@ -137,24 +138,26 @@ def download(info: UpdateInfo, progress: Optional[Callable[[int, int], None]] = 
 
 
 def can_update() -> tuple[bool, str]:
+    if IS_STORE:
+        return False, tr("Tę wersję aktualizuje Microsoft Store.")
     if IS_MAC:
         bundle = app_bundle()
         if bundle is None:
-            return False, "Aktualizacja działa w aplikacji uruchomionej z Wykłady.app."
+            return False, tr("Aktualizacja działa w aplikacji uruchomionej z Wykłady.app.")
         if "/AppTranslocation/" in str(bundle) or str(bundle).startswith("/Volumes/"):
-            return False, ("Wykłady działają prosto z pobranego pliku. Przeciągnij Wykłady do folderu Aplikacje, "
-                           "uruchom je stamtąd i zaktualizuj ponownie.")
+            return False, (tr("Wykłady działają prosto z pobranego pliku. Przeciągnij Wykłady do folderu Aplikacje, "
+                           "uruchom je stamtąd i zaktualizuj ponownie."))
     elif not (ROOT / EXE).exists() or not (INTERNAL / "main.py").exists():
-        return False, ("Aktualizacja działa w wersji zainstalowanej z Wykłady.exe (folder z plikiem Wykłady.exe "
-                       "i podfolderem _internal).")
+        return False, (tr("Aktualizacja działa w wersji zainstalowanej z Wykłady.exe (folder z plikiem Wykłady.exe "
+                       "i podfolderem _internal)."))
     probe = INTERNAL / ".zapis_test"
     try:
         probe.write_text("x")
         probe.unlink()
     except OSError:
         if IS_MAC:
-            return False, "Brak uprawnień do zapisu w Wykłady.app – przeciągnij aplikację do folderu Aplikacje."
-        return False, "Brak uprawnień do zapisu w folderze aplikacji – przenieś go np. do Dokumentów."
+            return False, tr("Brak uprawnień do zapisu w Wykłady.app – przeciągnij aplikację do folderu Aplikacje.")
+        return False, tr("Brak uprawnień do zapisu w folderze aplikacji – przenieś go np. do Dokumentów.")
     return True, ""
 
 
@@ -172,7 +175,7 @@ def apply(zip_path: Path) -> None:
             z.extractall(tmp)
         src = next((p.parent.parent for p in tmp.rglob("main.py") if p.parent.name == "_internal"), None)
         if src is None or not (src / "_internal" / "app").is_dir():
-            raise RuntimeError("Pobrana paczka nie wygląda na aplikację Wykłady (brak _internal/app).")
+            raise RuntimeError(tr("Pobrana paczka nie wygląda na aplikację Wykłady (brak _internal/app)."))
         # 1. pliki programu
         _copy_internal(src / "_internal")
         # 2. program startowy (działający plik można przemianować, ale nie nadpisać)
@@ -215,18 +218,18 @@ def _apply_dmg(dmg: Path) -> None:
     """Mac: montuje .dmg (bez okna Findera), kopiuje pliki z Wykłady.app w środku do działającej paczki."""
     bundle = app_bundle()
     if bundle is None:
-        raise RuntimeError("Nie znaleziono Wykłady.app.")
+        raise RuntimeError(tr("Nie znaleziono Wykłady.app."))
     mnt = Path(tempfile.mkdtemp(prefix="wyklady-dmg-"))
     try:
         r = subprocess.run(["/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint",
                             str(mnt), str(dmg)], capture_output=True, text=True, timeout=180)
         if r.returncode != 0:
-            raise RuntimeError(f"Nie udało się otworzyć pobranego pliku .dmg: {(r.stderr or r.stdout).strip()[-300:]}")
+            raise RuntimeError(tr("Nie udało się otworzyć pobranego pliku .dmg: {x}", x=(r.stderr or r.stdout).strip()[-300:]))
         try:
             src = next((p for p in mnt.glob("*.app") if (p / "Contents" / "Resources" / "_internal" / "main.py").exists()),
                        None)
             if src is None:
-                raise RuntimeError("Pobrana paczka nie wygląda na aplikację Wykłady (brak Wykłady.app).")
+                raise RuntimeError(tr("Pobrana paczka nie wygląda na aplikację Wykłady (brak Wykłady.app)."))
             _copy_internal(src / "Contents" / "Resources" / "_internal")
             c_new, c_cur = src / "Contents", bundle / "Contents"
             shutil.copy2(c_new / "Info.plist", c_cur / "Info.plist")

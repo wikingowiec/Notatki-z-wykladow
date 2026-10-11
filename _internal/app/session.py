@@ -16,6 +16,7 @@ from .screen_capture import VideoSourceInfo, make_grabber
 from .slides import SlideEvent, SlideRecorder, SlideStore
 from .storage import Lecture, load_glossary
 from .transcriber import LiveTranscriber, Vocabulary, WhisperEngine, engine_for
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class RecordingSession:
         try:
             self.engine.load(self.on_status)
             self.whisper_ready = True
-            self.on_status(f"Transkrypcja na żywo działa ({self.engine.device})")
+            self.on_status(tr("Transkrypcja na żywo działa ({device})", device=self.engine.device))
             self.transcriber.start()
             if self.live_notes_enabled:
                 from .live_notes import LiveNotes
@@ -164,7 +165,7 @@ class RecordingSession:
         except Exception as e:  # noqa: BLE001
             log.exception("whisper")
             self.whisper_error = str(e)
-            self.on_status(f"⚠ Transkrypcja na żywo niedostępna: {e}. Nagranie trwa – transkrypcja zostanie zrobiona z pliku.")
+            self.on_status(tr("⚠ Transkrypcja na żywo niedostępna: {e}. Nagranie trwa – transkrypcja zostanie zrobiona z pliku.", e=e))
             if self.recorder and self.transcriber:
                 try:
                     self.recorder.listeners.remove(self.transcriber.feed)
@@ -254,7 +255,7 @@ class RecordingSession:
     # ------------------------------------------------------------------
     def stop(self) -> None:
         """Blokujące – wywoływać w wątku roboczym."""
-        self.on_status("Zatrzymywanie nagrywania…")
+        self.on_status(tr("Zatrzymywanie nagrywania…"))
         if self.paused:
             self.resume()
         if self.open_mark:
@@ -279,7 +280,7 @@ class RecordingSession:
         if self._loader:
             self._loader.join()
         if self.transcriber and self.whisper_ready:
-            self.on_status("Kończenie transkrypcji ostatnich fragmentów…")
+            self.on_status(tr("Kończenie transkrypcji ostatnich fragmentów…"))
             self.transcriber.stop_and_flush()
         self.needs_file_transcription = self.audio_info is not None and ((not self.live) or (not self.whisper_ready) or bool(
             self.transcriber and self.transcriber.error))
@@ -287,4 +288,4 @@ class RecordingSession:
             self.engine.unload()
         m.status = "nagrany"
         self.lecture.save_meta()
-        self.on_status("Nagranie zapisane")
+        self.on_status(tr("Nagranie zapisane"))

@@ -14,11 +14,12 @@ from .reader import Reader
 from . import theme as _th
 from .theme import T
 from .widgets import run_async
+from ..i18n import tr
 
-HINT = ("Odpowiedzi pochodzą wyłącznie z notatki. Jeśli czegoś w niej nie ma, zobaczysz to wprost – AI nie zgaduje. "
-        "Każda odpowiedź ma cytat i odnośnik do fragmentu notatki.")
-HINT_LIVE = ("W trakcie wykładu AI szuka odpowiedzi w gotowych fragmentach notatek i w transkrypcji ostatnich minut. "
-             "Jeśli czegoś jeszcze nie było, zobaczysz to wprost – AI nie zgaduje.")
+HINT = (tr("Odpowiedzi pochodzą wyłącznie z notatki. Jeśli czegoś w niej nie ma, zobaczysz to wprost – AI nie zgaduje. "
+        "Każda odpowiedź ma cytat i odnośnik do fragmentu notatki."))
+HINT_LIVE = (tr("W trakcie wykładu AI szuka odpowiedzi w gotowych fragmentach notatek i w transkrypcji ostatnich minut. "
+             "Jeśli czegoś jeszcze nie było, zobaczysz to wprost – AI nie zgaduje."))
 
 
 class AskPanel(QStackedWidget):
@@ -45,13 +46,13 @@ class AskPanel(QStackedWidget):
         self.view.seek_requested.connect(self.seek_requested.emit)
         self.input = QLineEdit()
         self.input.setObjectName("askInput")
-        self.input.setPlaceholderText("Zadaj pytanie, np. „Jak brzmi twierdzenie o wartości średniej?”")
+        self.input.setPlaceholderText(tr("Zadaj pytanie, np. „Jak brzmi twierdzenie o wartości średniej?”"))
         self.input.returnPressed.connect(self.ask)
-        self.btn = QPushButton("Zapytaj")
+        self.btn = QPushButton(tr("Zapytaj"))
         self.btn.setObjectName("primary")
         set_icon(self.btn, "search", "on_accent", 15)
         self.btn.clicked.connect(self.ask)
-        self.btn_clear = QPushButton("Wyczyść")
+        self.btn_clear = QPushButton(tr("Wyczyść"))
         self.btn_clear.setObjectName("plain")
         self.btn_clear.clicked.connect(self.clear)
         self.hint = label(HINT_LIVE if live else HINT, "footnote", wrap=True)
@@ -68,8 +69,8 @@ class AskPanel(QStackedWidget):
         row.addWidget(self.btn_clear)
         lay.addLayout(row)
         lay.addWidget(self.hint)
-        self.empty = EmptyState("search", "Najpierw potrzebne są notatki",
-                                "Pytania zadajesz do gotowej notatki. Wygeneruj ją przyciskiem „Generuj notatki”.")
+        self.empty = EmptyState("search", tr("Najpierw potrzebne są notatki"),
+                                tr("Pytania zadajesz do gotowej notatki. Wygeneruj ją przyciskiem „Generuj notatki”."))
         self.addWidget(w)
         self.addWidget(self.empty)
 
@@ -88,22 +89,21 @@ class AskPanel(QStackedWidget):
     def render(self, items: list[dict], pending: str | None = None):
         t = T()
         if not items and not pending:
-            intro = ("Pytaj w trakcie wykładu – np. gdy coś Ci umknęło. Źródłem są gotowe fragmenty notatek "
-                     "i transkrypcja ostatnich minut." if self.live else
-                     "Wpisz pytanie z zadania lub ćwiczeń. Odpowiedź powstaje tylko na podstawie tej notatki "
-                     "i zawsze pokazuje cytat, na którym się opiera.")
+            intro = (tr("Pytaj w trakcie wykładu – np. gdy coś Ci umknęło. Źródłem są gotowe fragmenty notatek "
+                     "i transkrypcja ostatnich minut.") if self.live else
+                     tr("Wpisz pytanie z zadania lub ćwiczeń. Odpowiedź powstaje tylko na podstawie tej notatki "
+                     "i zawsze pokazuje cytat, na którym się opiera."))
             self.view.setHtml(
                 f"<div style='color:{t.text2}; line-height:160%'><p style='font-family:\"{_th.DISPLAY_FAMILY}\"; "
-                f"font-size:16pt; font-weight:600; color:{t.text}'>Zapytaj notatkę</p>"
-                f"<p>{intro}</p><p>Przykłady: <i>„Czym jest całka oznaczona?”</i>, "
-                "<i>„Jakie warunki musi spełniać funkcja…?”</i></p></div>")
+                f"font-size:16pt; font-weight:600; color:{t.text}'>{tr('Zapytaj notatkę')}</p>"
+                f"<p>{intro}</p><p>{tr('Przykłady: <i>„Czym jest całka oznaczona?”</i>, <i>„Jakie warunki musi spełniać funkcja…?”</i>')}</p></div>")
             return
         badge = {
-            "odpowiedz": (t.green, "Odpowiedź z notatki"),
-            "czesciowo": (t.orange, "Częściowo w notatce"),
-            "brak": (t.text2, "Brak w notatce"),
-            "niepewne": (t.text2, "Nie potwierdzono w notatce"),
-            "blad": (t.red, "Błąd"),
+            "odpowiedz": (t.green, tr("Odpowiedź z notatki")),
+            "czesciowo": (t.orange, tr("Częściowo w notatce")),
+            "brak": (t.text2, tr("Brak w notatce")),
+            "niepewne": (t.text2, tr("Nie potwierdzono w notatce")),
+            "blad": (t.red, tr("Błąd")),
         }
         link = f"style='color:{t.accent}; text-decoration:none'"
         parts = []
@@ -124,22 +124,21 @@ class AskPanel(QStackedWidget):
                     parts.append(f"<p style='margin:0 0 6px 16px; color:{t.text2}'><i>„{html.escape(q['text'])}”</i> "
                                  f"— <a {link} href='#{q['anchor']}'>{html.escape(q['title'])}</a>{play}</p>")
             elif st == "brak":
-                parts.append("<p style='margin:0 0 6px 0'>Tej informacji nie ma w notatce, więc nie podaję odpowiedzi.</p>")
+                parts.append(tr("<p style='margin:0 0 6px 0'>Tej informacji nie ma w notatce, więc nie podaję odpowiedzi.</p>"))
             elif st == "niepewne":
-                parts.append("<p style='margin:0 0 6px 0'>Nie udało się potwierdzić odpowiedzi cytatem z notatki – "
+                parts.append(tr("<p style='margin:0 0 6px 0'>Nie udało się potwierdzić odpowiedzi cytatem z notatki – "
                              "najpewniej tej informacji w niej nie ma. Nie podaję odpowiedzi, żeby nie wprowadzić "
-                             "Cię w błąd.</p>")
+                             "Cię w błąd.</p>"))
             elif st == "blad":
                 parts.append(f"<p style='color:{t.red}'>{html.escape(a.get('answer', ''))}</p>")
             if a.get("missing") and st != "blad":
                 parts.append(f"<p style='margin:0 0 6px 0; color:{t.text2}'>{html.escape(a['missing'])}</p>")
             if st in ("brak", "niepewne") and a.get("related"):
                 links = " · ".join(f"<a {link} href='#{r['anchor']}'>{html.escape(r['title'])}</a>" for r in a["related"])
-                parts.append(f"<p style='margin:0 0 6px 0; color:{t.text2}'>Najbliższe tematy w notatce: {links}</p>")
+                parts.append(tr("<p style='margin:0 0 6px 0; color:{text2}'>Najbliższe tematy w notatce: {links}</p>", text2=t.text2, links=links))
         if pending:
-            parts.append(f"<p style='margin:22px 0 6px 0; font-family:\"{_th.DISPLAY_FAMILY}\"; font-size:13pt; "
-                         f"font-weight:600'>{html.escape(pending)}</p>"
-                         f"<p style='color:{t.text2}'>Szukam odpowiedzi w notatce…</p>")
+            parts.append(tr("<p style='margin:22px 0 6px 0; font-family:\"{display_family}\"; font-size:13pt; "
+                            "font-weight:600'>{escape}</p><p style='color:{text2}'>Szukam odpowiedzi w notatce…</p>", display_family=_th.DISPLAY_FAMILY, escape=html.escape(pending), text2=t.text2))
         self.view.setHtml(f"<body style='color:{t.text}; line-height:160%'>{''.join(parts)}</body>")
         sb = self.view.verticalScrollBar()
         QTimer.singleShot(0, lambda: sb.setValue(sb.maximum()))
@@ -164,13 +163,13 @@ class AskPanel(QStackedWidget):
         self.render(history, pending=q)
         s = self.settings
         if self.busy_hint():
-            self.hint.setText("Model AI jest teraz zajęty innym zadaniem – odpowiedź pojawi się, gdy będzie wolny.")
+            self.hint.setText(tr("Model AI jest teraz zajęty innym zadaniem – odpowiedź pojawi się, gdy będzie wolny."))
 
         def work():
             from ..llm import Ollama
             llm = Ollama(s.ollama_url)
             if not llm.is_running():
-                a = qa.Answer(question=q, status="blad", answer="Ollama nie działa – uruchom ją i spróbuj ponownie.")
+                a = qa.Answer(question=q, status="blad", answer=tr("Ollama nie działa – uruchom ją i spróbuj ponownie."))
             else:
                 a = qa.ask(get_md(), q, llm, s.ollama_model, num_ctx=ctx,
                            keep_alive="30m" if self.live else "10m", lang=lang)
@@ -195,7 +194,7 @@ class AskPanel(QStackedWidget):
             self.answered.emit()
 
         def failed(e):
-            done(qa.to_dict(qa.Answer(question=q, status="blad", answer=f"Nie udało się: {e}")))
+            done(qa.to_dict(qa.Answer(question=q, status="blad", answer=tr("Nie udało się: {e}", e=e))))
         run_async(work, done, failed)
 
     def clear(self):

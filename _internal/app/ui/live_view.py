@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushBu
 from ..storage import fmt_time
 from .controls import label, rounded_pixmap, set_icon
 from .theme import T
+from ..i18n import tr
 
 
 def slide_title(text: str, limit: int = 42) -> str:
@@ -44,7 +45,7 @@ def transcript_html(items: list[dict], marks: list[dict], slide_texts: dict, liv
             continue
         if it["kind"] == "slide":
             title = slide_title(slide_texts.get(it["index"], ""))
-            cap = " · ".join(x for x in (f"Slajd {it['index']}", title, fmt_time(it["t"])) if x)
+            cap = " · ".join(x for x in (tr("Slajd {x}", x=it['index']), title, fmt_time(it["t"])) if x)
             out.append(f"<p style='margin:14px 0 10px 0; color:{t.accent_text}; font-size:9pt; font-weight:700;'>"
                        f"<span style='color:{t.line2}'>———</span>&nbsp; {html.escape(cap)} &nbsp;"
                        f"<span style='color:{t.line2}'>———</span></p>")
@@ -54,7 +55,7 @@ def transcript_html(items: list[dict], marks: list[dict], slide_texts: dict, liv
         txt = html.escape(it["text"].strip())
         if cur:
             txt += f"<span style='color:{t.accent}'>&nbsp;▍</span>"
-        tag = (f"&nbsp;&nbsp;<span style='color:{t.wazText}; font-size:8pt; font-weight:700;'>WAŻNE</span>"
+        tag = (f"&nbsp;&nbsp;<span style='color:{t.wazText}; font-size:8pt; font-weight:700;'>{tr('WAŻNE')}</span>"
                if marked else "")
         bg = f"background-color:{t.mark};" if marked else ""
         col = t.text2 if cur else t.text
@@ -75,7 +76,7 @@ def skeleton_html(text: str) -> str:
         for w in (46, 92, 84, 70))
     return (f"<table width='100%' border='1' cellspacing='0' cellpadding='16' "
             f"style='border-style:dashed; border-color:{t.line2}; margin-top:18px;'><tr><td>"
-            f"<p style='margin:0 0 12px 0; color:{t.text3}; font-size:8.5pt; font-weight:700;'>PISZĘ NASTĘPNY FRAGMENT</p>"
+            f"<p style='margin:0 0 12px 0; color:{t.text3}; font-size:8.5pt; font-weight:700;'>{tr('PISZĘ NASTĘPNY FRAGMENT')}</p>"
             f"{bars}<p style='margin:6px 0 0 0; color:{t.text3};'>{html.escape(text)}</p></td></tr></table>")
 
 
@@ -90,11 +91,11 @@ class CurrentSlide(QWidget):
         self.img = QLabel()
         self.img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.img.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.img.setToolTip("Powiększ")
+        self.img.setToolTip(tr("Powiększ"))
         self.img.mousePressEvent = lambda _e: self.index and self.open_requested.emit(self.index)
         self.cap = label("", "caption")
-        self.head = label("TEKST ZE SLAJDU", "sectionHeader")
-        self.b_copy = QPushButton("Kopiuj")
+        self.head = label(tr("TEKST ZE SLAJDU"), "sectionHeader")
+        self.b_copy = QPushButton(tr("Kopiuj"))
         self.b_copy.setObjectName("plain")
         set_icon(self.b_copy, "doc", "accent_text", 14)
         self.b_copy.clicked.connect(self._copy)
@@ -132,7 +133,7 @@ class CurrentSlide(QWidget):
         if info is None:
             self.index, self.text = 0, ""
             self._pm = QPixmap()
-            self.img.setText("Pierwszy slajd pojawi się tutaj.")
+            self.img.setText(tr("Pierwszy slajd pojawi się tutaj."))
             self.img.setStyleSheet(f"color:{T().text3}; border:1px dashed {T().line2}; border-radius:{T().r('md')}px;")
             self.img.setFixedHeight(150)
             self.cap.setText("")
@@ -144,7 +145,7 @@ class CurrentSlide(QWidget):
         self._pm = QPixmap(info.path)
         self.cap.setText(info.caption)
         self.body.setText(html.escape(self.text.strip())[:900].replace("\n", "<br>") if self.text.strip() else
-                          f"<span style='color:{T().text3}'>Odczytuję tekst…</span>")
+                          tr("<span style='color:{text3}'>Odczytuję tekst…</span>", text3=T().text3))
         self.b_copy.setEnabled(bool(self.text.strip()))
         self._fit()
 
@@ -175,8 +176,8 @@ class CurrentSlide(QWidget):
 
     def _copy(self):
         QApplication.clipboard().setText(self.text.strip())
-        self.b_copy.setText("Skopiowano ✓")
-        QTimer.singleShot(1500, lambda: self.b_copy.setText("Kopiuj"))
+        self.b_copy.setText(tr("Skopiowano ✓"))
+        QTimer.singleShot(1500, lambda: self.b_copy.setText(tr("Kopiuj")))
 
 
 class DupHint(QFrame):
@@ -191,12 +192,12 @@ class DupHint(QFrame):
         h.setContentsMargins(12, 6, 6, 6)
         h.setSpacing(6)
         self.text = label("", "footnote", wrap=True)
-        self.b_del = QPushButton("Usuń")
+        self.b_del = QPushButton(tr("Usuń"))
         self.b_del.setObjectName("plain")
         self.b_del.clicked.connect(lambda: (self.hide(), self.delete.emit(self.index)))
         b_x = QPushButton("")
         b_x.setObjectName("plain")
-        b_x.setToolTip("Zostaw oba")
+        b_x.setToolTip(tr("Zostaw oba"))
         set_icon(b_x, "xmark", "text2", 14)
         b_x.setFixedWidth(34)
         b_x.clicked.connect(self.hide)
@@ -207,8 +208,8 @@ class DupHint(QFrame):
 
     def offer(self, a: int, b: int):
         self.index = b
-        self.text.setText(f"Slajdy {a} i {b} to prawie to samo.")
-        self.b_del.setText(f"Usuń {b}")
+        self.text.setText(tr("Slajdy {a} i {b} to prawie to samo.", a=a, b=b))
+        self.b_del.setText(tr("Usuń {b}", b=b))
         self.show()
 
 

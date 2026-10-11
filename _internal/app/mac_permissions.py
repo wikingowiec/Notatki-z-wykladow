@@ -12,6 +12,7 @@ import ctypes
 import logging
 import subprocess
 import threading
+from .i18n import tr
 from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
@@ -27,22 +28,22 @@ SETTINGS_URL = {
 }
 
 TITLE = {
-    MIC: "Dostęp do mikrofonu",
-    AUDIO: "Nagrywanie dźwięku aplikacji",
-    SCREEN: "Nagrywanie ekranu (slajdy)",
+    MIC: tr("Dostęp do mikrofonu"),
+    AUDIO: tr("Nagrywanie dźwięku aplikacji"),
+    SCREEN: tr("Nagrywanie ekranu (slajdy)"),
 }
 WHY = {
-    MIC: "Wykłady nagrywają mikrofon tylko w trakcie nagrywania, a dźwięk zostaje na tym Macu.",
-    AUDIO: "Żeby nagrać wykład z Teams, Zooma albo przeglądarki, macOS musi pozwolić Wykładom słuchać dźwięku "
-           "wybranej aplikacji. Nic nie wychodzi poza tego Maca.",
-    SCREEN: "Slajdy są łapane ze zrzutów wybranego ekranu albo okna. macOS wymaga na to zgody na nagrywanie ekranu.",
+    MIC: tr("Wykłady nagrywają mikrofon tylko w trakcie nagrywania, a dźwięk zostaje na tym Macu."),
+    AUDIO: tr("Żeby nagrać wykład z Teams, Zooma albo przeglądarki, macOS musi pozwolić Wykładom słuchać dźwięku "
+           "wybranej aplikacji. Nic nie wychodzi poza tego Maca."),
+    SCREEN: tr("Slajdy są łapane ze zrzutów wybranego ekranu albo okna. macOS wymaga na to zgody na nagrywanie ekranu."),
 }
 WHERE = {
-    MIC: "Ustawienia systemowe › Prywatność i ochrona › Mikrofon › włącz „Wykłady”.",
-    AUDIO: "Ustawienia systemowe › Prywatność i ochrona › Nagrywanie ekranu i dźwięku systemu › w części "
-           "„Tylko nagrywanie dźwięku systemu” włącz „Wykłady”.",
-    SCREEN: "Ustawienia systemowe › Prywatność i ochrona › Nagrywanie ekranu i dźwięku systemu › włącz „Wykłady”, "
-            "potem uruchom Wykłady ponownie.",
+    MIC: tr("Ustawienia systemowe › Prywatność i ochrona › Mikrofon › włącz „Wykłady”."),
+    AUDIO: tr("Ustawienia systemowe › Prywatność i ochrona › Nagrywanie ekranu i dźwięku systemu › w części "
+           "„Tylko nagrywanie dźwięku systemu” włącz „Wykłady”."),
+    SCREEN: tr("Ustawienia systemowe › Prywatność i ochrona › Nagrywanie ekranu i dźwięku systemu › włącz „Wykłady”, "
+            "potem uruchom Wykłady ponownie."),
 }
 
 _cg = None

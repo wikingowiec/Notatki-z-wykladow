@@ -56,7 +56,10 @@ def create_app(settings):
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Wyklady.App")
+            from app.system import package_family
+            # wersja ze Store: identyfikator aplikacji z paczki – okno na pasku zadań łączy się z kafelkiem z menu Start
+            fam = package_family()
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"{fam}!App" if fam else "Wyklady.App")
         except Exception:
             pass
     elif sys.platform == "darwin":
@@ -94,7 +97,7 @@ def open_main_window(app, settings, fade_in: bool = False):
     """Okno aplikacji: rozmiar i układ ustalone przed pokazaniem, pasek tytułu w kolorach motywu –
     pojawia się raz, od razu gotowe (bez mignięć)."""
     log = logging.getLogger("main")
-    from app.system import IS_WIN
+    from app.system import IS_STORE, IS_WIN
     if IS_WIN:
         from app.transcriber import setup_cuda_dll_paths
         setup_cuda_dll_paths()    # biblioteki CUDA z pakietów pip – przed importem faster_whisper
@@ -103,7 +106,9 @@ def open_main_window(app, settings, fade_in: bool = False):
         ollama_env()              # flash attention i mniejsza pamięć kontekstu dla Ollamy (od jej następnego startu)
     except Exception:  # noqa: BLE001
         pass
-    if sys.platform == "darwin":  # Mac: po ponownym uruchomieniu komputera nikt inny nie uruchomi Ollamy
+    # Mac i wersja ze Store: po ponownym uruchomieniu komputera nikt inny nie uruchomi Ollamy (autostart zapisany
+    # przez instalator Ollamy z wnętrza paczki MSIX zostaje w paczce)
+    if sys.platform == "darwin" or IS_STORE:
         import threading
         from app import ollama_local
         threading.Thread(target=ollama_local.start, args=(settings.ollama_url,), name="ollama", daemon=True).start()
@@ -154,6 +159,8 @@ def main():
     mac_ssl_certs()
     from app.config import Settings
     settings = Settings.load()
+    from app.i18n import set_language
+    log.info("Język interfejsu: %s", set_language(getattr(settings, "ui_language", "")))   # przed oknami
     app = create_app(settings)
     if "--wait" in sys.argv:          # ponowne uruchomienie po aktualizacji – poczekaj, aż stare okno się zamknie
         import time
@@ -169,7 +176,9 @@ def main():
     def excepthook(t, v, tb):
         log.error("Nieobsłużony wyjątek:\n%s", "".join(traceback.format_exception(t, v, tb)))
         try:
-            QMessageBox.critical(None, "Błąd", f"{t.__name__}: {v}\n\nSzczegóły w logu (Ustawienia → Otwórz log).")
+            from app.i18n import tr
+            QMessageBox.critical(None, tr("Błąd"), f"{t.__name__}: {v}\n\n"
+                                 + tr("Szczegóły w logu (Ustawienia → Otwórz log)."))
         except Exception:
             pass
     sys.excepthook = excepthook

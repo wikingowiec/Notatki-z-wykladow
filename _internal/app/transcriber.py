@@ -14,16 +14,17 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 SR = 16000
 
 # Typowe „halucynacje” Whispera na ciszy/muzyce
 _HALLUCINATIONS = [
-    r"napisy (stworzone|wykonane|przygotowane) przez", r"amara\.org", r"dzięki za (obejrzenie|uwagę)\.?$",
-    r"^dziękuję( bardzo)?\.?$", r"subskrybuj", r"zapraszam na (mój|kolejny) (kanał|odcinek)",
+    r"napisy (stworzone|wykonane|przygotowane) przez", r"amara\.org", r"dzięki za (obejrzenie|uwagę)\.?$",  # i18n: nie
+    r"^dziękuję( bardzo)?\.?$", r"subskrybuj", r"zapraszam na (mój|kolejny) (kanał|odcinek)",  # i18n: nie
     r"subtitles by", r"thanks for watching", r"^\.+$", r"^muzyka\.?$", r"^\[muzyka\]$",
-    r"tłumaczenie.*napisy", r"^ *$",
+    r"tłumaczenie.*napisy", r"^ *$",  # i18n: nie
 ]
 _HALL_RE = re.compile("|".join(_HALLUCINATIONS), re.IGNORECASE)
 
@@ -104,7 +105,7 @@ class WhisperEngine:
         for device, ctype in attempts:
             try:
                 if status:
-                    status(f"Ładowanie modelu Whisper {self.model_name} ({device})… przy pierwszym uruchomieniu model się pobiera (~3 GB)")
+                    status(tr("Ładowanie modelu Whisper {model_name} ({device})… przy pierwszym uruchomieniu model się pobiera (~3 GB)", model_name=self.model_name, device=device))
                 model_name = self.model_name
                 if device == "cpu" and self.model_name.startswith("large") and self.device_pref == "auto" \
                         and sys.platform != "darwin":
@@ -119,7 +120,7 @@ class WhisperEngine:
             except Exception as e:  # noqa: BLE001
                 log.exception("Whisper load %s %s", device, ctype)
                 last = e
-        raise RuntimeError(f"Nie udało się załadować modelu Whisper: {last}")
+        raise RuntimeError(tr("Nie udało się załadować modelu Whisper: {last}", last=last))
 
     def unload(self) -> None:
         self.model = None
@@ -296,6 +297,7 @@ class LiveTranscriber:
 # ---------------------------------------------------------------------------
 # Słownictwo dla rozpoznawania mowy
 # ---------------------------------------------------------------------------
+# i18n: nie – polskie słowa pomijane przy szukaniu terminów
 _COMMON = set("""oraz także które który która jest będzie przez tylko jeśli wtedy gdzie kiedy dlaczego można
 należy wykład slajd przykład definicja twierdzenie dowód zadanie pytanie odpowiedź strona rozdział punkt
 which there their about would could should these those where because example lecture slide chapter""".split())
@@ -304,7 +306,7 @@ which there their about would could should these those where because example lec
 def terms_from_text(text: str, limit: int = 25) -> list[str]:
     """Charakterystyczne słowa (terminy, nazwiska, skróty) z tekstu slajdu."""
     out: list[str] = []
-    for m in re.finditer(r"[A-Za-zÀ-žĄ-Żą-ż][\wÀ-ž'’-]{3,}", text):
+    for m in re.finditer(r"[A-Za-zÀ-žĄ-Żą-ż][\wÀ-ž'’-]{3,}", text):  # i18n: nie
         w = m.group(0)
         lw = w.lower()
         if lw in _COMMON or len(w) < 5 and not w.isupper():

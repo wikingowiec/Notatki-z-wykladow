@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QListWidget, QListW
 from ..storage import Lecture, list_lectures
 from .controls import AdaptiveBox, EmptyState, SegmentedControl, label, paint_shadow, set_icon, show_if
 from .theme import T, mix, palette_color, qcolor
+from ..i18n import tn, tr
 
 DECK = Qt.ItemDataRole.UserRole + 1
 
@@ -34,14 +35,6 @@ def deck_counts(deck) -> dict:
     for cards, i in deck.entries:
         out[card_state(cards[i])] += 1
     return out
-
-
-def plural(n: int, one: str, few: str, many: str) -> str:
-    if n == 1:
-        return f"1 {one}"
-    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
-        return f"{n} {few}"
-    return f"{n} {many}"
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +72,7 @@ class DeckDelegate(QStyledItemDelegate):
         f.setPointSizeF(f.pointSizeF() - 1.0)
         f.setWeight(QFont.Weight.DemiBold)
         p.setFont(f)
-        due_txt = f"{due} dziś" if due else "na dziś gotowe"
+        due_txt = tr("{due} dziś", due=due) if due else tr("na dziś gotowe")
         dw = p.fontMetrics().horizontalAdvance(due_txt) + 16
         pill = QRectF(r.right() - dw - 12, r.top() + 11, dw, 22)
         p.setBrush(qcolor(t.accent_soft if due else t.hover))
@@ -113,7 +106,8 @@ class DeckDelegate(QStyledItemDelegate):
                 x += w
         p.setPen(qcolor(t.text2))
         p.drawText(QRectF(r.left() + 14, r.top() + 72, r.width() - 28, 18), Qt.AlignmentFlag.AlignVCenter,
-                   f"{c['known']} opanowane · {c['learning']} w nauce · {c['new']} nowe")
+                   tr("{known} opanowane · {learning} w nauce · {new} nowe", known=c["known"], learning=c["learning"],
+                      new=c["new"]))
         p.restore()
 
 
@@ -142,12 +136,12 @@ class StreakCard(QFrame):
         p.setFont(display_font(12.5))
         p.setPen(qcolor(t.text))
         p.drawText(QRectF(44, 10, 200, 24), Qt.AlignmentFlag.AlignVCenter,
-                   plural(n, "dzień", "dni", "dni") + " z rzędu" if n else "Zacznij serię")
+                   tn(n, "{n} dzień z rzędu", "{n} dni z rzędu", "{n} dni z rzędu") if n else tr("Zacznij serię"))
         f = QFont(self.font())
         f.setPointSizeF(f.pointSizeF() - 1.6)
         p.setFont(f)
         p.setPen(qcolor(t.text3))
-        p.drawText(QRectF(44, 32, 200, 14), Qt.AlignmentFlag.AlignVCenter, f"rekord: {plural(best, 'dzień', 'dni', 'dni')}")
+        p.drawText(QRectF(44, 32, 200, 14), Qt.AlignmentFlag.AlignVCenter, tn(best, "rekord: {n} dzień", "rekord: {n} dni", "rekord: {n} dni"))
         x = 14
         for name, done, today in self.data.get("week", []):
             r = QRectF(x, 52, 26, 16)
@@ -174,7 +168,7 @@ class GoalRing(QFrame):
 
     def set_data(self, done: int, goal: int):
         self.done, self.goal = done, max(1, goal)
-        self.setToolTip(f"Cel dzienny: {goal} ocenionych fiszek (zmiana w Ustawieniach)")
+        self.setToolTip(tr("Cel dzienny: {goal} ocenionych fiszek (zmiana w Ustawieniach)", goal=goal))
         self.update()
 
     def paintEvent(self, e):
@@ -200,7 +194,7 @@ class GoalRing(QFrame):
         p.setFont(f)
         p.setPen(qcolor(t.text3))
         p.drawText(QRectF(76, 38, 100, 16), Qt.AlignmentFlag.AlignVCenter,
-                   "cel osiągnięty ✓" if self.done >= self.goal else "cel dzienny")
+                   tr("cel osiągnięty ✓") if self.done >= self.goal else tr("cel dzienny"))
         p.end()
 
 
@@ -245,24 +239,24 @@ class SessionBar(QWidget):
 class CardEditor(QDialog):
     def __init__(self, card: dict, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Edytuj kartę")
+        self.setWindowTitle(tr("Edytuj kartę"))
         self.resize(560, 380)
         v = QVBoxLayout(self)
         v.setContentsMargins(20, 18, 20, 16)
         v.setSpacing(8)
-        v.addWidget(label("PYTANIE", "sectionHeader"))
+        v.addWidget(label(tr("PYTANIE"), "sectionHeader"))
         self.q = QPlainTextEdit(card.get("q", ""))
         self.q.setMaximumHeight(110)
         v.addWidget(self.q)
-        v.addWidget(label("ODPOWIEDŹ", "sectionHeader"))
+        v.addWidget(label(tr("ODPOWIEDŹ"), "sectionHeader"))
         self.a = QPlainTextEdit(card.get("a", ""))
         v.addWidget(self.a, 1)
-        v.addWidget(label("Wzory piszesz jak w notatce, np. $x^2$. Zakreślenie: ==tekst==.", "caption"))
+        v.addWidget(label(tr("Wzory piszesz jak w notatce, np. $x^2$. Zakreślenie: ==tekst==."), "caption"))
         row = QHBoxLayout()
         row.addStretch()
-        b_c = QPushButton("Anuluj")
+        b_c = QPushButton(tr("Anuluj"))
         b_c.clicked.connect(self.reject)
-        b_s = QPushButton("Zapisz")
+        b_s = QPushButton(tr("Zapisz"))
         b_s.setObjectName("primary")
         b_s.clicked.connect(self.accept)
         row.addWidget(b_c)
@@ -290,11 +284,11 @@ class StudyTab(QWidget):
         self.reviewed_today = 0
 
         # ---------------- nagłówek: tytuł + seria + cel ----------------
-        self.title = label("Fiszki", "largeTitle")
+        self.title = label(tr("Fiszki"), "largeTitle")
         self.stats = label("", "secondary")
         tl = QVBoxLayout()
         tl.setSpacing(2)
-        tl.addWidget(label("NAUKA", "overline"))
+        tl.addWidget(label(tr("NAUKA"), "overline"))
         tl.addWidget(self.title)
         tl.addWidget(self.stats)
         tw = QWidget()
@@ -325,7 +319,7 @@ class StudyTab(QWidget):
         self.grid.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.grid.setCursor(Qt.CursorShape.PointingHandCursor)
         self.grid.itemClicked.connect(lambda it: self.select_deck(it.data(DECK)))
-        self.btn_all = QPushButton("Ucz się wszystkich")
+        self.btn_all = QPushButton(tr("Ucz się wszystkich"))
         self.btn_all.setObjectName("primary")
         set_icon(self.btn_all, "play", "on_accent", 14)
         self.btn_all.clicked.connect(self._learn_all)
@@ -333,14 +327,14 @@ class StudyTab(QWidget):
         ll = QVBoxLayout(self.left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(8)
-        ll.addWidget(label("KATEGORIE", "sectionHeader"))
+        ll.addWidget(label(tr("KATEGORIE"), "sectionHeader"))
         ll.addWidget(self.scope)
         ll.addWidget(self.grid, 1)
         ll.addWidget(self.btn_all)
         self.left.setFixedWidth(350)
 
         # ---------------- prawa część: nauka / przeglądanie ----------------
-        self.mode_seg = SegmentedControl(["Ucz się", "Przeglądaj"], style="tabs")
+        self.mode_seg = SegmentedControl([tr("Ucz się"), tr("Przeglądaj")], style="tabs")
         self.mode_seg.changed.connect(self._mode_changed)
         from .controls import ChoiceCombo as _CC
         self.deck_combo = _CC()
@@ -348,7 +342,7 @@ class StudyTab(QWidget):
         self.deck_combo.activated.connect(self._deck_combo_chosen)
         self.deck_combo.hide()
         self.session_title = label("", "headline")
-        self.btn_end = QPushButton("Zakończ sesję")
+        self.btn_end = QPushButton(tr("Zakończ sesję"))
         self.btn_end.setObjectName("plain")
         self.btn_end.clicked.connect(self.end_session)
         self.session_bar = SessionBar()
@@ -369,7 +363,7 @@ class StudyTab(QWidget):
         cl.setContentsMargins(44, 30, 44, 22)
         cl.setSpacing(10)
         top = QHBoxLayout()
-        top.addWidget(label("PYTANIE", "sectionHeader"))
+        top.addWidget(label(tr("PYTANIE"), "sectionHeader"))
         top.addStretch(1)
         self.chip = QLabel_()
         top.addWidget(self.chip)
@@ -384,13 +378,13 @@ class StudyTab(QWidget):
         self.dash.setFixedHeight(2)
         cl.addWidget(self.dash)
         cl.addSpacing(4)
-        self.a_head = label("ODPOWIEDŹ", "sectionHeader")
+        self.a_head = label(tr("ODPOWIEDŹ"), "sectionHeader")
         cl.addWidget(self.a_head)
         self.a = label("", "cardA", wrap=True)
         self.a.setTextFormat(Qt.TextFormat.RichText)
         self.a.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         cl.addWidget(self.a)
-        self.a_hint = label("Spacja – pokaż odpowiedź", "caption")
+        self.a_hint = label(tr("Spacja – pokaż odpowiedź"), "caption")
         cl.addWidget(self.a_hint)
         cl.addStretch(1)
         foot = QHBoxLayout()
@@ -399,7 +393,7 @@ class StudyTab(QWidget):
         self.src.setTextFormat(Qt.TextFormat.RichText)
         self.src.setOpenExternalLinks(False)
         self.src.linkActivated.connect(self._src_link)
-        self.btn_edit = QPushButton("E — edytuj kartę")
+        self.btn_edit = QPushButton(tr("E — edytuj kartę"))
         self.btn_edit.setObjectName("plain")
         self.btn_edit.clicked.connect(self.edit_card)
         foot.addWidget(self.src, 1)
@@ -412,7 +406,7 @@ class StudyTab(QWidget):
         cw.addWidget(self.card, 20)
         cw.addStretch()
 
-        self.btn_show = QPushButton("Pokaż odpowiedź · Spacja")
+        self.btn_show = QPushButton(tr("Pokaż odpowiedź · Spacja"))
         self.btn_show.setObjectName("big")
         self.btn_show.setMinimumWidth(280)
         self.btn_show.clicked.connect(self.show_answer)
@@ -438,7 +432,7 @@ class StudyTab(QWidget):
         aw.addWidget(self.answer_row, 20)
         aw.addStretch()
         self.answer_row.setMaximumWidth(760)
-        self.keys = label("Spacja – odpowiedź · 1 / 2 – ocena · Ctrl+Z – cofnij · E – edytuj", "caption")
+        self.keys = label(tr("Spacja – odpowiedź · 1 / 2 – ocena · Ctrl+Z – cofnij · E – edytuj"), "caption")
         self.keys.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         study = QWidget()
@@ -453,14 +447,14 @@ class StudyTab(QWidget):
         sl.addWidget(self.keys)
         sl.addStretch(1)
 
-        self.btn_again = QPushButton("Powtórz wszystkie")
+        self.btn_again = QPushButton(tr("Powtórz wszystkie"))
         self.btn_again.setObjectName("primary")
         self.btn_again.clicked.connect(self._repeat_all)
-        self.empty = EmptyState("cards", "Brak fiszek",
-                                "Fiszki powstają automatycznie razem z notatkami z wykładu – pogrupowane w kategorie.")
-        self.finished = EmptyState("check", "Na dziś wszystko",
-                                   "Kolejne fiszki wrócą w wyznaczonym dniu (1, 3, 7… dni). "
-                                   "Możesz też powtórzyć wszystkie od nowa.", self.btn_again)
+        self.empty = EmptyState("cards", tr("Brak fiszek"),
+                                tr("Fiszki powstają automatycznie razem z notatkami z wykładu – pogrupowane w kategorie."))
+        self.finished = EmptyState("check", tr("Na dziś wszystko"),
+                                   tr("Kolejne fiszki wrócą w wyznaczonym dniu (1, 3, 7… dni). "
+                                   "Możesz też powtórzyć wszystkie od nowa."), self.btn_again)
         self.stack = QStackedWidget()
         self.stack.addWidget(study)
         self.stack.addWidget(self.empty)
@@ -571,7 +565,7 @@ class StudyTab(QWidget):
         cur = self.scope.currentData() if keep else None
         lectures = [l for l in list_lectures(self.settings.library_path()) if l.flashcards_path.exists()]
         self.scope.blockSignals(True)
-        self.scope.fill_scope(lectures, "Wszystkie fiszki", keep=cur)
+        self.scope.fill_scope(lectures, tr("Wszystkie fiszki"), keep=cur)
         self.scope.blockSignals(False)
 
     def set_scope_lecture(self, lec: Lecture):
@@ -595,10 +589,10 @@ class StudyTab(QWidget):
             it.setToolTip(f"{d.name} – {d.lecture.meta.title}")
             self.grid.addItem(it)
         due = sum(d.due() for d in self.decks)
-        self.btn_all.setText(f"Ucz się wszystkich · {due}" if due else "Ucz się wszystkich")
+        self.btn_all.setText(tr("Ucz się wszystkich · {due}", due=due) if due else tr("Ucz się wszystkich"))
         self.deck_combo.blockSignals(True)
         self.deck_combo.clear()
-        self.deck_combo.add(f"Wszystkie kategorie · {due}", None, None, "")
+        self.deck_combo.add(tr("Wszystkie kategorie · {due}", due=due), None, None, "")
         for d in self.decks:
             self.deck_combo.add(f"{d.name} · {d.due()}", d.key, palette_color(d.color), d.lecture.meta.title[:18])
         k = self.deck.key if self.deck else None
@@ -643,7 +637,7 @@ class StudyTab(QWidget):
         from .widgets import run_async
         decks = [self.deck] if self.deck else getattr(self, "decks", [])
         if not decks:
-            self.deck_view.setHtml(f"<p style='color:{T().text3}'>Brak fiszek w tym zakresie.</p>")
+            self.deck_view.setHtml(tr("<p style='color:{text3}'>Brak fiszek w tym zakresie.</p>", text3=T().text3))
             return
         md = "\n".join(f"# {d.name}\n\n*{d.lecture.meta.title}*\n\n{deck_markdown(d)}\n" for d in decks)
         folder, dpr = decks[0].lecture.folder, self.devicePixelRatioF() or 1.0
@@ -705,16 +699,17 @@ class StudyTab(QWidget):
         total = len(all_items)
         known = sum(1 for c, i in all_items if c[i].get("known"))
         due = sum(1 for c, i in all_items if is_due(c[i], day))
-        self.stats.setText(f"{due} do powtórki dziś · {plural(known, 'opanowana', 'opanowane', 'opanowanych')} · "
-                           f"{total} wszystkie" if total else "Brak fiszek")
+        self.stats.setText(tr("{due} do powtórki dziś", due=due) + " · "
+                           + tn(known, "{n} opanowana", "{n} opanowane", "{n} opanowanych") + " · "
+                           + tr("{total} wszystkie", total=total) if total else tr("Brak fiszek"))
 
     def _bar(self):
         states = [("current" if k == self.cur else self.state.get(k, "todo")) for k in self.order]
         self.session_bar.set_states(states)
         done = sum(1 for k in self.order if self.state.get(k) == "done")
-        name = self.deck.name if self.deck else "Wszystkie kategorie"
+        name = self.deck.name if self.deck else tr("Wszystkie kategorie")
         n = len(self.order)
-        self.session_title.setText(f"{name} · karta {min(n, done + 1)} z {n}" if n else name)
+        self.session_title.setText(tr("{name} · karta {i} z {n}", name=name, i=min(n, done + 1), n=n) if n else name)
 
     def next_card(self):
         self._update_header()
@@ -725,11 +720,11 @@ class StudyTab(QWidget):
         if not self.queue:
             self.cur = None
             done = sum(1 for v in self.state.values() if v == "done")
-            self.finished.title.setText("Sesja zakończona" if done else "Na dziś wszystko")
+            self.finished.title.setText(tr("Sesja zakończona") if done else tr("Na dziś wszystko"))
             self.finished.text.setText(
-                (f"Ocenione w tej sesji: {done}. " if done else "") +
-                "Kolejne fiszki wrócą w wyznaczonym dniu (1, 3, 7… dni). Możesz też powtórzyć wszystkie od nowa.")
-            self.btn_again.setText(f"Powtórz wszystkie · {len(self.items)}")
+                (tr("Ocenione w tej sesji: {done}. ", done=done) if done else "") +
+                tr("Kolejne fiszki wrócą w wyznaczonym dniu (1, 3, 7… dni). Możesz też powtórzyć wszystkie od nowa."))
+            self.btn_again.setText(tr("Powtórz wszystkie · {n}", n=len(self.items)))
             self.stack.setCurrentIndex(2)
             return
         self.stack.setCurrentIndex(0)
@@ -756,19 +751,19 @@ class StudyTab(QWidget):
         sec = int(c.get("section") or 0)
         parts = []
         if topic or sec:
-            parts.append(f"Z notatki: <a href='note:{sec}' style='color:{t.accent_text}; text-decoration:none;'>"
+            parts.append(f"{tr('Z notatki:')} <a href='note:{sec}' style='color:{t.accent_text}; text-decoration:none;'>"
                          f"{html.escape((str(sec) + '. ') if sec else '')}{html.escape(topic) or lec.meta.title}</a>")
         else:
-            parts.append(f"Z notatki: <a href='note:0' style='color:{t.accent_text}; text-decoration:none;'>"
+            parts.append(f"{tr('Z notatki:')} <a href='note:0' style='color:{t.accent_text}; text-decoration:none;'>"
                          f"{html.escape(lec.meta.title)}</a>")
         if c.get("t") is not None and lec.audio_parts():
             from ..storage import fmt_time
             parts.append(f"<a href='play:{float(c.get('t') or 0)}' style='color:{t.accent_text}; "
                          f"text-decoration:none;'>▶ {fmt_time(float(c.get('t') or 0))}</a>")
         self.src.setText(" · ".join(parts))
-        self.btn_no.setText("Jeszcze nie · 1\nwróci w tej sesji")
+        self.btn_no.setText(tr("Jeszcze nie · 1\nwróci w tej sesji"))
         nl = next_label(c)
-        self.btn_yes.setText(f"Umiem · 2\nnastępna powtórka {nl}")
+        self.btn_yes.setText(tr("Umiem · 2\nnastępna powtórka {nl}", nl=nl))
         for w in (self.a_head, self.a):
             w.setVisible(answer)
         self.a_hint.setVisible(not answer)

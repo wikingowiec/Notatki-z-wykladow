@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+from .i18n import tr
 from pathlib import Path
 
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -23,32 +24,32 @@ QWEN_VL8 = "qwen3-vl:8b-instruct"
 QWEN_VL4 = "qwen3-vl:4b-instruct"
 
 ORDER = ["lekki", "zrownowazony", "pelna"]
-LABELS = {"lekki": "Lekki", "zrownowazony": "Zrównoważony", "pelna": "Pełna moc"}
+LABELS = {"lekki": tr("Lekki"), "zrownowazony": tr("Zrównoważony"), "pelna": tr("Pełna moc")}
 FOR = {
-    "lekki": "Laptop albo komputer bez mocnej karty graficznej",
-    "zrownowazony": "Karta graficzna NVIDIA z 8 GB pamięci",
-    "pelna": "Karta graficzna NVIDIA z 12 GB pamięci lub więcej",
+    "lekki": tr("Laptop albo komputer bez mocnej karty graficznej"),
+    "zrownowazony": tr("Karta graficzna NVIDIA z 8 GB pamięci"),
+    "pelna": tr("Karta graficzna NVIDIA z 12 GB pamięci lub więcej"),
 }
 DESC = {
-    "lekki": "Mniejsze modele, bez notatek na żywo i bez opisywania obrazów na slajdach. Notatki powstają po "
-             "wykładzie – spokojnie, bez zacinania komputera.",
-    "zrownowazony": "Szybszy model mowy, notatki na żywo i gotowe fragmenty z nagrywania zostają w notatce – "
-                    "po wykładzie dopisuje się tylko reszta.",
-    "pelna": "Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów. Po wykładzie "
-             "cała notatka powstaje od nowa mocniejszym modelem.",
+    "lekki": tr("Mniejsze modele, bez notatek na żywo i bez opisywania obrazów na slajdach. Notatki powstają po "
+             "wykładzie – spokojnie, bez zacinania komputera."),
+    "zrownowazony": tr("Szybszy model mowy, notatki na żywo i gotowe fragmenty z nagrywania zostają w notatce – "
+                    "po wykładzie dopisuje się tylko reszta."),
+    "pelna": tr("Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów. Po wykładzie "
+             "cała notatka powstaje od nowa mocniejszym modelem."),
 }
 if IS_MAC:          # Apple Silicon: liczy się pamięć wspólna
     FOR = {
-        "lekki": "Mac z 8 GB pamięci",
-        "zrownowazony": "Mac z 16–24 GB pamięci",
-        "pelna": "Mac z 32 GB pamięci lub więcej",
+        "lekki": tr("Mac z 8 GB pamięci"),
+        "zrownowazony": tr("Mac z 16–24 GB pamięci"),
+        "pelna": tr("Mac z 32 GB pamięci lub więcej"),
     }
     DESC = {
-        "lekki": "Mniejsze modele i bez opisywania obrazów na slajdach. Notatki powstają spokojnie, bez zacinania "
-                 "Maca.",
-        "zrownowazony": "Szybki i dokładny model mowy, mocniejszy model notatek i opisy obrazów na slajdach.",
-        "pelna": "Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów – cała "
-                 "notatka mocniejszymi modelami.",
+        "lekki": tr("Mniejsze modele i bez opisywania obrazów na slajdach. Notatki powstają spokojnie, bez zacinania "
+                 "Maca."),
+        "zrownowazony": tr("Szybki i dokładny model mowy, mocniejszy model notatek i opisy obrazów na slajdach."),
+        "pelna": tr("Najdokładniejsze rozpoznawanie mowy, większy kontekst i dokładniejsze opisy slajdów – cała "
+                 "notatka mocniejszymi modelami."),
     }
 
 # pola ustawień, które ustawia profil (whisper_batch nie ma przełącznika – nie wpływa na „Własne”)
@@ -99,12 +100,12 @@ def _cpu_name() -> str:
             pass
     try:
         for line in Path("/proc/cpuinfo").read_text(errors="ignore").splitlines():
-            if line.lower().startswith("model name"):
+            if line.lower().startswith("model name"):  # i18n: nie
                 return line.split(":", 1)[1].strip()
     except OSError:
         pass
     import platform
-    return platform.processor() or "Procesor"
+    return platform.processor() or tr("Procesor")
 
 
 def _nvidia() -> list[dict]:
@@ -248,7 +249,7 @@ def _short_gpu(name: str) -> str:
 def _short_cpu(name: str) -> str:
     n = re.sub(r"\((R|TM)\)|®|™|\bCPU\b|\bProcessor\b|@.*$|\b\d+(th|st|nd|rd) Gen\b", "", name or "")
     n = re.sub(r"\b\d+-Core\b", "", n, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", n).strip() or "Procesor"
+    return re.sub(r"\s+", " ", n).strip() or tr("Procesor")
 
 
 def describe(hw: dict) -> str:
@@ -256,19 +257,19 @@ def describe(hw: dict) -> str:
     if hw.get("apple"):
         parts = [hw.get("cpu") or "Apple"]
         if hw.get("ram_gb"):
-            parts.append(f"{round(hw['ram_gb']):.0f} GB pamięci wspólnej")
+            parts.append(tr("{x:.0f} GB pamięci wspólnej", x=round(hw['ram_gb'])))
         g = (hw.get("gpus") or [{}])[0]
         if g.get("cores"):
-            parts.append(f"GPU {g['cores']} rdzeni")
+            parts.append(tr("GPU {n} rdzeni", n=g["cores"]))
         return " · ".join(parts)
     parts = [_short_cpu(hw.get("cpu", ""))]
     if hw.get("ram_gb"):
         parts.append(f"{round(hw['ram_gb']):.0f} GB RAM")
     g = (hw.get("gpus") or [None])[0]
     if g:
-        parts.append(_short_gpu(g["name"]) + (f" {g['vram_gb']:g} GB".replace(".", ",") if g["vram_gb"] >= 1 else ""))
+        parts.append(_short_gpu(g["name"]) + (" " + fmt_gb(g["vram_gb"]) if g["vram_gb"] >= 1 else ""))
     else:
-        parts.append("bez osobnej karty graficznej")
+        parts.append(tr("bez osobnej karty graficznej"))
     return " · ".join(parts)
 
 
@@ -279,26 +280,28 @@ def recommend(hw: dict) -> tuple[str, str]:
     if hw.get("apple"):
         r = round(ram)
         if ram >= 31:
-            return "pelna", f"Mac ma {r} GB pamięci wspólnej – zmieszczą się największe modele."
+            return "pelna", tr("Mac ma {r} GB pamięci wspólnej – zmieszczą się największe modele.", r=r)
         if ram >= 15:
-            return "zrownowazony", f"Mac ma {r} GB pamięci wspólnej – wystarczy na mocniejszy model notatek."
-        return "lekki", f"Mac ma {r} GB pamięci wspólnej – większe modele zwalniałyby komputer."
+            return "zrownowazony", tr("Mac ma {r} GB pamięci wspólnej – wystarczy na mocniejszy model notatek.", r=r)
+        return "lekki", tr("Mac ma {r} GB pamięci wspólnej – większe modele zwalniałyby komputer.", r=r)
     if v >= 11.5 and ram >= 15:
-        return "pelna", f"Karta NVIDIA ma {_gb(v)} pamięci – zmieszczą się największe modele."
+        return "pelna", tr("Karta NVIDIA ma {gb} pamięci – zmieszczą się największe modele.", gb=_gb(v))
     if v >= 7.5:
-        return "zrownowazony", f"Karta NVIDIA ma {_gb(v)} pamięci – wystarczy na szybki model mowy i notatki na żywo."
+        return "zrownowazony", tr("Karta NVIDIA ma {gb} pamięci – wystarczy na szybki model mowy i notatki na żywo.", gb=_gb(v))
     if v > 0:
-        return "lekki", f"Karta NVIDIA ma tylko {_gb(v)} pamięci – większe modele zwalniałyby komputer."
-    return "lekki", "Nie ma karty NVIDIA, więc rozpoznawanie mowy i notatki liczy procesor."
+        return "lekki", tr("Karta NVIDIA ma tylko {gb} pamięci – większe modele zwalniałyby komputer.", gb=_gb(v))
+    return "lekki", tr("Nie ma karty NVIDIA, więc rozpoznawanie mowy i notatki liczy procesor.")
 
 
 def _gb(x: float) -> str:
-    return f"{x:g} GB".replace(".", ",")
+    return fmt_gb(x)
 
 
 def fmt_gb(x: float) -> str:
-    """6,7 GB (jedno miejsce po przecinku, polski zapis)."""
-    return f"{x:.1f}".replace(".", ",").replace(",0", "") + " GB"
+    """6,7 GB / 6.7 GB (jedno miejsce po przecinku, zapis według języka interfejsu; „7 GB” bez „,0”)."""
+    from .i18n import num
+    s = num(x, 1)
+    return (s[:-2] if s.endswith((",0", ".0")) else s) + " GB"
 
 
 # ---------------------------------------------------------------------------

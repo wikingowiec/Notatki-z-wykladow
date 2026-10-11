@@ -25,25 +25,41 @@ alert() {   # okno z komunikatem (działa bez Pythona)
     /usr/bin/osascript -e "display dialog \"$1\" with title \"Wykłady\" buttons {\"OK\"} default button 1 with icon caution" >/dev/null 2>&1
 }
 
+# język komunikatów jak interfejs aplikacji: settings.json („ui_language”), a przy „jak system” – język macOS
+EN=1
+if grep -q '"ui_language": "pl"' "$SUPPORT/settings.json" 2>/dev/null; then
+    EN=0
+elif ! grep -q '"ui_language": "en"' "$SUPPORT/settings.json" 2>/dev/null \
+        && /usr/bin/defaults read -g AppleLanguages 2>/dev/null | sed -n 2p | grep -qiE '^[[:space:]]*"?pl'; then
+    EN=0
+fi
+T() { if [ "$EN" = "1" ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+
 if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" != "1" ]; then
-    alert "Wykłady na Macu wymagają układu Apple (M1, M2, M3, M4). Ten Mac ma procesor Intel."
+    alert "$(T "Wykłady na Macu wymagają układu Apple (M1, M2, M3, M4). Ten Mac ma procesor Intel." \
+               "Wykłady on a Mac requires Apple silicon (M1, M2, M3, M4). This Mac has an Intel processor.")"
     exit 1
 fi
 
 if [ ! -x "$PY" ] || [ ! -f "$OK" ]; then
-    mkdir -p "$RUNTIME" || { alert "Nie można utworzyć folderu $RUNTIME."; exit 1; }
+    mkdir -p "$RUNTIME" || { alert "$(T "Nie można utworzyć folderu $RUNTIME." "Couldn't create the folder $RUNTIME.")"; exit 1; }
     if [ ! -x "$PY" ]; then
-        /usr/bin/osascript -e 'display notification "Pobieram Pythona (ok. 16 MB) – za chwilę pojawi się okno przygotowania." with title "Wykłady – pierwsze uruchomienie"' >/dev/null 2>&1
+        NOTE="$(T "Pobieram Pythona (ok. 16 MB) – za chwilę pojawi się okno przygotowania." \
+                  "Downloading Python (about 16 MB) – the setup window will appear shortly.")"
+        TITLE="$(T "Wykłady – pierwsze uruchomienie" "Wykłady – first launch")"
+        /usr/bin/osascript -e "display notification \"$NOTE\" with title \"$TITLE\"" >/dev/null 2>&1
         TMP="$(mktemp -d)"
         if ! /usr/bin/curl -fsSL --retry 3 -o "$TMP/python.tar.gz" "$PY_URL"; then
             rm -rf "$TMP"
-            alert "Nie udało się pobrać Pythona. Sprawdź połączenie z internetem i uruchom Wykłady ponownie."
+            alert "$(T "Nie udało się pobrać Pythona. Sprawdź połączenie z internetem i uruchom Wykłady ponownie." \
+                       "Couldn't download Python. Check your internet connection and open Wykłady again.")"
             exit 1
         fi
         rm -rf "$RUNTIME/python"
         if ! /usr/bin/tar -xzf "$TMP/python.tar.gz" -C "$RUNTIME"; then
             rm -rf "$TMP" "$RUNTIME/python"
-            alert "Nie udało się rozpakować Pythona (za mało miejsca na dysku?)."
+            alert "$(T "Nie udało się rozpakować Pythona (za mało miejsca na dysku?)." \
+                       "Couldn't unpack Python (not enough disk space?).")"
             exit 1
         fi
         rm -rf "$TMP"

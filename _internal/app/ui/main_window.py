@@ -19,6 +19,7 @@ from .settings_tab import SettingsTab
 from .study_tab import StudyTab
 from .theme import T, apply_titlebar, icon_pixmap, logo_pixmap, qcolor, soft, subject_color, theme
 from .widgets import JobRunner
+from ..i18n import tn, tr
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ class SidebarDelegate(QStyledItemDelegate):
                 f.setWeight(QFont.Weight.DemiBold)
                 p.setFont(f)
                 p.setPen(fg)
-                label_ = "Nagrywanie" if rec else text
+                label_ = tr("Nagrywanie") if rec else text
                 p.drawText(rr.adjusted(40, 0, -12, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label_)
                 if rec and index.data(COUNT):
                     p.drawText(rr.adjusted(0, 0, -14, 0), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
@@ -179,19 +180,19 @@ class SidebarDelegate(QStyledItemDelegate):
             p.drawText(cr, Qt.AlignmentFlag.AlignCenter, count)
             p.setFont(f)
         p.setPen(qcolor(t.text))
-        tr = rr.adjusted(40, 0, -cw - 16, 0)
-        p.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                   p.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, int(tr.width())))
+        tr_ = rr.adjusted(40, 0, -cw - 16, 0)
+        p.drawText(tr_, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   p.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, int(tr_.width())))
         p.restore()
 
 
 def _fmt_left(sec: float) -> str:
     if sec < 60:
-        return "minuta"
+        return tr("minuta")
     m = round(sec / 60)
     if m < 60:
-        return f"{m} min"
-    return f"{m // 60} h {m % 60:02d} min"
+        return f"{m} min"  # i18n: nie
+    return f"{m // 60} h {m % 60:02d} min"  # i18n: nie
 
 
 class MainWindow(QMainWindow):
@@ -248,10 +249,10 @@ class MainWindow(QMainWindow):
         self.split_lay = QBoxLayout(QBoxLayout.Direction.LeftToRight, self.split)
         self.split_lay.setContentsMargins(0, 0, 0, 0)
         self.split_lay.setSpacing(0)
-        self.btn_new = QPushButton("Nowa notatka")
+        self.btn_new = QPushButton(tr("Nowa notatka"))
         self.btn_new.setObjectName("splitMain")
         self.btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_new.setToolTip("Nowa notatka – nagranie albo pliki")
+        self.btn_new.setToolTip(tr("Nowa notatka – nagranie albo pliki"))
         set_icon(self.btn_new, "plus", "on_accent", 18)
         self.btn_new.clicked.connect(lambda: self._select_key(("record", None)))
         self.btn_mic = QPushButton()
@@ -266,7 +267,7 @@ class MainWindow(QMainWindow):
         self.rec_pill = QPushButton("")
         self.rec_pill.setObjectName("recPill")
         self.rec_pill.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rec_pill.setToolTip("Wróć do nagrywania")
+        self.rec_pill.setToolTip(tr("Wróć do nagrywania"))
         self.rec_pill.clicked.connect(lambda: self._select_key(("record", None)))
         self.rec_pill.hide()
         # bez fokusu: ukrycie przycisku z fokusem przenosi go na listę, a ta wybiera 1. pozycję (skok do biblioteki)
@@ -277,7 +278,7 @@ class MainWindow(QMainWindow):
         ql.addWidget(self.quick_caption)
         if not LIVE_RECORDING:        # Mac: „nagraj jak ostatnio” nie ma sensu bez nagrywania
             self.btn_mic.hide()
-            self.btn_new.setToolTip("Nowa notatka z nagrania, wideo albo zdjęć slajdów")
+            self.btn_new.setToolTip(tr("Nowa notatka z nagrania, wideo albo zdjęć slajdów"))
         sv.addWidget(quick)
 
         self.delegate = SidebarDelegate()
@@ -297,7 +298,7 @@ class MainWindow(QMainWindow):
         jl = QVBoxLayout(self.job_card)
         jl.setContentsMargins(12, 10, 12, 11)
         jl.setSpacing(6)
-        self.job_over = label("AI PRACUJE W TLE", "overline")
+        self.job_over = label(tr("AI PRACUJE W TLE"), "overline")
         self.job_title = label("", "headline", wrap=True)
         self.job_msg = label("", "caption", wrap=True)
         self.job_bar = QProgressBar()
@@ -336,11 +337,11 @@ class MainWindow(QMainWindow):
         self.nav_bottom.setFixedHeight(42)
         self.nav_bottom.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav_bottom.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        it = QListWidgetItem("Ustawienia")
+        it = QListWidgetItem(tr("Ustawienia"))
         it.setData(KIND, "item")
         it.setData(ICON, "settings")
         it.setData(KEY, ("settings", None))
-        it.setToolTip("Ustawienia")
+        it.setToolTip(tr("Ustawienia"))
         self.nav_bottom.addItem(it)
         self.nav_bottom.currentItemChanged.connect(self._nav_bottom_changed)
         self.nav_bottom.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -361,7 +362,7 @@ class MainWindow(QMainWindow):
         self.study.reviewed.connect(self._update_streak)
         self.study.open_note.connect(self.open_lecture_at)
         self.study.play_at.connect(lambda lec, t: (self.open_lecture_at(str(lec.folder)),
-                                                  self.library.player.play(lec, t, None, "Fiszka")))
+                                                  self.library.player.play(lec, t, None, tr("Fiszka"))))
         self.library.study_requested.connect(self._study_lecture)
         self.library.continue_requested.connect(self._continue_lecture)
         self.library.new_from_files.connect(self._new_from_files)
@@ -435,16 +436,16 @@ class MainWindow(QMainWindow):
             self.nav.addItem(it)
             return it
 
-        add("Biblioteka", "header")
-        add("Wszystkie wykłady", icon="books", key=("library", None), count=str(len(lectures)) if lectures else "")
+        add(tr("Biblioteka"), "header")
+        add(tr("Wszystkie wykłady"), icon="books", key=("library", None), count=str(len(lectures)) if lectures else "")
         for s in sorted(k for k in subjects if k):
             add(s, key=("library", s), count=str(subjects[s]), color=subject_color(s))
         if "" in subjects and len(subjects) > 1:
-            add("Bez przedmiotu", icon="folder", key=("library", ""), count=str(subjects[""]))
-        add("Nauka", "header")
-        add("Fiszki", icon="cards", key=("study", None), count=str(unknown) if unknown else "", alert=bool(unknown))
-        add("Zapytaj", icon="question", key=("ask", None))
-        add("Egzamin próbny", icon="exam", key=("exam", None))
+            add(tr("Bez przedmiotu"), icon="folder", key=("library", ""), count=str(subjects[""]))
+        add(tr("Nauka"), "header")
+        add(tr("Fiszki"), icon="cards", key=("study", None), count=str(unknown) if unknown else "", alert=bool(unknown))
+        add(tr("Zapytaj"), icon="question", key=("ask", None))
+        add(tr("Egzamin próbny"), icon="exam", key=("exam", None))
         self.nav.blockSignals(False)
         if cur:
             self._select_key(cur, silent=True)
@@ -557,7 +558,7 @@ class MainWindow(QMainWindow):
             b.setProperty("rail", rail)
             b.style().unpolish(b)
             b.style().polish(b)
-        self.btn_new.setText("" if rail else "Nowa notatka")
+        self.btn_new.setText("" if rail else tr("Nowa notatka"))
         self._update_quick()
         self._update_streak()
         self._update_rec_item()
@@ -584,9 +585,9 @@ class MainWindow(QMainWindow):
         if rec:
             tm = self.record.elapsed_text()
             paused = self.record.is_paused()
-            word, sym = ("Pauza", "❚❚") if paused else ("Nagrywanie", "●")
+            word, sym = (tr("Pauza"), "❚❚") if paused else (tr("Nagrywanie"), "●")
             self.rec_pill.setText(sym if self._rail else f"{sym}   {word}   {tm}")
-            self.rec_pill.setToolTip(f"Nagrywanie {tm} – wróć do nagrywania")
+            self.rec_pill.setToolTip(tr("Nagrywanie {tm} – wróć do nagrywania", tm=tm))
 
     def _set_new_active(self, on: bool):
         for b in (self.btn_new, self.rec_pill):
@@ -603,10 +604,10 @@ class MainWindow(QMainWindow):
             return
         q = self.record.quick_label()
         keys = "⌘⇧R" if IS_MAC else "Ctrl Shift R"          # Qt na Macu zamienia Ctrl na Cmd
-        self.btn_mic.setToolTip(f"Nowa notatka z ostatnimi ustawieniami ({keys})" + (f" – {q}" if q else "")
-                                + "\nNagrywanie zacznie się dopiero po kliknięciu przycisku nagrywania.")
-        self.quick_caption.setText(f"{keys} — ustawienia jak ostatnio ({q})" if q else
-                                   f"{keys} — ustawienia jak ostatnio")
+        self.btn_mic.setToolTip(tr("Nowa notatka z ostatnimi ustawieniami ({keys})", keys=keys) + (f" – {q}" if q else "")
+                                + tr("\nNagrywanie zacznie się dopiero po kliknięciu przycisku nagrywania."))
+        self.quick_caption.setText(tr("{keys} — ustawienia jak ostatnio ({q})", keys=keys, q=q) if q else
+                                   tr("{keys} — ustawienia jak ostatnio", keys=keys))
         self.quick_caption.setVisible(not self._rail and not self.record.is_recording())
 
     def quick_record(self):
@@ -643,10 +644,12 @@ class MainWindow(QMainWindow):
         if self._rail:
             self.streak.setText(str(n) if n else "")
         elif n:
-            self.streak.setText(f"{n} {study_stats.days_word(n)} nauki z rzędu")
+            self.streak.setText(tn(n, "{n} dzień nauki z rzędu", "{n} dni nauki z rzędu", "{n} dni nauki z rzędu"))
         else:
-            self.streak.setText("Zacznij serię – powtórz fiszki")
-        self.streak.setToolTip(f"Seria: {n} {study_stats.days_word(n)} z rzędu · dziś ocenione fiszki: {st['today']}")
+            self.streak.setText(tr("Zacznij serię – powtórz fiszki"))
+        self.streak.setToolTip(tn(n, "Seria: {n} dzień z rzędu · dziś ocenione fiszki: {today}",
+                                  "Seria: {n} dni z rzędu · dziś ocenione fiszki: {today}",
+                                  "Seria: {n} dni z rzędu · dziś ocenione fiszki: {today}", today=st["today"]))
         set_icon(self.streak, "flame", "streak" if n else "text3", 18)
 
     def _after_recording(self, lecture, needs_file_transcription: bool):
@@ -660,9 +663,9 @@ class MainWindow(QMainWindow):
             if lecture.load_segments() or lecture.load_slides().get("slides"):
                 self.library.generate_notes(lecture, use_cache=True)   # fragmenty zrobione na żywo nie liczą się drugi raz
             else:
-                QMessageBox.information(self, "Nie rozpoznano mowy",
-                                        "W nagraniu nie rozpoznano mowy. Sprawdź, czy wybrano właściwe źródło dźwięku – "
-                                        "pasek poziomu powinien się ruszać, gdy prowadzący mówi.")
+                QMessageBox.information(self, tr("Nie rozpoznano mowy"),
+                                        tr("W nagraniu nie rozpoznano mowy. Sprawdź, czy wybrano właściwe źródło dźwięku – "
+                                        "pasek poziomu powinien się ruszać, gdy prowadzący mówi."))
 
     # ------------------------------------------------------------------ nawigacja do notatki / kontynuacja
     def open_lecture_at(self, folder: str, anchor: str = ""):
@@ -676,7 +679,7 @@ class MainWindow(QMainWindow):
 
     def _new_from_files(self):
         if self.record.is_recording():
-            QMessageBox.information(self, "Trwa nagrywanie", "Najpierw zakończ bieżące nagrywanie.")
+            QMessageBox.information(self, tr("Trwa nagrywanie"), tr("Najpierw zakończ bieżące nagrywanie."))
             return
         self.record.open_files_mode()
         self._select_key(("record", None))
@@ -691,15 +694,15 @@ class MainWindow(QMainWindow):
                 jobs.generate_notes(lecture, s, prog, cancel, tok, use_cache=True)
         self.rebuild_nav()
         self._select_key(("library", None))
-        if self.library._run("Nowa notatka z plików", fn, lecture):
+        if self.library._run(tr("Nowa notatka z plików"), fn, lecture):
             self.library.select(lecture)
 
     def _continue_lecture(self, lecture):
         if self.record.is_recording():
-            QMessageBox.information(self, "Trwa nagrywanie", "Najpierw zakończ bieżące nagrywanie.")
+            QMessageBox.information(self, tr("Trwa nagrywanie"), tr("Najpierw zakończ bieżące nagrywanie."))
             return
         if self.runner.busy and self.runner.lecture and str(self.runner.lecture.folder) == str(lecture.folder):
-            QMessageBox.information(self, "Trwa zadanie", "Poczekaj, aż skończy się przetwarzanie tego wykładu.")
+            QMessageBox.information(self, tr("Trwa zadanie"), tr("Poczekaj, aż skończy się przetwarzanie tego wykładu."))
             return
         self.record.prepare_continue(lecture)
         self._select_key(("record", None))
@@ -719,19 +722,19 @@ class MainWindow(QMainWindow):
         for r in items:
             lec = r.lecture
             if r.kind == "processing":
-                msg = (f"Generowanie notatek dla „{lec.meta.title}” zostało przerwane (aplikacja się zamknęła).\n\n"
-                       "Wygenerować notatki teraz?")
+                msg = (tr("Generowanie notatek dla „{title}” zostało przerwane (aplikacja się zamknęła).\n\nWygenerować "
+                          "notatki teraz?", title=lec.meta.title))
             elif not r.ok:
                 QMessageBox.warning(self, "Przerwane nagranie",
                                     f"Nagranie „{lec.meta.title}” zostało przerwane i nie udało się go w pełni "
                                     f"odczytać.\n\n{r.message}")
                 continue
             else:
-                msg = (f"Aplikacja została zamknięta w trakcie nagrywania „{lec.meta.title}”.\n\n"
-                       f"Nagranie ({fmt_time(r.duration)}) zostało uratowane. "
-                       + ("Dokończyć transkrypcję i zrobić notatki?" if r.needs_transcription else
-                          "Zrobić teraz notatki?"))
-            if QMessageBox.question(self, "Odzyskane nagranie", msg) == QMessageBox.StandardButton.Yes:
+                msg = (tr("Aplikacja została zamknięta w trakcie nagrywania „{title}”.\n\nNagranie ({fmt_time}) zostało "
+                          "uratowane. ", title=lec.meta.title, fmt_time=fmt_time(r.duration))
+                       + (tr("Dokończyć transkrypcję i zrobić notatki?") if r.needs_transcription else
+                          tr("Zrobić teraz notatki?")))
+            if QMessageBox.question(self, tr("Odzyskane nagranie"), msg) == QMessageBox.StandardButton.Yes:
                 self._select_key(("library", None))
                 self.library.select(lec)
                 if r.kind == "recording" and r.needs_transcription:
@@ -790,7 +793,7 @@ class MainWindow(QMainWindow):
             el = _t.monotonic() - self._job_t0
             if frac >= 0.04 and el > 8:
                 left = el * (1 - frac) / frac
-                self.job_eta.setText(f"{int(frac * 100)}% · zostało ok. {_fmt_left(left)}")
+                self.job_eta.setText(tr("{x}% · zostało ok. {fmt_left}", x=int(frac * 100), fmt_left=_fmt_left(left)))
             else:
                 self.job_eta.setText(f"{int(frac * 100)}%")
 
@@ -806,16 +809,16 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ aktualizacje
     def _busy_reason(self) -> str:
         if self.record.is_recording():
-            return "Trwa nagrywanie – zaktualizuj po jego zakończeniu."
+            return tr("Trwa nagrywanie – zaktualizuj po jego zakończeniu.")
         if self.runner.busy:
-            return f"Trwa: {self.runner.name}. Zaktualizuj, gdy się skończy."
+            return tr("Trwa: {name}. Zaktualizuj, gdy się skończy.", name=self.runner.name)
         return ""
 
     def _update_badge(self, ver: str):
         it = self.nav_bottom.item(0)
-        it.setData(COUNT, "nowa wersja")
+        it.setData(COUNT, tr("nowa wersja"))
         it.setData(ALERT, True)
-        it.setToolTip(f"Ustawienia – dostępna wersja {ver}")
+        it.setToolTip(tr("Ustawienia – dostępna wersja {ver}", ver=ver))
         self.nav_bottom.viewport().update()
 
     def _restart_after_update(self):
@@ -867,14 +870,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         if self.record.is_recording():
-            if QMessageBox.question(self, "Trwa nagrywanie",
-                                    "Zakończyć nagrywanie i zamknąć aplikację? Nagranie zostanie zapisane.") \
+            if QMessageBox.question(self, tr("Trwa nagrywanie"),
+                                    tr("Zakończyć nagrywanie i zamknąć aplikację? Nagranie zostanie zapisane.")) \
                     != QMessageBox.StandardButton.Yes:
                 e.ignore()
                 return
             self.record.stop_blocking()
         if self.runner.busy:
-            if QMessageBox.question(self, "Trwa zadanie", f"Trwa: {self.runner.name}. Przerwać i zamknąć?") \
+            if QMessageBox.question(self, tr("Trwa zadanie"), tr("Trwa: {name}. Przerwać i zamknąć?", name=self.runner.name)) \
                     != QMessageBox.StandardButton.Yes:
                 e.ignore()
                 return

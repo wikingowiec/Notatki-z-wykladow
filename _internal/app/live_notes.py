@@ -14,10 +14,11 @@ from .notes_pipeline import (assemble_markdown, attach_marks, build_sections, la
                              notes_lang, save_cache, section_key, section_note)
 from .prompts import texts
 from .storage import Lecture
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
-LIVE_HEADING = "Na żywo – ostatnie minuty (transkrypcja)"
+LIVE_HEADING = "Na żywo – ostatnie minuty (transkrypcja)"   # i18n: nie – nagłówek w treści notatki
 
 
 class LiveNotes:
@@ -54,16 +55,16 @@ class LiveNotes:
         from .llm import Ollama
         self.llm = Ollama(self.s.ollama_url)
         if not self.llm.is_running():
-            self.on_status("Notatki na żywo wyłączone: Ollama nie działa. Notatki powstaną po zakończeniu.")
+            self.on_status(tr("Notatki na żywo wyłączone: Ollama nie działa. Notatki powstaną po zakończeniu."))
             return
         if not self.llm.has_model(self.model):
             if self.model != self.s.ollama_model and self.llm.has_model(self.s.ollama_model):
                 self.model = self.s.ollama_model     # brak lżejszego modelu – używamy głównego
             else:
-                self.on_status("Notatki na żywo wyłączone: model AI nie jest pobrany (Ustawienia → Notatki AI).")
+                self.on_status(tr("Notatki na żywo wyłączone: model AI nie jest pobrany (Ustawienia → Notatki AI)."))
                 return
         self.available = True
-        self.on_status("Notatki na żywo: czekam na pierwszy pełny fragment (zmiana slajdu albo kilka minut mowy).")
+        self.on_status(tr("Notatki na żywo: czekam na pierwszy pełny fragment (zmiana slajdu albo kilka minut mowy)."))
         while not self._stop.wait(self.interval):
             try:
                 self.step()
@@ -71,7 +72,7 @@ class LiveNotes:
                 if self._stop.is_set():
                     break
                 log.exception("live notes")
-                self.on_status(f"Notatki na żywo: błąd ({e}) – spróbuję ponownie.")
+                self.on_status(tr("Notatki na żywo: błąd ({e}) – spróbuję ponownie.", e=e))
 
     def step(self, final: bool = False) -> bool:
         """Jeden przebieg: zrób notatki dla nowych zamkniętych fragmentów. Zwraca True, gdy coś dopisano."""
@@ -97,7 +98,7 @@ class LiveNotes:
             if key in self.cache:
                 continue
             self.busy = True
-            self.on_status(f"Notatki na żywo: piszę fragment {i}…")
+            self.on_status(tr("Notatki na żywo: piszę fragment {i}…", i=i))
             try:
                 note = section_note(self.llm, self.model, sec, i, 0, title, subject, self.ctx,
                                     cancel=self._stop, keep_alive="30m", lang=lang, src=src)
@@ -109,8 +110,8 @@ class LiveNotes:
             self._write(closed, lang, lk)
         if changed:
             self.done_sections = sum(1 for s in closed if section_key(s, self.model, lk) in self.cache)
-            self.on_status(f"Notatki na żywo: gotowe fragmenty – {self.done_sections}. "
-                           "Następny po zmianie slajdu albo po kilku minutach.")
+            self.on_status(tr("Notatki na żywo: gotowe fragmenty – {done_sections}. Następny po zmianie slajdu albo po "
+                              "kilku minutach.", done_sections=self.done_sections))
             self.on_update()
         return changed
 
@@ -133,5 +134,5 @@ class LiveNotes:
             text = " ".join(s["text"] for s in segs[-60:])
         if text:
             from .storage import fmt_time
-            md += f"\n\n## {LIVE_HEADING}\n*{fmt_time(self.open_start)}–teraz*\n\n{text}\n"
+            md += f"\n\n## {LIVE_HEADING}\n*{fmt_time(self.open_start)}–teraz*\n\n{text}\n"  # i18n: nie
         return md

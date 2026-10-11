@@ -15,8 +15,9 @@ from .reader import Reader
 from .record_tab import _centered
 from .theme import T
 from .widgets import JobRunner, run_async
+from ..i18n import tn, tr
 
-LEVELS = [("easy", "Łatwy"), ("medium", "Średni"), ("hard", "Trudny")]
+LEVELS = [("easy", tr("Łatwy")), ("medium", tr("Średni")), ("hard", tr("Trudny"))]
 
 
 class ExamTab(QWidget):
@@ -50,9 +51,9 @@ class ExamTab(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(22)
         from .controls import Heading
-        v.addWidget(Heading("Egzamin próbny", "Test z Twoich notatek – z jednego wykładu albo całego przedmiotu. Każde "
+        v.addWidget(Heading(tr("Egzamin próbny"), tr("Test z Twoich notatek – z jednego wykładu albo całego przedmiotu. Każde "
                                               "pytanie opiera się na konkretnym fragmencie notatki, więc od razu "
-                                              "zobaczysz, skąd jest odpowiedź.", "Nauka"))
+                                              "zobaczysz, skąd jest odpowiedź."), tr("Nauka")))
 
         from .controls import ChoiceCombo
         self.scope = ChoiceCombo()
@@ -60,9 +61,9 @@ class ExamTab(QWidget):
         self.n = QSpinBox()
         self.n.setRange(3, 50)
         self.n.setValue(15)
-        g = GroupSection("Zakres")
-        g.add_row("Z czego", self.scope)
-        g.add_row("Liczba pytań", self.n)
+        g = GroupSection(tr("Zakres"))
+        g.add_row(tr("Z czego"), self.scope)
+        g.add_row(tr("Liczba pytań"), self.n)
         v.addWidget(g)
 
         self.t_abcd = ToggleSwitch(True)
@@ -70,25 +71,25 @@ class ExamTab(QWidget):
         self.t_open = ToggleSwitch(True)
         self.level = SegmentedControl([t for _k, t in LEVELS])
         self.level.set_current(1)
-        g = GroupSection("Pytania", "Pytania otwarte sprawdza AI, porównując Twoją odpowiedź z notatką.")
-        g.add_row("Jednokrotnego wyboru (A–D)", self.t_abcd)
-        g.add_row("Prawda / fałsz", self.t_pf)
-        g.add_row("Otwarte", self.t_open)
-        g.add_row("Poziom", self.level)
+        g = GroupSection(tr("Pytania"), tr("Pytania otwarte sprawdza AI, porównując Twoją odpowiedź z notatką."))
+        g.add_row(tr("Jednokrotnego wyboru (A–D)"), self.t_abcd)
+        g.add_row(tr("Prawda / fałsz"), self.t_pf)
+        g.add_row(tr("Otwarte"), self.t_open)
+        g.add_row(tr("Poziom"), self.level)
         v.addWidget(g)
 
         self.instr = QPlainTextEdit()
-        self.instr.setPlaceholderText("Np. „egzamin obejmuje wykłady 3–6”, „dużo pytań o definicje”, "
-                                      "„prowadzący mówił, że będzie zadanie z twierdzenia Lagrange’a”…")
+        self.instr.setPlaceholderText(tr("Np. „egzamin obejmuje wykłady 3–6”, „dużo pytań o definicje”, "
+                                      "„prowadzący mówił, że będzie zadanie z twierdzenia Lagrange’a”…"))
         self.instr.setFixedHeight(90)
         self.use_info = ToggleSwitch(True)
-        g = GroupSection("Twoje wskazówki")
+        g = GroupSection(tr("Twoje wskazówki"))
         g.add(self._pad(self.instr))
-        g.add_row("Uwzględnij informacje o egzaminie z wykładów", self.use_info,
-                  "Wzmianki prowadzącego typu „to będzie na egzaminie” i fragmenty zaznaczone jako „Na egzamin”.")
+        g.add_row(tr("Uwzględnij informacje o egzaminie z wykładów"), self.use_info,
+                  tr("Wzmianki prowadzącego typu „to będzie na egzaminie” i fragmenty zaznaczone jako „Na egzamin”."))
         v.addWidget(g)
 
-        self.btn_make = QPushButton("Utwórz egzamin")
+        self.btn_make = QPushButton(tr("Utwórz egzamin"))
         self.btn_make.setObjectName("big")
         set_icon(self.btn_make, "exam", "on_accent", 17)
         self.btn_make.clicked.connect(self.create)
@@ -100,7 +101,7 @@ class ExamTab(QWidget):
         v.addWidget(self.make_bar)
         v.addWidget(self.make_status)
 
-        self.history = GroupSection("Poprzednie egzaminy")
+        self.history = GroupSection(tr("Poprzednie egzaminy"))
         v.addWidget(self.history)
         v.addStretch()
         return _centered(col, 760)
@@ -124,14 +125,14 @@ class ExamTab(QWidget):
     def refresh(self):
         cur = self.scope.currentData()
         lectures = [l for l in list_lectures(self.settings.library_path()) if l.notes_path.exists()]
-        self.scope.fill_scope(lectures, "", subject_prefix="Cały przedmiot: ", keep=cur)
+        self.scope.fill_scope(lectures, "", subject_prefix=tr("Cały przedmiot: "), keep=cur)
         i = self.scope.findData(cur) if cur else -1
         if i < 0 and self.settings.last_subject:
             i = self.scope.findData(("subject", self.settings.last_subject))
         self.scope.setCurrentIndex(max(0, i))
         self.btn_make.setEnabled(self.scope.count() > 0 and not self.runner.busy)
         if not self.scope.count():
-            self.make_status.setText("Najpierw potrzebne są wykłady z gotowymi notatkami.")
+            self.make_status.setText(tr("Najpierw potrzebne są wykłady z gotowymi notatkami."))
         self._fill_history()
 
     def _fill_history(self):
@@ -146,13 +147,14 @@ class ExamTab(QWidget):
         for ex in exams[:12]:
             res = ex.get("results", [])
             best = max((r["score"] for r in res), default=None)
-            sub = f"{ex.get('created', '')} · {len(ex['questions'])} pytań" + (f" · najlepszy wynik {best}%" if best is not None else "")
-            b_take = QPushButton("Rozwiąż")
+            sub = (f"{ex.get('created', '')} · " + tn(len(ex["questions"]), "{n} pytanie", "{n} pytania", "{n} pytań")
+                   + (tr(" · najlepszy wynik {best}%", best=best) if best is not None else ""))
+            b_take = QPushButton(tr("Rozwiąż"))
             b_take.clicked.connect(lambda _=False, e=ex: self.start(e))
-            b_del = QPushButton("Usuń")
+            b_del = QPushButton(tr("Usuń"))
             b_del.setObjectName("plain")
             b_del.clicked.connect(lambda _=False, e=ex: self._delete(e))
-            self.history.add_row(ex.get("title", "Egzamin"), hbox(b_del, b_take, spacing=6), sub)
+            self.history.add_row(ex.get("title", tr("Egzamin")), hbox(b_del, b_take, spacing=6), sub)
 
     def _delete(self, ex):
         EX.delete_exam(self.settings.library_path(), ex["id"])
@@ -164,7 +166,7 @@ class ExamTab(QWidget):
             return
         types = [k for k, t in (("abcd", self.t_abcd), ("pf", self.t_pf), ("open", self.t_open)) if t.isChecked()]
         if not types:
-            QMessageBox.information(self, "Egzamin", "Wybierz przynajmniej jeden rodzaj pytań.")
+            QMessageBox.information(self, tr("Egzamin"), tr("Wybierz przynajmniej jeden rodzaj pytań."))
             return
         spec = EX.ExamSpec(scope=data[0], value=data[1], n=self.n.value(), types=types,
                            level=LEVELS[self.level.current()][0], instructions=self.instr.toPlainText(),
@@ -176,21 +178,21 @@ class ExamTab(QWidget):
             from ..llm import LLMError, Ollama
             llm = Ollama(s.ollama_url)
             if not llm.is_running():
-                raise LLMError("Ollama nie działa – uruchom ją i spróbuj ponownie.")
+                raise LLMError(tr("Ollama nie działa – uruchom ją i spróbuj ponownie."))
             exam = EX.generate_exam(lib, spec, llm, s.ollama_model, s.ollama_ctx, prog, cancel)
             EX.save_exam(lib, exam)
             self._created = exam
         self._created = None
-        if not self.runner.run("Egzamin próbny", fn, None):
-            QMessageBox.information(self, "Trwa inne zadanie", f"Trwa: {self.runner.name}. Poczekaj, aż się skończy.")
+        if not self.runner.run(tr("Egzamin próbny"), fn, None):
+            QMessageBox.information(self, tr("Trwa inne zadanie"), tr("Trwa: {name}. Poczekaj, aż się skończy.", name=self.runner.name))
             return
         self.btn_make.setEnabled(False)
         self.make_bar.show()
         self.make_bar.setRange(0, 0)
-        self.make_status.setText("Układam pytania i sprawdzam każde w notatkach…")
+        self.make_status.setText(tr("Układam pytania i sprawdzam każde w notatkach…"))
 
     def _job_progress(self, msg, frac):
-        if self.runner.name != "Egzamin próbny":
+        if self.runner.name != tr("Egzamin próbny"):
             return
         self.make_status.setText(msg)
         if frac >= 0:
@@ -228,7 +230,7 @@ class ExamTab(QWidget):
         tv.addWidget(self.take_title)
         tv.addWidget(self.take_sub)
         head.addLayout(tv, 1)
-        b_quit = QPushButton("Zakończ")
+        b_quit = QPushButton(tr("Zakończ"))
         b_quit.clicked.connect(self.finish)
         head.addWidget(b_quit, 0, Qt.AlignmentFlag.AlignTop)
         v.addLayout(head)
@@ -253,9 +255,9 @@ class ExamTab(QWidget):
         self.opts_lay.setSpacing(8)
         cl.addWidget(self.opts_box)
         self.open_edit = QPlainTextEdit()
-        self.open_edit.setPlaceholderText("Twoja odpowiedź…")
+        self.open_edit.setPlaceholderText(tr("Twoja odpowiedź…"))
         self.open_edit.setFixedHeight(110)
-        self.btn_check = QPushButton("Sprawdź odpowiedź")
+        self.btn_check = QPushButton(tr("Sprawdź odpowiedź"))
         self.btn_check.setObjectName("primary")
         self.btn_check.clicked.connect(self._check_open)
         self.open_box = QWidget()
@@ -268,7 +270,7 @@ class ExamTab(QWidget):
         self.feedback.setTextFormat(Qt.TextFormat.RichText)
         self.explain = label("", "secondary", wrap=True)
         self.explain.setTextFormat(Qt.TextFormat.RichText)
-        self.btn_source = QPushButton("Zobacz w notatce")
+        self.btn_source = QPushButton(tr("Zobacz w notatce"))
         self.btn_source.setObjectName("plain")
         self.btn_source.clicked.connect(self._open_source)
         cl.addWidget(self.feedback)
@@ -276,7 +278,7 @@ class ExamTab(QWidget):
         cl.addWidget(self.btn_source, 0, Qt.AlignmentFlag.AlignLeft)
         cl.addStretch()
         v.addWidget(card)
-        self.btn_next = QPushButton("Dalej")
+        self.btn_next = QPushButton(tr("Dalej"))
         self.btn_next.setObjectName("big")
         self.btn_next.setMinimumWidth(220)
         self.btn_next.clicked.connect(self.next)
@@ -300,7 +302,7 @@ class ExamTab(QWidget):
         self.order = only if only is not None else list(range(len(exam["questions"])))
         self.pos = 0
         self.answers = {}
-        self.take_title.setText(exam.get("title", "Egzamin"))
+        self.take_title.setText(exam.get("title", tr("Egzamin")))
         self.stack.setCurrentIndex(1)
         self._show()
 
@@ -308,10 +310,10 @@ class ExamTab(QWidget):
         q = self.exam["questions"][self.order[self.pos]]
         t = T()
         n = len(self.order)
-        self.take_sub.setText(f"Pytanie {self.pos + 1} z {n}")
+        self.take_sub.setText(tr("Pytanie {x} z {n}", x=self.pos + 1, n=n))
         self.take_bar.setRange(0, n)
         self.take_bar.setValue(self.pos)
-        self.q_kind.setText({"abcd": "Jednokrotny wybór", "pf": "Prawda czy fałsz?", "open": "Pytanie otwarte"}[q["type"]])
+        self.q_kind.setText({"abcd": tr("Jednokrotny wybór"), "pf": tr("Prawda czy fałsz?"), "open": tr("Pytanie otwarte")}[q["type"]])
         mdir = self._mdir(q)
         self.q_text.setText(text_to_html(q["q"], mdir, t.text))
         while self.opts_lay.count():
@@ -325,8 +327,8 @@ class ExamTab(QWidget):
             for i, o in enumerate(q["options"]):
                 self._add_option(f"{'ABCD'[i]}.  {o}", i)
         elif q["type"] == "pf":
-            self._add_option("Prawda", True)
-            self._add_option("Fałsz", False)
+            self._add_option(tr("Prawda"), True)
+            self._add_option(tr("Fałsz"), False)
         else:
             self.open_edit.clear()
             self.open_edit.setEnabled(True)
@@ -335,7 +337,7 @@ class ExamTab(QWidget):
         self.explain.setText("")
         self.btn_source.hide()
         self.btn_next.setEnabled(False)
-        self.btn_next.setText("Dalej" if self.pos + 1 < n else "Zobacz wynik")
+        self.btn_next.setText(tr("Dalej") if self.pos + 1 < n else tr("Zobacz wynik"))
 
     def _mdir(self, q):
         from pathlib import Path
@@ -362,8 +364,8 @@ class ExamTab(QWidget):
             b.style().unpolish(b)
             b.style().polish(b)
         t = T()
-        self.feedback.setText(f"<span style='color:{t.green}'>✓ Dobrze</span>" if ok else
-                              f"<span style='color:{t.red}'>✗ Źle</span>")
+        self.feedback.setText(tr("<span style='color:{green}'>✓ Dobrze</span>", green=t.green) if ok else
+                              tr("<span style='color:{red}'>✗ Źle</span>", red=t.red))
         self._after_answer(q)
 
     def _check_open(self):
@@ -372,7 +374,7 @@ class ExamTab(QWidget):
         ans = self.open_edit.toPlainText()
         self.btn_check.setEnabled(False)
         self.open_edit.setEnabled(False)
-        self.feedback.setText("Sprawdzam…")
+        self.feedback.setText(tr("Sprawdzam…"))
         s = self.settings
 
         def work():
@@ -383,13 +385,13 @@ class ExamTab(QWidget):
             pts, comment = res
             self.answers[qi] = {"points": pts, "given": ans, "comment": comment}
             t = T()
-            color, name = {2: (t.green, "✓ Dobrze"), 1: (t.orange, "◐ Częściowo"), 0: (t.red, "✗ Źle")}[pts]
+            color, name = {2: (t.green, tr("✓ Dobrze")), 1: (t.orange, tr("◐ Częściowo")), 0: (t.red, tr("✗ Źle"))}[pts]
             self.feedback.setText(f"<span style='color:{color}'>{name}</span>&nbsp;&nbsp;"
                                   f"<span style='font-weight:400'>{html.escape(comment)}</span>")
             self._after_answer(q, show_ref=True)
 
         def fail(e):
-            self.feedback.setText(f"Nie udało się sprawdzić: {e}")
+            self.feedback.setText(tr("Nie udało się sprawdzić: {e}", e=e))
             self.btn_check.setEnabled(True)
             self.open_edit.setEnabled(True)
         run_async(work, done, fail)
@@ -399,14 +401,14 @@ class ExamTab(QWidget):
         mdir = self._mdir(q)
         parts = []
         if show_ref and q.get("answer"):
-            parts.append(f"<b>Wzorcowa odpowiedź:</b> {text_to_html(q['answer'], mdir, t.text2)}")
+            parts.append(tr("<b>Wzorcowa odpowiedź:</b> {text_to_html}", text_to_html=text_to_html(q['answer'], mdir, t.text2)))
         if q.get("explain"):
             parts.append(text_to_html(q["explain"], mdir, t.text2))
         if q.get("quote"):
             parts.append(f"<i>„{html.escape(q['quote'])}”</i>")
         self.explain.setText("<br><br>".join(parts))
         src = q.get("source", {})
-        self.btn_source.setText(f"Zobacz w notatce: {src.get('title', '')}")
+        self.btn_source.setText(tr("Zobacz w notatce: {get}", get=src.get('title', '')))
         show_if(self.btn_source, src)
         self.btn_next.setEnabled(True)
         self.btn_next.setFocus()
@@ -442,12 +444,12 @@ class ExamTab(QWidget):
         self.res_view = Reader(max_width=820, pad=28)
         self.res_view.internal_link.connect(self._res_link)
         v.addWidget(self.res_view, 1)
-        self.btn_retry = QPushButton("Powtórz błędne")
+        self.btn_retry = QPushButton(tr("Powtórz błędne"))
         self.btn_retry.setObjectName("primary")
         self.btn_retry.clicked.connect(self._retry_wrong)
-        b_again = QPushButton("Rozwiąż jeszcze raz")
+        b_again = QPushButton(tr("Rozwiąż jeszcze raz"))
         b_again.clicked.connect(lambda: self.start(self.exam))
-        b_new = QPushButton("Nowy egzamin")
+        b_new = QPushButton(tr("Nowy egzamin"))
         b_new.clicked.connect(lambda: (self.refresh(), self.stack.setCurrentIndex(0)))
         v.addWidget(hbox(self.btn_retry, b_again, b_new, "stretch"))
         outer.addStretch()
@@ -469,10 +471,10 @@ class ExamTab(QWidget):
             EX.save_exam(self.settings.library_path(), self.exam)
         self.wrong = [i for i in self.order if self.answers.get(i, {}).get("points", 0) < 2]
         t = T()
-        self.res_title.setText(f"Wynik: {score}%")
-        self.res_sub.setText(f"Odpowiedziałeś na {len(answered)} z {len(self.order)} pytań. "
-                             + ("Świetnie – wszystko dobrze!" if not self.wrong else
-                                f"Do powtórki: {len(self.wrong)}. Kliknij temat, żeby otworzyć ten fragment notatki."))
+        self.res_title.setText(tr("Wynik: {score}%", score=score))
+        self.res_sub.setText(tr("Odpowiedziałeś na {n} z {n2} pytań. ", n=len(answered), n2=len(self.order))
+                             + (tr("Świetnie – wszystko dobrze!") if not self.wrong else
+                                tr("Do powtórki: {n}. Kliknij temat, żeby otworzyć ten fragment notatki.", n=len(self.wrong))))
         rows = []
         self._res_src = {}
         for k, i in enumerate(self.wrong):
@@ -483,13 +485,14 @@ class ExamTab(QWidget):
             if q["type"] == "abcd":
                 correct = q["options"][q["correct"]]
             elif q["type"] == "pf":
-                correct = "Prawda" if q["correct"] else "Fałsz"
+                correct = tr("Prawda") if q["correct"] else tr("Fałsz")
             else:
                 correct = q.get("answer", "")
             mdir = self._mdir(q)
             rows.append(f"<p style='margin:14px 0 4px 0'><b>{text_to_html(q['q'], mdir, t.text)}</b></p>"
                         f"<p style='margin:0 0 4px 0; color:{t.text2}'>"
-                        f"{'Brak odpowiedzi' if not a else ''}Poprawnie: {text_to_html(correct, mdir, t.text2)}</p>"
+                        f"{tr('Brak odpowiedzi') + ' · ' if not a else ''}{tr('Poprawnie:')} "
+                        f"{text_to_html(correct, mdir, t.text2)}</p>"
                         f"<p style='margin:0'><a style='color:{t.accent}; text-decoration:none' href='#q{k}'>"
                         f"→ {html.escape(src.get('title', ''))}</a></p>")
         self.res_view.setHtml(f"<body style='color:{t.text}; line-height:145%'>{''.join(rows)}</body>")

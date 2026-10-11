@@ -6,6 +6,7 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
+from ..i18n import tr
 from PySide6.QtCore import QObject, QPoint, QRect, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLayout, QSlider, QVBoxLayout
@@ -87,7 +88,7 @@ class JobRunner(QObject):
         cancel = self.cancel
 
         def target():
-            ok, msg = True, f"{name}: zakończono"
+            ok, msg = True, tr("{name}: zakończono", name=name)
             try:
                 fn(self.progress.emit, cancel, self.token.emit)
                 if cancel.is_set():
@@ -186,17 +187,17 @@ class RoiDialog(QDialog):
 
     def __init__(self, img: np.ndarray, roi=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Zaznacz obszar slajdu")
+        self.setWindowTitle(tr("Zaznacz obszar slajdu"))
         pix = bgr_to_qpixmap(img)
         pix = pix.scaled(*_fit_size(parent, 1150, 680), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.canvas = _RoiCanvas(pix, roi)
-        info = QLabel("Przeciągnij myszką prostokąt wokół slajdu. Zmiany poza nim (kamerka, czat, kursor) nie będą "
-                      "traktowane jako nowy slajd.")
+        info = QLabel(tr("Przeciągnij myszką prostokąt wokół slajdu. Zmiany poza nim (kamerka, czat, kursor) nie będą "
+                      "traktowane jako nowy slajd."))
         info.setWordWrap(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Gotowe")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Anuluj")
-        reset = buttons.addButton("Cały obraz", QDialogButtonBox.ButtonRole.ResetRole)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Gotowe"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Anuluj"))
+        reset = buttons.addButton(tr("Cały obraz"), QDialogButtonBox.ButtonRole.ResetRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         reset.clicked.connect(self._reset)
@@ -243,7 +244,7 @@ class VideoRoiDialog(QDialog):
     def __init__(self, path: str, duration: float, roi=None, parent=None, title: str = ""):
         super().__init__(parent)
         from pathlib import Path
-        self.setWindowTitle(title or "Zaznacz obszar slajdu")
+        self.setWindowTitle(title or tr("Zaznacz obszar slajdu"))
         self.path = path
         self.duration = max(0.0, float(duration or 0))
         self.max_w, self.max_h = _fit_size(parent, self.MAX_W, self.MAX_H)
@@ -251,9 +252,9 @@ class VideoRoiDialog(QDialog):
         from .theme import T as _T
         blank.fill(QColor(_T().surface2))
         self.canvas = _RoiCanvas(blank, roi)
-        info = QLabel(f"<b>{Path(path).name}</b><br>Przeciągnij myszką prostokąt wokół slajdu – zmiany poza nim "
-                      "(kamerka prowadzącego, czat) nie będą traktowane jako nowy slajd. Jeśli kadr jest czarny "
-                      "albo nie widać slajdu, przesuń suwak.")
+        info = QLabel(tr("<b>{name}</b><br>Przeciągnij myszką prostokąt wokół slajdu – zmiany poza nim (kamerka "
+                         "prowadzącego, czat) nie będą traktowane jako nowy slajd. Jeśli kadr jest czarny albo nie "
+                         "widać slajdu, przesuń suwak.", name=Path(path).name))
         info.setWordWrap(True)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, max(1, int(self.duration)))
@@ -268,15 +269,15 @@ class VideoRoiDialog(QDialog):
         self._timer.timeout.connect(self._load)
         self.slider.valueChanged.connect(self._slider_moved)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Gotowe")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Anuluj")
-        whole = buttons.addButton("Cały obraz", QDialogButtonBox.ButtonRole.ResetRole)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Gotowe"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Anuluj"))
+        whole = buttons.addButton(tr("Cały obraz"), QDialogButtonBox.ButtonRole.ResetRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         whole.clicked.connect(self._whole)
         row = QHBoxLayout()
         row.setSpacing(10)
-        row.addWidget(QLabel("Moment filmu:"))
+        row.addWidget(QLabel(tr("Moment filmu:")))
         row.addWidget(self.slider, 1)
         row.addWidget(self.time_lbl)
         lay = QVBoxLayout(self)
@@ -302,7 +303,7 @@ class VideoRoiDialog(QDialog):
         from ..slides import video_frame_at
         self._req += 1
         req, path, t, dur = self._req, self.path, float(self.slider.value()), self.duration
-        self.state_lbl.setText("Wczytywanie klatki…")
+        self.state_lbl.setText(tr("Wczytywanie klatki…"))
 
         def work():
             img = video_frame_at(path, t)
@@ -329,7 +330,7 @@ class VideoRoiDialog(QDialog):
                     self.slider.blockSignals(False)
                     self._update_time()
                 if img is None:
-                    self.state_lbl.setText("Nie udało się odczytać klatki w tym miejscu – przesuń suwak.")
+                    self.state_lbl.setText(tr("Nie udało się odczytać klatki w tym miejscu – przesuń suwak."))
                     return
                 self.state_lbl.setText("")
                 pix = bgr_to_qpixmap(img).scaled(self.max_w, self.max_h, Qt.AspectRatioMode.KeepAspectRatio,
@@ -341,7 +342,7 @@ class VideoRoiDialog(QDialog):
         def fail(e):
             if req == self._req:
                 try:
-                    self.state_lbl.setText(f"Nie udało się odczytać filmu: {e}")
+                    self.state_lbl.setText(tr("Nie udało się odczytać filmu: {e}", e=e))
                 except RuntimeError:
                     pass
         run_async(work, done, fail)

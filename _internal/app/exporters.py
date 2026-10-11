@@ -5,6 +5,7 @@ import html
 import re
 from pathlib import Path
 
+from .config import APP_NAME
 from .storage import Lecture
 
 CSS = """
@@ -32,7 +33,7 @@ def md_to_html(md: str) -> str:
 
 def anchorize(body: str) -> str:
     """QTextBrowser przewija do kotwic <a name>, a nie do id – dodajemy oba."""
-    return re.sub(r'<h([1-3]) id="([\w-]+)">', r'<h\1 id="\2"><a name="\2"></a>', body)
+    return re.sub(r'<h([1-3]) id="([\w-]+)">', r'<h\1 id="\2"><a name="\2"></a>', body)  # i18n: nie
 
 
 def export_html(lecture: Lecture) -> Path:
@@ -266,7 +267,7 @@ def export_pdf(lecture: Lecture, out: Path, mobile: bool = False) -> Path:
     printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
     printer.setOutputFileName(str(out))
     printer.setDocName(lecture.meta.title)
-    printer.setCreator("Wykłady")
+    printer.setCreator(APP_NAME)
     size = (QPageSize(QSizeF(pw, ph), QPageSize.Unit.Millimeter, "Telefon") if mobile
             else QPageSize(QPageSize.PageSizeId.A4))
     printer.setFullPage(True)            # marginesy i stopkę rysujemy sami

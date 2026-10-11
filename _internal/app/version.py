@@ -3,7 +3,7 @@
 Przy wydawaniu nowej wersji: podbij VERSION, wyślij zmiany na GitHuba i wypchnij tag v<VERSION> – GitHub Actions
 (.github/workflows/release.yml) zbuduje paczkę i utworzy „Release”. Tag musi być równy VERSION.
 REPO to „użytkownik/repozytorium” (można też wpisać w Ustawieniach)."""
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 REPO = "wikingowiec/Notatki-z-wykladow"
 BRANCH = "main"
 

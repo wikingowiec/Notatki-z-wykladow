@@ -67,7 +67,8 @@ def week(d: dict, today: date | None = None) -> list[tuple[str, bool, bool]]:
     """Bieżący tydzień Pn–Nd: (litera dnia, czy zrobiony, czy dziś)."""
     t = today or date.today()
     mon = t - timedelta(days=t.weekday())
-    names = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"]
+    from .i18n import day_name
+    names = [day_name(i, short=True) for i in range(7)]
     out = []
     for i in range(7):
         day = mon + timedelta(days=i)
@@ -82,6 +83,6 @@ def summary(library: Path) -> dict:
 
 
 def days_word(n: int) -> str:
-    if n == 1:
-        return "dzień"
-    return "dni"
+    """„dzień” / „dni” (po angielsku „day” / „days”)."""
+    from .i18n import tn
+    return tn(n, "dzień", "dni", "dni")

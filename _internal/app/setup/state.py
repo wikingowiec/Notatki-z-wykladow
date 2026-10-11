@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
 from ..system import IS_MAC, requirements_files, runtime_dir
 
 BASE = Path(__file__).resolve().parents[2]          # folder _internal
-RUNTIME = runtime_dir()                             # Windows: _internal/runtime, Mac: Application Support
+RUNTIME = runtime_dir()                             # Windows: _internal/runtime (Store: %LOCALAPPDATA%), Mac: Application Support
 PYTHON_DIR = RUNTIME / "python"
 MARKER = RUNTIME / "setup.json"
 REQ_FILES = requirements_files()
@@ -17,6 +18,11 @@ REQ_FILES = requirements_files()
 
 def embedded() -> bool:
     """Aplikacja działa na własnym Pythonie z runtime (a nie np. z .venv programisty)."""
+    # wersja ze Store: Windows przenosi pliki z %LOCALAPPDATA% do folderu paczki, więc resolve() może zwrócić
+    # inną ścieżkę niż RUNTIME – porównujemy też ścieżki bez rozwijania
+    exe = os.path.normcase(os.path.abspath(sys.executable))
+    if exe.startswith(os.path.normcase(os.path.abspath(RUNTIME)) + os.sep):
+        return True
     try:
         return Path(sys.executable).resolve().is_relative_to(RUNTIME.resolve())
     except Exception:  # noqa: BLE001
@@ -64,4 +70,4 @@ def python_console() -> str:
 
 
 def launcher_exe() -> Path:
-    return BASE.parent / "Wykłady.exe"
+    return BASE.parent / "Wykłady.exe"  # i18n: nie

@@ -85,15 +85,15 @@ def straighten(img: np.ndarray) -> np.ndarray:
     s = best.sum(axis=1)
     d = np.diff(best, axis=1).ravel()
     tl, br = best[np.argmin(s)], best[np.argmax(s)]
-    tr, bl = best[np.argmin(d)], best[np.argmax(d)]
-    width = int(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl)))
-    height = int(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl)))
+    top_r, bl = best[np.argmin(d)], best[np.argmax(d)]
+    width = int(max(np.linalg.norm(br - bl), np.linalg.norm(top_r - tl)))
+    height = int(max(np.linalg.norm(top_r - br), np.linalg.norm(tl - bl)))
     if width < 200 or height < 120:
         return img
     ratio = width / height
     if not 0.9 < ratio < 2.6:          # slajdy są poziome (4:3 – 16:9) – inaczej nie ryzykujemy
         return img
-    M = cv2.getPerspectiveTransform(np.array([tl, tr, br, bl]),
+    M = cv2.getPerspectiveTransform(np.array([tl, top_r, br, bl]),
                                     np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
                                              dtype=np.float32))
     return cv2.warpPerspective(img, M, (width, height))

@@ -8,6 +8,7 @@ from typing import Callable, Optional
 
 from .config import Settings
 from .storage import Lecture
+from .i18n import tn, tr
 
 log = logging.getLogger(__name__)
 Progress = Callable[[str, float], None]
@@ -30,14 +31,14 @@ def transcribe_lecture(lecture: Lecture, settings: Settings, progress: Progress,
     from .transcriber import engine_for
     parts = [(Path(source), 0.0, 0.0)] if source else lecture.audio_parts()
     if not parts or not parts[0][0].exists():
-        raise RuntimeError("Brak pliku audio do transkrypcji.")
+        raise RuntimeError(tr("Brak pliku audio do transkrypcji."))
     engine = engine_for(settings, lecture.meta.language or settings.language)
     engine.hotwords = vocabulary_for(lecture, settings)
     engine.load(lambda m: progress(m, -1))
     try:
         all_segs: list[dict] = []
         for k, (path, offset, _dur) in enumerate(parts, 1):
-            label = f"Transkrypcja części {k}/{len(parts)}" if len(parts) > 1 else "Transkrypcja"
+            label = tr("Transkrypcja części {k}/{n}", k=k, n=len(parts)) if len(parts) > 1 else tr("Transkrypcja")
             progress(f"{label} ({engine.device})…", 0.0)
             segs = engine.transcribe_file(str(path), progress=lambda f, l=label: progress(l + "…", f), cancel=cancel)
             if cancel.is_set():
@@ -62,13 +63,13 @@ def import_file(path: str, lecture: Lecture, settings: Settings, progress: Progr
     """Import gotowego nagrania (audio lub wideo): zapis audio, wykrycie slajdów (jeśli wideo), transkrypcja."""
     import soundfile as sf
     from .audio_decode import decode_audio
-    progress("Dekodowanie dźwięku…", -1)
+    progress(tr("Dekodowanie dźwięku…"), -1)
     audio = decode_audio(path, sampling_rate=16000)
     part = lecture.new_part_file()
     sf.write(str(lecture.folder / part), audio, 16000, format="OGG", subtype="OPUS")
     lecture.meta.duration = round(len(audio) / 16000, 1)
     lecture.meta.parts = [{"file": part, "offset": 0.0, "duration": lecture.meta.duration}]
-    lecture.meta.audio_source = f"Plik: {Path(path).name}"
+    lecture.meta.audio_source = tr("Plik: {name}", name=Path(path).name)
     lecture.save_meta()
     del audio
     try:
@@ -81,8 +82,9 @@ def import_file(path: str, lecture: Lecture, settings: Settings, progress: Progr
         from .slides import SlideStore, detect_slides_in_video
         store = SlideStore(lecture, ocr=settings.ocr_enabled)
         n = detect_slides_in_video(path, store, settings.slide_sensitivity, roi=roi,
-                                   progress=lambda f: progress("Wykrywanie slajdów w wideo…", f), cancel=cancel)
-        lecture.meta.video_source = f"Plik: {Path(path).name} ({n} slajdów)"
+                                   progress=lambda f: progress(tr("Wykrywanie slajdów w wideo…"), f), cancel=cancel)
+        lecture.meta.video_source = tn(n, "Plik: {name} ({n} slajd)", "Plik: {name} ({n} slajdy)",
+                                       "Plik: {name} ({n} slajdów)", name=Path(path).name)
         lecture.save_meta()
     if not cancel.is_set():
         transcribe_lecture(lecture, settings, progress, cancel)
@@ -94,19 +96,19 @@ def generate_notes(lecture: Lecture, settings: Settings, progress: Progress, can
     from .notes_pipeline import generate
     llm = Ollama(settings.ollama_url)
     if not llm.is_running():
-        raise LLMError("Ollama nie działa. Zainstaluj ją z https://ollama.com/download i uruchom, "
-                       "a potem kliknij „Generuj notatki”.")
+        raise LLMError(tr("Ollama nie działa. Zainstaluj ją z https://ollama.com/download i uruchom, "
+                       "a potem kliknij „Generuj notatki”."))
     model = settings.ollama_model
     if not llm.has_model(model):
-        progress(f"Pobieranie modelu {model} (jednorazowo)…", 0)
-        llm.pull(model, progress=lambda st, f: progress(f"Pobieranie modelu: {st}", f), cancel=cancel)
+        progress(tr("Pobieranie modelu {model} (jednorazowo)…", model=model), 0)
+        llm.pull(model, progress=lambda st, f: progress(tr("Pobieranie modelu: {st}", st=st), f), cancel=cancel)
     vision = None
     if getattr(settings, "describe_slides", True) and settings.vision_model and lecture.load_slides().get("slides"):
         vision = settings.vision_model
         if not llm.has_model(vision):
             try:
-                progress(f"Pobieranie modelu do opisu slajdów {vision} (jednorazowo, ~6 GB)…", 0)
-                llm.pull(vision, progress=lambda st, f: progress(f"Pobieranie modelu do slajdów: {st}", f),
+                progress(tr("Pobieranie modelu do opisu slajdów {vision} (jednorazowo, ~6 GB)…", vision=vision), 0)
+                llm.pull(vision, progress=lambda st, f: progress(tr("Pobieranie modelu do slajdów: {st}", st=st), f),
                          cancel=cancel)
             except Exception as e:  # noqa: BLE001
                 from .llm import Cancelled
@@ -124,7 +126,7 @@ def generate_notes(lecture: Lecture, settings: Settings, progress: Progress, can
         lecture.meta.status = "gotowy"
         lecture.meta.error = ""
     except Exception as e:
-        lecture.meta.status = "nagrany" if cancel.is_set() else "błąd"
+        lecture.meta.status = "nagrany" if cancel.is_set() else "błąd"  # i18n: nie
         lecture.meta.error = "" if cancel.is_set() else str(e)
         raise
     finally:
@@ -161,7 +163,7 @@ def import_files(lecture: Lecture, audio_files: list[str], photo_files: list[str
     for k, path in enumerate(audio_files, 1):
         if cancel.is_set():
             return
-        progress(f"Wczytywanie nagrania {k}/{len(audio_files)}: {Path(path).name}", -1)
+        progress(tr("Wczytywanie nagrania {k}/{n}: {name}", k=k, n=len(audio_files), name=Path(path).name), -1)
         audio = decode_audio(path, sampling_rate=16000)
         dur = round(len(audio) / 16000, 1)
         part = lecture.new_part_file()
@@ -188,7 +190,7 @@ def import_files(lecture: Lecture, audio_files: list[str], photo_files: list[str
             from .slides import SlideStore, detect_slides_in_video
             detect_slides_in_video(path, SlideStore(lecture, ocr=settings.ocr_enabled), settings.slide_sensitivity,
                                    roi=(rois or {}).get(path),
-                                   progress=lambda f: progress("Wykrywanie slajdów w wideo…", f), cancel=cancel,
+                                   progress=lambda f: progress(tr("Wykrywanie slajdów w wideo…"), f), cancel=cancel,
                                    offset=offset)
     if names:
         m.audio_source = "Plik: " + ", ".join(names)
@@ -217,7 +219,7 @@ def add_photos(lecture: Lecture, photo_files: list[str], settings: Settings, pro
     for k, path in enumerate(photo_files, 1):
         if cancel.is_set():
             return 0
-        progress(f"Zdjęcia slajdów: {k}/{len(photo_files)} (prostowanie i odczyt tekstu)", k / len(photo_files))
+        progress(tr("Zdjęcia slajdów: {k}/{n} (prostowanie i odczyt tekstu)", k=k, n=len(photo_files)), k / len(photo_files))
         img, taken = load_photo(Path(path))
         if img is None:
             continue
@@ -266,6 +268,6 @@ def add_photos(lecture: Lecture, photo_files: list[str], settings: Settings, pro
     data["events"].sort(key=lambda e: e["t"])
     lecture.save_slides(data)
     if not m.video_source:
-        m.video_source = f"Zdjęcia slajdów ({n})"
+        m.video_source = tr("Zdjęcia slajdów ({n})", n=n)
         lecture.save_meta()
     return n

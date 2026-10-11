@@ -23,6 +23,7 @@ from ctypes import POINTER, Structure, byref, c_bool, c_double, c_int32, c_long,
 from typing import Optional
 
 import numpy as np
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ TRANSPORT_VIRTUAL, TRANSPORT_AGGREGATE = fourcc("virt"), fourcc("grup")
 UTF8 = 0x08000100
 
 PLAYING = 0.002
-OWN_NAME = "Wykłady"            # nazwa naszych prywatnych urządzeń zbiorczych (nie pokazujemy ich jako mikrofonów)
+OWN_NAME = "Wykłady"            # nazwa naszych prywatnych urządzeń zbiorczych (nie pokazujemy ich jako mikrofonów)  # i18n: nie
 
 # procesy systemowe z obiektem dźwięku – nie ma sensu ich nagrywać
 _SYSTEM_NAMES = {"coreaudiod", "systemsoundserverd", "audiomxd", "callservicesd", "avconferenced", "corespeechd",
@@ -119,7 +120,7 @@ def _check(status: int, what: str):
     if status:
         code = status.to_bytes(4, "big", signed=True)
         txt = code.decode("ascii") if all(32 <= b < 127 for b in code) else str(status)
-        raise CoreAudioError(f"{what}: błąd Core Audio {txt}")
+        raise CoreAudioError(tr("{what}: błąd Core Audio {txt}", what=what, txt=txt))
 
 
 def _addr(sel: int, scope: int = SCOPE_GLOBAL) -> PropAddr:
@@ -131,11 +132,11 @@ def _get_raw(obj: int, sel: int, scope: int = SCOPE_GLOBAL, qual: Optional[ctype
     qsize = ctypes.sizeof(qual) if qual is not None else 0
     qptr = c_void_p(ctypes.addressof(qual)) if qual is not None else None
     size = c_uint32(0)
-    _check(_CA.AudioObjectGetPropertyDataSize(obj, byref(a), qsize, qptr, byref(size)), "rozmiar właściwości")
+    _check(_CA.AudioObjectGetPropertyDataSize(obj, byref(a), qsize, qptr, byref(size)), tr("rozmiar właściwości"))
     if not size.value:
         return b""
     buf = ctypes.create_string_buffer(size.value)
-    _check(_CA.AudioObjectGetPropertyData(obj, byref(a), qsize, qptr, byref(size), buf), "właściwość")
+    _check(_CA.AudioObjectGetPropertyData(obj, byref(a), qsize, qptr, byref(size), buf), tr("właściwość"))
     return buf.raw[:size.value]
 
 
@@ -319,14 +320,14 @@ def input_devices() -> list[tuple[int, str, bool, bool]]:
         d = int(d)
         if _input_channels(d) < 1:
             continue
-        name = _get_str(d, P_NAME) or f"Urządzenie {d}"
+        name = _get_str(d, P_NAME) or tr("Urządzenie {d}", d=d)
         if name.startswith(OWN_NAME):
             continue
         try:
-            tr = _get_u32(d, P_TRANSPORT)
+            transport = _get_u32(d, P_TRANSPORT)
         except CoreAudioError:
-            tr = 0
-        virtual = tr in (TRANSPORT_VIRTUAL, TRANSPORT_AGGREGATE) or any(h in name.lower() for h in _VIRTUAL_HINTS)
+            transport = 0
+        virtual = transport in (TRANSPORT_VIRTUAL, TRANSPORT_AGGREGATE) or any(h in name.lower() for h in _VIRTUAL_HINTS)
         out.append((d, name, d == default_in, virtual))
     return out
 
@@ -359,7 +360,7 @@ def list_audio_sources():
     for a in apps.values():
         names[a["name"].lower()] = names.get(a["name"].lower(), 0) + 1
     for root, a in sorted(apps.items(), key=lambda x: x[1]["name"].lower()):
-        detail = "gra teraz" if a["on"] else "teraz cisza"
+        detail = tr("gra teraz") if a["on"] else tr("teraz cisza")
         if names[a["name"].lower()] > 1:
             detail += f" · PID {root}"
         info = AudioSourceInfo("process", a["name"], pid=root, exe=a["id"], active=a["on"], detail=detail,
@@ -373,23 +374,23 @@ def list_audio_sources():
         if pid == own or pid in apps or ident.lower() in seen:
             continue
         seen.add(ident.lower())
-        windows.append(AudioSourceInfo("process", name, pid=pid, exe=ident, detail="jeszcze nic nie grała",
+        windows.append(AudioSourceInfo("process", name, pid=pid, exe=ident, detail=tr("jeszcze nic nie grała"),
                                        hidden=True))
     windows.sort(key=lambda s: s.label.lower())
 
     devices = []
     out_name = default_output_name()
     sys_on = any(r for _o, p, r in audio_processes() if p != own)
-    devices.append(AudioSourceInfo("system", "Cały dźwięk systemowy", active=sys_on,
-                                   detail="wszystko, co słychać" + (f" · {out_name}" if out_name else "")))
+    devices.append(AudioSourceInfo("system", tr("Cały dźwięk systemowy"), active=sys_on,
+                                   detail=tr("wszystko, co słychać") + (f" · {out_name}" if out_name else "")))
     seen_mics: set[str] = set()
     for dev, name, default, virtual in input_devices():
         dup = name.lower() in seen_mics
         seen_mics.add(name.lower())
-        detail = "domyślny" if default else ("urządzenie wirtualne" if virtual else "")
-        devices.append(AudioSourceInfo("mic", f"Mikrofon: {name}", device_index=dev, detail=detail,
+        detail = tr("domyślny") if default else (tr("urządzenie wirtualne") if virtual else "")
+        devices.append(AudioSourceInfo("mic", tr("Mikrofon: {name}", name=name), device_index=dev, detail=detail,
                                        hidden=(virtual or dup) and not default))
-    devices.sort(key=lambda s: (s.kind != "system", s.hidden, s.detail != "domyślny"))
+    devices.sort(key=lambda s: (s.kind != "system", s.hidden, s.detail != tr("domyślny")))
     return playing + devices + idle + windows
 
 
@@ -444,7 +445,7 @@ class _IOProcSource:
     def start(self):
         _check(_CA.AudioDeviceCreateIOProcID(self.device, self._proc, None, byref(self._proc_id)), "IOProc")
         try:
-            _check(_CA.AudioDeviceStart(self.device, self._proc_id), "start urządzenia")
+            _check(_CA.AudioDeviceStart(self.device, self._proc_id), tr("start urządzenia"))
         except CoreAudioError:
             _CA.AudioDeviceDestroyIOProcID(self.device, self._proc_id)
             raise
@@ -464,7 +465,7 @@ class _MicSource(_IOProcSource):
         if device < 0:
             device = _get_u32(SYSTEM_OBJECT, P_DEFAULT_INPUT)
         super().__init__(device, cb)
-        self.name = f"Core Audio: {_get_str(device, P_NAME)}"
+        self.name = tr("Core Audio: {get_str}", get_str=_get_str(device, P_NAME))
 
 
 class _TapSource:
@@ -472,7 +473,7 @@ class _TapSource:
 
     def __init__(self, cb, process_objects: Optional[list[int]] = None):
         if not has_process_taps():
-            raise CoreAudioError("Ten macOS nie ma process taps (potrzebny macOS 14.4 lub nowszy)")
+            raise CoreAudioError(tr("Ten macOS nie ma process taps (potrzebny macOS 14.4 lub nowszy)"))
         import objc
         from Foundation import NSDictionary, NSUUID
         self.cb = cb
@@ -482,13 +483,13 @@ class _TapSource:
         cls = objc.lookUpClass("CATapDescription")
         if process_objects is not None:
             if not process_objects:
-                raise CoreAudioError("Ta aplikacja jeszcze nic nie grała")
+                raise CoreAudioError(tr("Ta aplikacja jeszcze nic nie grała"))
             desc = cls.alloc().initStereoMixdownOfProcesses_(list(process_objects))
-            self.name = "Core Audio (aplikacja)"
+            self.name = tr("Core Audio (aplikacja)")
         else:
             own = _own_process_object()
             desc = cls.alloc().initStereoGlobalTapButExcludeProcesses_([own] if own else [])
-            self.name = "Core Audio (cały system)"
+            self.name = tr("Core Audio (cały system)")
         desc.setUUID_(NSUUID.UUID())
         desc.setName_(OWN_NAME)
         try:
@@ -516,7 +517,7 @@ class _TapSource:
                 spec["subdevices"] = [{"uid": out_uid}]
             d = NSDictionary.dictionaryWithDictionary_(spec)
             _check(_CA.AudioHardwareCreateAggregateDevice(c_void_p(objc.pyobjc_id(d)), byref(self.agg)),
-                   "urządzenie zbiorcze")
+                   tr("urządzenie zbiorcze"))
             self.io = _IOProcSource(self.agg.value, cb, take_last=channels)
             if fmt.mSampleRate and not _get_f64(self.agg.value, P_SAMPLE_RATE):
                 self.io.rate = int(fmt.mSampleRate)
@@ -612,7 +613,7 @@ def _wait_handler(call, timeout: float = 6.0):
         ev.set()
     call(handler)
     if not ev.wait(timeout):
-        raise TimeoutError("ScreenCaptureKit nie odpowiedział")
+        raise TimeoutError(tr("ScreenCaptureKit nie odpowiedział"))
     return box[0]
 
 
@@ -627,21 +628,21 @@ class _SCKAudioSource:
             lambda h: SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
                 True, True, h))
         if content is None:
-            raise RuntimeError(f"ScreenCaptureKit: {err}")
+            raise RuntimeError(tr("ScreenCaptureKit: {err}", err=err))
         displays = list(content.displays() or [])
         if not displays:
-            raise RuntimeError("ScreenCaptureKit: brak ekranu")
+            raise RuntimeError(tr("ScreenCaptureKit: brak ekranu"))
         apps = list(content.applications() or [])
         if info.kind == "process":
             chosen = [a for a in apps if int(a.processID()) == info.pid or _root_pid(int(a.processID())) == info.pid]
             if not chosen:
-                raise RuntimeError("ScreenCaptureKit nie widzi tej aplikacji")
+                raise RuntimeError(tr("ScreenCaptureKit nie widzi tej aplikacji"))
             flt = SCContentFilter.alloc().initWithDisplay_includingApplications_exceptingWindows_(displays[0], chosen, [])
-            self.name = "ScreenCaptureKit (aplikacja)"
+            self.name = tr("ScreenCaptureKit (aplikacja)")
         else:
             own = [a for a in apps if int(a.processID()) == os.getpid()]
             flt = SCContentFilter.alloc().initWithDisplay_excludingApplications_exceptingWindows_(displays[0], own, [])
-            self.name = "ScreenCaptureKit (cały system)"
+            self.name = tr("ScreenCaptureKit (cały system)")
         cfg = SCStreamConfiguration.alloc().init()
         cfg.setCapturesAudio_(True)
         cfg.setExcludesCurrentProcessAudio_(True)
@@ -656,7 +657,7 @@ class _SCKAudioSource:
         res = self.stream.addStreamOutput_type_sampleHandlerQueue_error_(self.output, 1, None, None)
         ok = res[0] if isinstance(res, tuple) else res
         if not ok:
-            raise RuntimeError(f"ScreenCaptureKit: {res[1] if isinstance(res, tuple) else 'błąd'}")
+            raise RuntimeError(tr("ScreenCaptureKit: {x}", x=res[1] if isinstance(res, tuple) else 'błąd'))
 
     def _on_sample(self, sbuf):
         try:
@@ -687,7 +688,7 @@ class _SCKAudioSource:
     def start(self):
         (err,) = _wait_handler(lambda h: self.stream.startCaptureWithCompletionHandler_(h))
         if err is not None:
-            raise RuntimeError(f"ScreenCaptureKit: {err.localizedDescription()}")
+            raise RuntimeError(tr("ScreenCaptureKit: {localizeddescription}", localizeddescription=err.localizedDescription()))
 
     def stop(self):
         try:
@@ -721,9 +722,9 @@ def open_source(info, cb, backend: str = "auto", fallback: bool = True):
             log.exception("backend %s", name)
             errors.append(f"{'Core Audio' if name == 'tap' else 'ScreenCaptureKit'}: {e}")
     what = "aplikacji" if info.kind == "process" else "systemu"
-    raise RuntimeError(f"Nie udało się przechwycić dźwięku {what}.\n" + "\n".join(errors) +
-                       "\n\nSprawdź zgody w Ustawieniach systemowych → Prywatność i ochrona → Nagrywanie ekranu "
-                       "i dźwięku systemu." + ("\nMożesz też spróbować opcji „Cały dźwięk systemowy”."
+    raise RuntimeError(tr("Nie udało się przechwycić dźwięku {what}.\n", what=what) + "\n".join(errors) +
+                       tr("\n\nSprawdź zgody w Ustawieniach systemowych → Prywatność i ochrona → Nagrywanie ekranu "
+                       "i dźwięku systemu.") + (tr("\nMożesz też spróbować opcji „Cały dźwięk systemowy”.")
                                                if info.kind == "process" else ""))
 
 

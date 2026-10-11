@@ -12,7 +12,9 @@ from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QToolButton,
                                QVBoxLayout, QWidget)
 
+from ..config import APP_NAME
 from ..ui.theme import DISPLAY_FAMILY, T, UI_FAMILY, icon_pixmap, logo_pixmap, mix, qcolor
+from ..i18n import tr
 
 FLIP_EVERY = 4.2      # s między przewróceniami kartki
 FLIP_TIME = 1.15
@@ -181,7 +183,7 @@ class NotebookView(QWidget):
         p.setFont(f)
         p.setPen(qcolor(t.accent))
         p.drawText(QRectF(x0, r.top() + step * 0.45, r.right() - x0 - 8, step * 1.5),
-                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "Przygotowanie")
+                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, tr("Przygotowanie"))
         fi = QFont(UI_FAMILY)
         fi.setPointSizeF(max(8.5, step * 0.42))
         now = time.monotonic()
@@ -239,7 +241,7 @@ class NotebookView(QWidget):
             p.setFont(f)
             p.setPen(qcolor(t.red))
             p.drawText(QRectF(inner.left(), r.top() + r.height() * 0.1, inner.width(), r.height() * 0.16),
-                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "Coś poszło nie tak")
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, tr("Coś poszło nie tak"))
             fi = QFont(UI_FAMILY)
             fi.setPointSizeF(max(8.5, r.height() * 0.031))
             p.setFont(fi)
@@ -347,7 +349,7 @@ class NotebookView(QWidget):
         p.setFont(f)
         p.setPen(QColor("#F6F3EC"))
         p.drawText(QRectF(r.left(), r.top() + r.height() * 0.52, r.width(), r.height() * 0.16),
-                   Qt.AlignmentFlag.AlignCenter, "Wykłady")
+                   Qt.AlignmentFlag.AlignCenter, APP_NAME)
 
 
 class ProfileChooser(QWidget):
@@ -364,12 +366,12 @@ class ProfileChooser(QWidget):
         self.settings = settings
         self.hw: dict = {}
         self.key = ""
-        head = QLabel("Na jaki komputer przygotować aplikację?")
+        head = QLabel(tr("Na jaki komputer przygotować aplikację?"))
         f = QFont(DISPLAY_FAMILY)
         f.setPointSizeF(15)
         f.setWeight(QFont.Weight.DemiBold)
         head.setFont(f)
-        self.hw_text = QLabel("Sprawdzam procesor, pamięć i kartę graficzną…")
+        self.hw_text = QLabel(tr("Sprawdzam procesor, pamięć i kartę graficzną…"))
         self.hw_text.setObjectName("secondary")
         self.hw_text.setWordWrap(True)
         self.hw_text.setTextFormat(Qt.TextFormat.RichText)
@@ -384,7 +386,7 @@ class ProfileChooser(QWidget):
         self.note = QLabel("")
         self.note.setObjectName("footnote")
         self.note.setWordWrap(True)
-        self.btn = QPushButton("Zainstaluj")
+        self.btn = QPushButton(tr("Zainstaluj"))
         self.btn.setObjectName("primary")
         self.btn.setEnabled(False)
         self.btn.setMinimumWidth(170)
@@ -424,7 +426,7 @@ class ProfileChooser(QWidget):
         self.hw_text.setText(f"{perf.describe(hw)}<br>{why}")
         for k, c in self.cards.items():
             c.setEnabled(True)
-            c.set_state(recommended=k == key, size_text=f"Do pobrania ok. {perf.fmt_gb(perf.download_gb(k, hw))}")
+            c.set_state(recommended=k == key, size_text=tr("Do pobrania ok. {fmt_gb}", fmt_gb=perf.fmt_gb(perf.download_gb(k, hw))))
         self.btn.setEnabled(True)
         self._pick(key)
 
@@ -435,13 +437,13 @@ class ProfileChooser(QWidget):
             c.set_state(selected=k == key)
         gb = perf.fmt_gb(perf.download_gb(key, self.hw))
         if key == self.rec:
-            msg = "Wybrano automatycznie po sprawdzeniu sprzętu."
+            msg = tr("Wybrano automatycznie po sprawdzeniu sprzętu.")
         elif perf.ORDER.index(key) > perf.ORDER.index(self.rec):
-            msg = "Ten profil może być za ciężki dla tego komputera – notatki będą powstawać wolno."
+            msg = tr("Ten profil może być za ciężki dla tego komputera – notatki będą powstawać wolno.")
         else:
-            msg = "Lżejszy niż polecany – szybciej, ale notatki mogą być trochę mniej dokładne."
-        self.note.setText(f"{msg} Pobierze się ok. {gb}. Profil zmienisz później w Ustawieniach → Wydajność.")
-        self.btn.setText(f"Zainstaluj · {perf.LABELS[key]}")
+            msg = tr("Lżejszy niż polecany – szybciej, ale notatki mogą być trochę mniej dokładne.")
+        self.note.setText(tr("{msg} Pobierze się ok. {gb}. Profil zmienisz później w Ustawieniach → Wydajność.", msg=msg, gb=gb))
+        self.btn.setText(tr("Zainstaluj · {x}", x=perf.LABELS[key]))
 
 
 class SetupWindow(QWidget):
@@ -451,7 +453,7 @@ class SetupWindow(QWidget):
     def __init__(self, settings):
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowTitle("Wykłady – przygotowanie")
+        self.setWindowTitle(f"{APP_NAME} – przygotowanie")
         self.settings = settings
         from .installer import Installer
         self.inst = Installer(settings)
@@ -462,25 +464,25 @@ class SetupWindow(QWidget):
 
         self.logo = QLabel()
         self.logo.setPixmap(logo_pixmap(30, self.devicePixelRatioF() or 2.0))
-        title = QLabel("Wykłady")
+        title = QLabel(APP_NAME)
         title.setObjectName("title3")
         f = QFont(DISPLAY_FAMILY)
         f.setPointSizeF(17)
         f.setWeight(QFont.Weight.DemiBold)
         title.setFont(f)
-        self.sub = QLabel("Przygotowuję wszystko do pierwszego wykładu" if first else
-                          "Doinstalowuję nowości po aktualizacji")
+        self.sub = QLabel(tr("Przygotowuję wszystko do pierwszego wykładu") if first else
+                          tr("Doinstalowuję nowości po aktualizacji"))
         self.sub.setObjectName("secondary")
         b_min = QToolButton()
         b_min.setObjectName("icon")
         b_min.setText("–")
-        b_min.setToolTip("Zminimalizuj")
+        b_min.setToolTip(tr("Zminimalizuj"))
         b_min.clicked.connect(self.showMinimized)
         b_close = QToolButton()
         b_close.setObjectName("icon")
         from ..ui.theme import svg_icon
         b_close.setIcon(svg_icon("xmark", T().text2, 16))
-        b_close.setToolTip("Przerwij")
+        b_close.setToolTip(tr("Przerwij"))
         b_close.clicked.connect(self._ask_close)
         head = QHBoxLayout()
         head.setSpacing(10)
@@ -499,15 +501,15 @@ class SetupWindow(QWidget):
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setTextVisible(False)
-        self.hint = QLabel("Przy pierwszym uruchomieniu pobiera się ok. 20 GB (biblioteki i lokalne modele AI) – "
-                           "to może potrwać od kilkunastu minut do godziny. Możesz w tym czasie korzystać z komputera."
-                           if first else "To zajmie chwilę.")
+        self.hint = QLabel(tr("Przy pierwszym uruchomieniu pobiera się ok. 20 GB (biblioteki i lokalne modele AI) – "
+                           "to może potrwać od kilkunastu minut do godziny. Możesz w tym czasie korzystać z komputera.")
+                           if first else tr("To zajmie chwilę."))
         self.hint.setObjectName("footnote")
         self.hint.setWordWrap(True)
-        self.btn_retry = QPushButton("Spróbuj ponownie")
+        self.btn_retry = QPushButton(tr("Spróbuj ponownie"))
         self.btn_retry.setObjectName("primary")
         self.btn_retry.clicked.connect(self._retry)
-        self.btn_quit = QPushButton("Zamknij")
+        self.btn_quit = QPushButton(tr("Zamknij"))
         self.btn_quit.clicked.connect(QApplication.quit)
         self.err_row = QWidget()
         er = QHBoxLayout(self.err_row)
@@ -531,7 +533,7 @@ class SetupWindow(QWidget):
         for w in ((self.book, self.bar, self.hint) if self.choose else (self.chooser,)):
             w.setVisible(False)
         if self.choose:
-            self.sub.setText("Najpierw dopasujmy aplikację do Twojego komputera")
+            self.sub.setText(tr("Najpierw dopasujmy aplikację do Twojego komputera"))
 
         self._connect()
 
@@ -562,9 +564,9 @@ class SetupWindow(QWidget):
         self.inst = Installer(self.settings)          # kroki i rozmiary według wybranego profilu
         self._connect()
         self.book.steps = [[st.title, "pending"] for st in self.inst.steps]
-        self.hint.setText(f"Pobiera się ok. {perf.fmt_gb(perf.download_gb(key, hw))} (biblioteki i lokalne modele AI) "
-                          "– to może potrwać od kilkunastu minut do godziny. Możesz w tym czasie korzystać z komputera.")
-        self.sub.setText("Przygotowuję wszystko do pierwszego wykładu")
+        self.hint.setText(tr("Pobiera się ok. {fmt_gb} (biblioteki i lokalne modele AI) – to może potrwać od kilkunastu "
+                             "minut do godziny. Możesz w tym czasie korzystać z komputera.", fmt_gb=perf.fmt_gb(perf.download_gb(key, hw))))
+        self.sub.setText(tr("Przygotowuję wszystko do pierwszego wykładu"))
         self.chooser.hide()
         for w in (self.book, self.bar, self.hint):
             w.show()
@@ -596,7 +598,7 @@ class SetupWindow(QWidget):
 
     def _completed(self):
         self.book.percent = 1.0
-        self.book.detail = "Gotowe! Otwieram aplikację…"
+        self.book.detail = tr("Gotowe! Otwieram aplikację…")
         self.bar.setValue(1000)
         QTimer.singleShot(700, self.book.start_closing)
 
@@ -617,8 +619,8 @@ class SetupWindow(QWidget):
             return
         if self.book.phase != "working":
             return
-        if QMessageBox.question(self, "Przerwać?", "Przerwać przygotowanie? Dokończy się przy następnym "
-                                                   "uruchomieniu aplikacji.") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, tr("Przerwać?"), tr("Przerwać przygotowanie? Dokończy się przy następnym "
+                                                   "uruchomieniu aplikacji.")) == QMessageBox.StandardButton.Yes:
             self.inst.stop()
             QApplication.quit()
 

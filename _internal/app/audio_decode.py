@@ -10,6 +10,7 @@ import io
 import logging
 
 import numpy as np
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def decode_audio(input_file, sampling_rate: int = 16000, split_stereo: bool = Fa
     dtype = None
     with _open(input_file) as container:
         if not container.streams.audio:
-            raise RuntimeError("W tym pliku nie ma ścieżki dźwiękowej.")
+            raise RuntimeError(tr("W tym pliku nie ma ścieżki dźwiękowej."))
         stream = container.streams.audio[0]
         for packet in container.demux(stream):
             try:

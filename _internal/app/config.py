@@ -5,7 +5,9 @@ import json
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
-APP_NAME = "Wykłady"
+from .system import APP_DISPLAY_NAME
+
+APP_NAME = APP_DISPLAY_NAME          # „Wykłady”, w wersji z Microsoft Store „SlideScribe”
 APP_ID = "WykladyAI"
 
 
@@ -18,8 +20,8 @@ def _default_library() -> str:
     docs = Path.home() / "Documents"
     if not docs.exists():
         docs = Path.home()
-    old = docs / "Wykłady AI"          # biblioteka z poprzedniej wersji – nie gubimy nagrań
-    new = docs / "Wykłady"
+    old = docs / "Wykłady AI"          # biblioteka z poprzedniej wersji – nie gubimy nagrań  # i18n: nie
+    new = docs / "Wykłady"            # i18n: nie – folder z wykładami ten sam w każdym języku
     return str(old if old.exists() and not new.exists() else new)
 
 
@@ -76,6 +78,7 @@ class Settings:
     # Aktualizacje z GitHuba (np. "uzytkownik/wyklady")
     update_repo: str = ""
     ui_scale: float = 1.0                    # rozmiar interfejsu (0.9 – 1.5), po ponownym uruchomieniu
+    ui_language: str = ""                    # język interfejsu: "" = jak system, "pl", "en" (po ponownym uruchomieniu)
 
     # Ostatnio użyte
     last_subject: str = ""
