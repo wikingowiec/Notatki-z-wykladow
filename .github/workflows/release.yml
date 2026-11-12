@@ -70,7 +70,7 @@ jobs:
   macos:
     name: Paczka Mac (.dmg) i test dymny
     needs: windows              # wydanie musi już istnieć
-    runs-on: macos-14           # Apple Silicon (M1)
+    runs-on: macos-15           # Apple Silicon (macos-14 wycofany przez GitHuba)
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
