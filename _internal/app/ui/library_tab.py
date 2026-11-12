@@ -197,9 +197,20 @@ def build_transcript(lec: Lecture) -> str:
     segs = lec.load_segments()
     if not segs:
         return (tr("<p style='color:{text2}'>Brak transkrypcji. Użyj „Więcej → Transkrybuj ponownie z nagrania”.</p>", text2=t.text2))
-    rows = "".join(f"<p style='margin:0 0 8px 0'><a href='seek:{s['start']}' style='color:{t.text3}; "
+    from .live_view import switch_note
+    # zmiany źródła w trakcie nagrywania (meta.switches) – notka w miejscu zmiany, nie trafia do promptów
+    notes = sorted(((float(sw.get("t", 0)), switch_note(sw)) for sw in (lec.meta.switches or [])
+                    if isinstance(sw, dict)), key=lambda x: x[0])
+    out, k = [], 0
+    for s in segs:
+        while k < len(notes) and notes[k][0] <= s["start"]:
+            out.append(f"<p style='margin:10px 0 10px 0; color:{t.accent_text}; font-weight:700'>"
+                       f"— {html.escape(notes[k][1])} —</p>")
+            k += 1
+        out.append(f"<p style='margin:0 0 8px 0'><a href='seek:{s['start']}' style='color:{t.text3}; "
                    f"text-decoration:none'>{fmt_time(s['start'])}</a>"
-                   f"&nbsp;&nbsp;{html.escape(s['text'])}</p>" for s in segs)
+                   f"&nbsp;&nbsp;{html.escape(s['text'])}</p>")
+    rows = "".join(out)
     return f"<body style='color:{t.text}; line-height:160%'>{rows}</body>"
 
 
@@ -399,6 +410,12 @@ class LibraryTab(QWidget):
         self.btn_learn.setObjectName("primary")
         set_icon(self.btn_learn, "play", "on_accent", 14)
         self.btn_learn.clicked.connect(lambda: self.current and self.study_requested.emit(self.current))
+        # wykład z notatkami, ale bez fiszek: w miejscu „Ucz się · N fiszek”
+        self.btn_make_cards = QPushButton(tr("Wygeneruj fiszki"))
+        set_icon(self.btn_make_cards, "cards", "accent", 15)
+        self.btn_make_cards.setToolTip(tr("Fiszki powstają tylko na życzenie – zrobię je z gotowych notatek "
+                                          "(bez ponownej transkrypcji)."))
+        self.btn_make_cards.clicked.connect(lambda: self.generate_flashcards())
         self.btn_share = icon_button("share", tr("Eksportuj"))
         m = QMenu(self)
         m.addAction(tr("Otwórz w przeglądarce (HTML)"), self.export_html)
@@ -413,6 +430,7 @@ class LibraryTab(QWidget):
         self.act_regen = mm.addAction(tr("Generuj ponownie"), lambda: self.generate_notes())
         self.menu_regen_lang = mm.addMenu(tr("Generuj ponownie w języku"))
         self.menu_regen_lang.aboutToShow.connect(self._fill_regen_lang)
+        self.act_more_cards = mm.addAction(tr("Dodaj więcej fiszek"), lambda: self.generate_flashcards())
         mm.addSeparator()
         mm.addAction(tr("Kontynuuj nagrywanie (kolejna część)"), lambda: self.current and
                      self.continue_requested.emit(self.current))
@@ -447,8 +465,8 @@ class LibraryTab(QWidget):
         head_text.addLayout(ml)
         head_text.addWidget(self.title)
         head_text.addWidget(self.error)
-        actions = hbox(self.btn_learn, self.btn_notes, self.btn_share, self.btn_more, spacing=4)
-        actions.layout().insertSpacing(2, 6)
+        actions = hbox(self.btn_learn, self.btn_make_cards, self.btn_notes, self.btn_share, self.btn_more, spacing=4)
+        actions.layout().insertSpacing(3, 6)
         head = AdaptiveBox(threshold=760, spacing=16, vspacing=10)
         head.add(text_w, 1)
         head.add(actions, 0, Qt.AlignmentFlag.AlignTop, Qt.AlignmentFlag.AlignLeft)
@@ -495,8 +513,8 @@ class LibraryTab(QWidget):
         self.notes_empty_btn.setObjectName("primary")
         self.notes_empty_btn.clicked.connect(lambda: self.generate_notes())
         self.notes_empty = EmptyState("sparkles", tr("Brak notatek"),
-                                      tr("Lokalny model AI przygotuje podsumowanie, notatki według slajdów i fiszki. "
-                                      "Nic nie jest wysyłane do internetu."), self.notes_empty_btn)
+                                      tr("Lokalny model AI przygotuje podsumowanie i notatki według slajdów "
+                                      "(fiszki – na życzenie). Nic nie jest wysyłane do internetu."), self.notes_empty_btn)
         self.notes_stack = QStackedWidget()
         self.notes_stack.addWidget(self.notes_view)
         self.notes_stack.addWidget(self.notes_empty)
@@ -679,7 +697,11 @@ class LibraryTab(QWidget):
         set_icon(self.btn_study, "play", "on_accent", 14)
         self.btn_study.clicked.connect(lambda: self.current and self.study_requested.emit(self.current))
         self.cards_view = Reader(max_width=820, pad=30)
-        self.cards_empty = EmptyState("cards", tr("Brak fiszek"), tr("Fiszki powstają automatycznie razem z notatkami."))
+        self.cards_empty_btn = QPushButton(tr("Wygeneruj fiszki"))
+        self.cards_empty_btn.setObjectName("primary")
+        set_icon(self.cards_empty_btn, "sparkles", "on_accent", 15)
+        self.cards_empty_btn.clicked.connect(lambda: self.generate_flashcards())
+        self.cards_empty = EmptyState("cards", tr("Brak fiszek"), "", self.cards_empty_btn)
         self.cards_stack = QStackedWidget()
         self.cards_stack.addWidget(self.cards_view)
         self.cards_stack.addWidget(self.cards_empty)
@@ -958,6 +980,15 @@ class LibraryTab(QWidget):
         self.btn_learn.setText(tn(n_cards, "Ucz się · {n} fiszka", "Ucz się · {n} fiszki", "Ucz się · {n} fiszek"))
         self.btn_learn.setToolTip(tr("Do powtórki dziś: {due}", due=due) if due else tr("Wszystkie fiszki tego wykładu"))
         show_if(self.btn_learn, n_cards)
+        show_if(self.btn_make_cards, has_notes and not n_cards and not busy_here)
+        self.btn_make_cards.setEnabled(not self.runner.busy)
+        self.act_more_cards.setVisible(bool(has_notes and n_cards))
+        self.act_more_cards.setEnabled(not self.runner.busy)
+        self.cards_empty_btn.setEnabled(has_notes and not self.runner.busy)
+        show_if(self.cards_empty_btn, has_notes)
+        self.cards_empty.text.setText(
+            tr("Fiszki powstają tylko na życzenie. Zrobię je z gotowych notatek – bez ponownej transkrypcji.")
+            if has_notes else tr("Najpierw wygeneruj notatki – potem zrobisz z nich fiszki."))
         show_if(self.btn_notes, not has_notes)
         self.btn_notes.setEnabled(not self.runner.busy)
         self.act_regen.setText(tr("Generuj ponownie") if has_notes else tr("Generuj notatki"))
@@ -1080,9 +1111,10 @@ class LibraryTab(QWidget):
         decks = decks_for([lec])
         self.cards_summary.setText(tn(len(cards), "{n} fiszka", "{n} fiszki", "{n} fiszek") + " · "
                                    + tn(len(decks), "{n} kategoria", "{n} kategorie", "{n} kategorii")
-                                   if cards else tr("Brak fiszek"))
+                                   if cards else "")
         self.cards_sub.setText(tr("Opanowane: {known} z {n}", known=known, n=len(cards)) if cards else "")
-        self.btn_study.setEnabled(bool(cards))
+        for w_ in (self.cards_summary, self.cards_sub, self.btn_study):     # bez fiszek mówi wszystko pusty stan
+            show_if(w_, bool(cards))
         self.cards_stack.setCurrentIndex(0 if cards else 1)
         if not cards:
             return
@@ -1550,6 +1582,24 @@ class LibraryTab(QWidget):
         self._run(tr("Generowanie notatek"),
                   lambda prog, cancel, tok: jobs.generate_notes(lec, s, prog, cancel, tok, use_cache=use_cache), lec)
 
+    def generate_flashcards(self, lecture: Lecture | None = None):
+        """„Wygeneruj fiszki” / „Dodaj więcej fiszek”: sam krok fiszek z gotowego notes.md, w tle."""
+        lec = lecture if isinstance(lecture, Lecture) else self.current
+        if not lec:
+            return
+        if not lec.notes_path.exists():
+            QMessageBox.information(self, tr("Fiszki"), tr("Najpierw wygeneruj notatki – potem zrobisz z nich fiszki."))
+            return
+        more = bool(lec.load_flashcards())
+        s = self.settings
+        res: dict = {}
+        self.ai_log.clear()
+
+        def fn(prog, cancel, _tok):
+            res["added"] = jobs.generate_flashcards(lec, s, prog, cancel)
+        if self._run(tr("Dodawanie fiszek") if more else tr("Generowanie fiszek"), fn, lec):
+            self._cards_job = (str(lec.folder), more, res)    # koniec zadania przychodzi sygnałem – już po tym
+
     def retranscribe(self, lecture: Lecture | None = None, then_notes: bool = False):
         lec = lecture if isinstance(lecture, Lecture) else self.current
         if not lec:
@@ -1583,6 +1633,9 @@ class LibraryTab(QWidget):
         if not ok:
             return
         lec = Lecture.create(self.settings.library_path(), title, subject)
+        lec.meta.make_flashcards = bool((self.settings.last_rec or {}).get("make_flashcards",
+                                                                           self.settings.auto_flashcards))
+        lec.save_meta()
         s = self.settings
 
         def fn(prog, cancel, tok):
@@ -1645,12 +1698,20 @@ class LibraryTab(QWidget):
 
     def _job_finished(self, ok: bool, msg: str, lecture):
         self._token_buf = ""
-        if ok and lecture is not None:
+        cards_job, self._cards_job = getattr(self, "_cards_job", None), None
+        if cards_job and lecture is not None and cards_job[0] != str(lecture.folder):
+            cards_job = None
+        if ok and lecture is not None and not cards_job:
             self._phone(lecture)
         self.refresh()
         self.library_changed.emit()
-        if ok and self.current and lecture and str(self.current.folder) == str(lecture.folder):
-            self.seg.set_current(0, emit=True)
+        here = bool(self.current and lecture and str(self.current.folder) == str(lecture.folder))
+        if ok and here:
+            # po fiszkach – zakładka Fiszki, po notatkach – Notatki
+            self.seg.set_current(self._seg_to_page.index(CARDS) if cards_job else 0, emit=True)
+        if ok and cards_job and cards_job[2].get("added", 0) <= 0:
+            QMessageBox.information(self, tr("Fiszki"),
+                                    tr("Nie przybyło nowych fiszek – model powtarzał pytania, które już masz."))
         if not ok and "anulowano" not in msg:
             QMessageBox.warning(self, "Nie udało się", msg)
 

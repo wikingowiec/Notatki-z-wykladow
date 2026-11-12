@@ -42,9 +42,16 @@ class AudioSourceInfo:
     active: bool = False     # właśnie słychać dźwięk (miernik Windows > 0)
     detail: str = ""         # druga linijka na liście: „gra na: Słuchawki …”, „domyślny” …
     hidden: bool = False     # pod „Pokaż wszystkie” (uśpione aplikacje, okna bez dźwięku, wirtualne mikrofony)
+    group: str = ""          # "meeting" – program do spotkań / przeglądarka (grupa na samej górze listy)
 
 
 PLAYING = 0.002              # szczyt miernika (0–1), od którego uznajemy, że źródło gra
+
+# programy do wykładów online – widoczne na liście od razu po uruchomieniu, zanim cokolwiek zagrają
+MEETING_EXES = (
+    "ms-teams.exe", "teams.exe", "zoom.exe", "msedge.exe", "chrome.exe", "firefox.exe", "opera.exe", "brave.exe",
+    "discord.exe", "ciscocollabhost.exe", "webexmta.exe", "slack.exe",
+)
 
 # procesy systemowe – nie ma sensu ich nagrywać, nie pokazujemy ich nawet pod „Pokaż wszystkie”
 _SYSTEM_EXES = {
@@ -86,6 +93,75 @@ def _root_pid(pid: int) -> int:
             return p.pid
     except Exception:
         return pid
+
+
+def process_table() -> list[tuple[int, int, str]]:
+    """Wszystkie procesy Windows: [(pid, pid rodzica, nazwa exe)] – przez ctypes (CreateToolhelp32Snapshot),
+    jeden szybki odczyt bez otwierania procesów. Na innych systemach pusta lista."""
+    if sys.platform != "win32":
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)          # TH32CS_SNAPPROCESS
+    if not snap or snap == wintypes.HANDLE(-1).value:
+        return []
+    out = []
+    try:
+        e = PROCESSENTRY32W()
+        e.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            out.append((int(e.th32ProcessID), int(e.th32ParentProcessID), e.szExeFile))
+            ok = k32.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        k32.CloseHandle(snap)
+    return out
+
+
+def running_meeting_apps(table: Optional[list] = None) -> dict[str, tuple[int, str]]:
+    """Uruchomione programy do spotkań i przeglądarki: {exe małymi literami: (pid procesu-korzenia, exe)}.
+
+    Teams, przeglądarki i Discord mają wiele procesów o tej samej nazwie – korzeń to proces, którego rodzic ma inną
+    nazwę. Nagrywanie korzenia z INCLUDE_TARGET_PROCESS_TREE łapie dźwięk wszystkich procesów potomnych.
+    Gdy korzeni jest kilka (np. dwa profile), wybieramy ten z największą liczbą procesów."""
+    table = process_table() if table is None else table
+    by_pid = {pid: (ppid, exe) for pid, ppid, exe in table}
+    counts: dict[int, int] = {}
+    names: dict[int, str] = {}
+    for pid, _ppid, exe in table:
+        low = exe.lower()
+        if low not in MEETING_EXES:
+            continue
+        root, seen = pid, {pid}
+        while True:
+            parent = by_pid.get(by_pid[root][0])
+            ppid = by_pid[root][0]
+            if parent is None or parent[1].lower() != low or ppid in seen:
+                break
+            root = ppid
+            seen.add(root)
+        counts[root] = counts.get(root, 0) + 1
+        names[root] = exe
+    best: dict[str, tuple[int, str]] = {}
+    for root, n in counts.items():
+        low = names[root].lower()
+        if low not in best or n > counts[best[low][0]]:
+            best[low] = (root, names[root])
+    return best
 
 
 def _exe(pid: int) -> str:
@@ -197,6 +273,34 @@ def list_audio_sources() -> list[AudioSourceInfo]:
     except Exception:
         log.exception("pycaw")
 
+    # 1b) programy do spotkań i przeglądarki – także te, które jeszcze nic nie grały (np. Teams przed rozmową)
+    meeting: list[AudioSourceInfo] = []
+    try:
+        running = running_meeting_apps()
+    except Exception:
+        log.exception("lista procesów")
+        running = {}
+    for low, (root, exe) in running.items():
+        if root == own:
+            continue
+        # aplikacja ma już sesję audio – bierzemy jej korzeń i poziom (najgłośniejsza, gdy jest kilka)
+        same = [(r, a) for r, a in apps.items() if a["exe"].lower() == low]
+        devs, peak = [], 0.0
+        if same:
+            root, a = max(same, key=lambda x: x[1]["peak"])
+            devs, peak = a["devs"], a["peak"]
+            del apps[root]
+        on = peak >= PLAYING
+        where = ", ".join(_clean_device(d) for d in devs)
+        detail = (tr("gra teraz") if on else tr("czeka na dźwięk")) + (f" · {where}" if where else "")
+        meeting.append(AudioSourceInfo("process", _pretty(exe), pid=root, exe=exe, active=on, detail=detail,
+                                       group="meeting"))
+    meeting.sort(key=lambda s: s.label.lower())
+    labels = [s.label for s in meeting]
+    for s in meeting:                       # np. dwa programy Webex – dopisz nazwę pliku
+        if labels.count(s.label) > 1:
+            s.detail += f" · {s.exe}"
+
     playing, idle = [], []
     exe_count: dict[str, int] = {}
     for a in apps.values():
@@ -215,13 +319,13 @@ def list_audio_sources() -> list[AudioSourceInfo]:
     windows = []
     try:
         from .screen_capture import list_windows
-        seen_exes = {a["exe"].lower() for a in apps.values()}
+        seen_exes = {a["exe"].lower() for a in apps.values()} | {s.exe.lower() for s in meeting}
         for w in list_windows():
             exe = _exe(w.pid)
             if not exe or exe.lower() in seen_exes or exe.lower() in _SYSTEM_EXES:
                 continue
             root = _root_pid(w.pid)
-            if root in apps or root == own:
+            if root in apps or root == own or any(s.pid == root for s in meeting):
                 continue
             seen_exes.add(exe.lower())
             windows.append(AudioSourceInfo("process", _pretty(exe), pid=root, exe=exe,
@@ -262,7 +366,7 @@ def list_audio_sources() -> list[AudioSourceInfo]:
     except Exception:
         log.exception("mikrofony")
     devices.sort(key=lambda s: (s.kind != "system", s.hidden, s.detail != tr("domyślny")))
-    return playing + devices + idle + windows
+    return meeting + playing + devices + idle + windows
 
 
 class _WinLevelMonitor:
@@ -305,12 +409,20 @@ class _WinLevelMonitor:
         self._thread = threading.Thread(target=self._run, args=(self._stop,), name="LevelMonitor", daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self, wait: bool = True):
+        """wait=False – tylko sygnał końca (wątek UI nie czeka); stop() z wait=True poczeka też na wcześniej
+        zatrzymane wątki – np. zanim nagrywanie otworzy ten sam mikrofon."""
         self._stop.set()
+        dying = getattr(self, "_dying", [])
         if self._thread is not None:
-            self._thread.join(1.5)
+            dying.append(self._thread)
         self._thread = None
         self.levels = {}
+        if wait:
+            for th in dying:
+                th.join(1.5)
+            dying = [th for th in dying if th.is_alive()]
+        self._dying = dying
 
     def _run(self, stop: threading.Event):
         try:
@@ -589,7 +701,9 @@ class AudioRecorder:
         except queue.Full:
             pass
 
-    def start(self, t0: Optional[float] = None):
+    def start(self, t0: Optional[float] = None, paused: bool = False):
+        """paused – zmiana źródła w czasie pauzy: plik i źródło się otwierają, ale nic nie jest zapisywane,
+        dopóki nie przyjdzie resume()."""
         import soundfile as sf
         if self.out_path.suffix.lower() == ".opus":     # Opus: ~6× mniej miejsca niż FLAC, ta sama jakość mowy
             self._sf = sf.SoundFile(str(self.out_path), mode="w", samplerate=TARGET_SR, channels=1,
@@ -598,6 +712,8 @@ class AudioRecorder:
             self._sf = sf.SoundFile(str(self.out_path), mode="w", samplerate=TARGET_SR, channels=1,
                                     format="FLAC", subtype="PCM_16")
         self.t0 = t0 or time.monotonic()
+        if paused:
+            self.paused, self._pause_at = True, self.t0
         self._src = open_source(self.info, self._on_audio, self.backend)
         self.source_name = getattr(self._src, "name", "")
         self._thread = threading.Thread(target=self._run, name="AudioRecorder", daemon=True)
@@ -645,7 +761,14 @@ class AudioRecorder:
                     mono = arr.mean(axis=1) if arr.ndim == 2 else arr
                     rms = float(np.sqrt(np.mean(np.square(mono)))) if mono.size else 0.0
                     self.level_db = 20 * np.log10(max(rms, 1e-5))
-                    self._emit(self._resampler(mono.astype(np.float32)))
+                    out = self._resampler(mono.astype(np.float32))
+                    if not self.samples_written:
+                        # pierwsza porcja: źródło otwierało się chwilę (np. 0,4 s przy zmianie źródła w trakcie) –
+                        # cisza za ten czas, żeby próbka 0 pliku była dokładnie w chwili t0 na osi wykładu
+                        lead = int((time.monotonic() - self.t0) * TARGET_SR) - len(out) - int(0.02 * TARGET_SR)
+                        if lead > 0:
+                            self._emit(np.zeros(lead, dtype=np.float32))
+                    self._emit(out)
                 # uzupełnianie ciszy
                 expected = (time.monotonic() - self.t0) * TARGET_SR
                 lag = expected - self.samples_written

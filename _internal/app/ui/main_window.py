@@ -212,6 +212,7 @@ class MainWindow(QMainWindow):
         from .exam_tab import ExamTab
         self.ask_tab = AskTab(settings, busy_hint=lambda: self.runner.busy)
         self.exam_tab = ExamTab(settings, self.runner)
+        self.exam_tab.is_recording = self.record.is_recording   # w trakcie nagrywania nie zwalniaj modeli
         self.settings_tab = SettingsTab(settings)
         self.pages = QStackedWidget()
         for w in (self.record, self.library, self.study, self.ask_tab, self.exam_tab, self.settings_tab):
@@ -276,6 +277,12 @@ class MainWindow(QMainWindow):
         ql.addWidget(self.split)
         ql.addWidget(self.rec_pill)
         ql.addWidget(self.quick_caption)
+        # zaplanowane nagrywanie (2.3): „zaplanowane 10:15” pod „Nowa notatka”
+        self._sched_text = ""
+        self.sched_caption = label("", "schedCaption", wrap=True)
+        self.sched_caption.setContentsMargins(4, 0, 4, 0)
+        self.sched_caption.hide()
+        ql.addWidget(self.sched_caption)
         if not LIVE_RECORDING:        # Mac: „nagraj jak ostatnio” nie ma sensu bez nagrywania
             self.btn_mic.hide()
             self.btn_new.setToolTip(tr("Nowa notatka z nagrania, wideo albo zdjęć slajdów"))
@@ -359,10 +366,12 @@ class MainWindow(QMainWindow):
         self.record.recording_finished.connect(self._after_recording)
         self.record.recording_state.connect(self._recording_state)
         self.record.last_rec_changed.connect(self._update_quick)
+        self.record.schedule_state.connect(self._schedule_state)
         self.study.reviewed.connect(self._update_streak)
         self.study.open_note.connect(self.open_lecture_at)
         self.study.play_at.connect(lambda lec, t: (self.open_lecture_at(str(lec.folder)),
                                                   self.library.player.play(lec, t, None, tr("Fiszka"))))
+        self.study.make_cards.connect(self._make_cards)
         self.library.study_requested.connect(self._study_lecture)
         self.library.continue_requested.connect(self._continue_lecture)
         self.library.new_from_files.connect(self._new_from_files)
@@ -582,13 +591,24 @@ class MainWindow(QMainWindow):
             return
         self.split.setVisible(not rec)
         self.rec_pill.setVisible(rec)
-        self.quick_caption.setVisible(not rec and not self._rail and bool(self.quick_caption.text()))
+        self.quick_caption.setVisible(not rec and not self._rail and bool(self.quick_caption.text())
+                                      and not self._sched_text)
+        from .controls import show_if
+        show_if(self.sched_caption, bool(self._sched_text) and not rec and not self._rail)
         if rec:
             tm = self.record.elapsed_text()
             paused = self.record.is_paused()
             word, sym = (tr("Pauza"), "❚❚") if paused else (tr("Nagrywanie"), "●")
             self.rec_pill.setText(sym if self._rail else f"{sym}   {word}   {tm}")
             self.rec_pill.setToolTip(tr("Nagrywanie {tm} – wróć do nagrywania", tm=tm))
+
+    def _schedule_state(self, when: str):
+        """Plan nagrywania: „zaplanowane 10:15” w pasku bocznym (w zwiniętym pasku – w podpowiedzi)."""
+        self._sched_text = when
+        self.sched_caption.setText(tr("zaplanowane {time}", time=when) if when else "")
+        self.btn_new.setToolTip(tr("Zaplanowane nagrywanie: {time} – kliknij, żeby zobaczyć", time=when) if when else
+                                tr("Nowa notatka – nagranie albo pliki"))
+        self._update_rec_item()
 
     def _set_new_active(self, on: bool):
         for b in (self.btn_new, self.rec_pill):
@@ -609,7 +629,7 @@ class MainWindow(QMainWindow):
                                 + tr("\nNagrywanie zacznie się dopiero po kliknięciu przycisku nagrywania."))
         self.quick_caption.setText(tr("{keys} — ustawienia jak ostatnio ({q})", keys=keys, q=q) if q else
                                    tr("{keys} — ustawienia jak ostatnio", keys=keys))
-        self.quick_caption.setVisible(not self._rail and not self.record.is_recording())
+        self.quick_caption.setVisible(not self._rail and not self.record.is_recording() and not self._sched_text)
 
     def quick_record(self):
         """Otwiera nową notatkę z ostatnimi ustawieniami – start dopiero po „Start” (w trakcie: wraca do nagrywania)."""
@@ -647,7 +667,7 @@ class MainWindow(QMainWindow):
         elif n:
             self.streak.setText(tn(n, "{n} dzień nauki z rzędu", "{n} dni nauki z rzędu", "{n} dni nauki z rzędu"))
         else:
-            self.streak.setText(tr("Zacznij serię – powtórz fiszki"))
+            self.streak.setText(tr("Zacznij serię nauki"))
         self.streak.setToolTip(tn(n, "Seria: {n} dzień z rzędu · dziś ocenione fiszki: {today}",
                                   "Seria: {n} dni z rzędu · dziś ocenione fiszki: {today}",
                                   "Seria: {n} dni z rzędu · dziś ocenione fiszki: {today}", today=st["today"]))
@@ -678,9 +698,21 @@ class MainWindow(QMainWindow):
         if anchor:
             self.library._jump_to_notes(anchor)
 
+    def _plan_busy(self) -> bool:
+        """Zaplanowane nagrywanie zajmuje ekran „Nowa notatka” – inna notatka dopiero po starcie albo anulowaniu."""
+        if not self.record.has_plan():
+            return False
+        QMessageBox.information(self, tr("Zaplanowane nagrywanie"),
+                                tr("Masz zaplanowane nagrywanie {when}. Anuluj je albo poczekaj na start.",
+                                   when=self.record.plan_when_text()))
+        self._select_key(("record", None))
+        return True
+
     def _new_from_files(self):
         if self.record.is_recording():
             QMessageBox.information(self, tr("Trwa nagrywanie"), tr("Najpierw zakończ bieżące nagrywanie."))
+            return
+        if self._plan_busy():
             return
         self.record.open_files_mode()
         self._select_key(("record", None))
@@ -701,6 +733,8 @@ class MainWindow(QMainWindow):
     def _continue_lecture(self, lecture):
         if self.record.is_recording():
             QMessageBox.information(self, tr("Trwa nagrywanie"), tr("Najpierw zakończ bieżące nagrywanie."))
+            return
+        if self._plan_busy():
             return
         if self.runner.busy and self.runner.lecture and str(self.runner.lecture.folder) == str(lecture.folder):
             QMessageBox.information(self, tr("Trwa zadanie"), tr("Poczekaj, aż skończy się przetwarzanie tego wykładu."))
@@ -749,6 +783,12 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.exam_tab)
         self.exam_tab.preselect(str(lecture.folder))
 
+    def _make_cards(self, lecture):
+        """„Wygeneruj fiszki” z ekranu nauki: widok wykładu z postępem zadania (pasek, Anuluj)."""
+        self._select_key(("library", None))
+        self.library.select(lecture)
+        self.library.generate_flashcards(lecture)
+
     def _study_lecture(self, lecture):
         self._select_key(("study", None), silent=True)
         self.pages.setCurrentWidget(self.study)
@@ -778,6 +818,7 @@ class MainWindow(QMainWindow):
         self.job_card.setToolTip(name + (f" – {lecture.meta.title}" if lecture else ""))
         self.job_bar.setRange(0, 0)
         self.job_card.show()
+        self.study.set_busy(True)
 
     def _job_progress(self, msg: str, frac: float):
         import time as _t
@@ -800,6 +841,7 @@ class MainWindow(QMainWindow):
 
     def _job_finished(self, ok, msg, lecture):
         self.job_card.hide()
+        self.study.set_busy(False)
         self.rebuild_nav()
 
     def _show_job_lecture(self):
@@ -811,6 +853,8 @@ class MainWindow(QMainWindow):
     def _busy_reason(self) -> str:
         if self.record.is_recording():
             return tr("Trwa nagrywanie – zaktualizuj po jego zakończeniu.")
+        if self.record.has_plan():
+            return tr("Masz zaplanowane nagrywanie – zaktualizuj po nim albo je anuluj.")
         if self.runner.busy:
             return tr("Trwa: {name}. Zaktualizuj, gdy się skończy.", name=self.runner.name)
         return ""
@@ -882,6 +926,13 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, e):
+        if self.record.has_plan():
+            if QMessageBox.question(self, tr("Zaplanowane nagrywanie"),
+                                    tr("Masz zaplanowane nagrywanie {when}. Zamknąć i anulować?",
+                                       when=self.record.plan_when_text())) != QMessageBox.StandardButton.Yes:
+                e.ignore()
+                return
+            self.record._cancel_plan(to_setup=False)
         if self.record.is_recording():
             if QMessageBox.question(self, tr("Trwa nagrywanie"),
                                     tr("Zakończyć nagrywanie i zamknąć aplikację? Nagranie zostanie zapisane.")) \

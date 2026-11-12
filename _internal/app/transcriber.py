@@ -90,6 +90,11 @@ class WhisperEngine:
         self._lock = threading.Lock()
 
     def load(self, status: Optional[Callable[[str], None]] = None) -> None:
+        warm = getattr(self, "_warm_thread", None)      # rozgrzewany wcześniej (prewarm) – poczekaj, nie ładuj drugi raz
+        if warm is not None and warm is not threading.current_thread():
+            warm.join()
+        if self.model is not None:
+            return
         from faster_whisper import WhisperModel
         from .audio_decode import patch_faster_whisper
         patch_faster_whisper()
@@ -198,6 +203,71 @@ def engine_for(settings, language: str, low_vram: bool = False) -> "WhisperEngin
     return WhisperEngine(settings.whisper_model, settings.whisper_device, language, low_vram=low_vram,
                          beam=getattr(settings, "whisper_beam", 5), batch=getattr(settings, "whisper_batch", 1),
                          cpu_threads=cpu_threads(getattr(settings, "hw_info", None)))
+
+
+# ---------------------------------------------------------------------------------------------- rozgrzanie
+# Zaplanowane nagrywanie (2.3): ok. 2 min przed startem model ładuje się w tle, a sesja nagrywania bierze gotowy
+# silnik (take_warm) – start jest natychmiastowy. Jeden silnik naraz; klucz = wszystko, co wpływa na model.
+_warm: dict = {"key": None, "engine": None}
+_warm_lock = threading.Lock()
+
+
+def _warm_key(settings, language: str, low_vram: bool) -> tuple:
+    return (settings.whisper_model, settings.whisper_device, language or "", bool(low_vram),
+            getattr(settings, "whisper_beam", 5), getattr(settings, "whisper_batch", 1))
+
+
+def prewarm(settings, language: str, low_vram: bool = False) -> None:
+    """Ładuje silnik Whispera w tle (nie blokuje). Drugi raz z tym samym kluczem nic nie robi."""
+    key = _warm_key(settings, language, low_vram)
+    with _warm_lock:
+        if _warm["key"] == key:
+            return
+        old = _warm["engine"]
+        eng = engine_for(settings, language, low_vram=low_vram)
+        _warm.update(key=key, engine=eng)
+
+    def work():
+        try:
+            eng.load()
+            log.info("Whisper rozgrzany przed zaplanowanym startem: %s", eng.device)
+        except Exception:  # noqa: BLE001 – sesja spróbuje jeszcze raz sama
+            log.exception("rozgrzanie Whispera")
+    eng._warm_thread = threading.Thread(target=work, name="WhisperWarm", daemon=True)
+    eng._warm_thread.start()
+    if old is not None:
+        _unload_later(old)
+
+
+def take_warm(settings, language: str, low_vram: bool = False) -> Optional[WhisperEngine]:
+    """Rozgrzany silnik dla tych ustawień (może jeszcze się ładować – load() poczeka) albo None."""
+    with _warm_lock:
+        if _warm["key"] != _warm_key(settings, language, low_vram):
+            return None
+        eng = _warm["engine"]
+        _warm.update(key=None, engine=None)
+        return eng
+
+
+def drop_warm() -> None:
+    """Plan anulowany albo sesja wzięła inny silnik – zwolnij pamięć karty graficznej."""
+    with _warm_lock:
+        eng = _warm["engine"]
+        _warm.update(key=None, engine=None)
+    if eng is not None:
+        _unload_later(eng)
+
+
+def _unload_later(eng: WhisperEngine) -> None:
+    def work():
+        th = getattr(eng, "_warm_thread", None)
+        if th is not None:
+            th.join()
+        try:
+            eng.unload()
+        except Exception:  # noqa: BLE001
+            log.debug("zwolnienie Whispera", exc_info=True)
+    threading.Thread(target=work, name="WhisperUnload", daemon=True).start()
 
 
 def find_cut(buf: np.ndarray, lo: int, hi: int) -> int:

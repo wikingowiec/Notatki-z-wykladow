@@ -783,13 +783,20 @@ class LevelMonitor:
         self._thread = threading.Thread(target=self._run, args=(self._stop,), name="LevelMonitor", daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self, wait: bool = True):
+        """wait=False – tylko sygnał końca (wątek UI nie czeka); wait=True czeka też na wcześniej zatrzymane wątki."""
         self._stop.set()
+        dying = getattr(self, "_dying", [])
         if self._thread is not None:
-            self._thread.join(2.0)
+            dying.append(self._thread)
         self._thread = None
         self.levels = {}
         self.measuring = ""
+        if wait:
+            for th in dying:
+                th.join(2.0)
+            dying = [th for th in dying if th.is_alive()]
+        self._dying = dying
 
     @staticmethod
     def _allowed(info) -> bool:

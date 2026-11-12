@@ -2,7 +2,8 @@
 Nowe w wersji 2.2.0.
 
 Windows: Wykłady.exe + _internal, Python i biblioteki w _internal/runtime, ustawienia w %APPDATA%/WykladyAI.
-         Wersja z Microsoft Store (SlideScribe, paczka MSIX): Python i biblioteki w %LOCALAPPDATA%/WykladyAI/runtime.
+         Wersja z Microsoft Store (SlideScribe, paczka MSIX): Python, biblioteki i ustawienia w prywatnym folderze
+         paczki %LOCALAPPDATA%/Packages/<rodzina>/LocalCache (zob. store_cache).
 macOS:   Wykłady.app/Contents/Resources/_internal, Python i biblioteki w ~/Library/Application Support/WykladyAI/runtime
          (paczka aplikacji zostaje mała i da się ją podmienić przy aktualizacji), ustawienia w tym samym folderze.
 
@@ -42,10 +43,20 @@ STORE_ID = "9MWK9Z8V2V7W"                                # SlideScribe w Microso
 STORE_PACKAGE = "Wikingowiec.SlideScribe"                # Package/Identity/Name z Partner Center
 
 
+def _family_from_path() -> str:
+    """Rodzina paczki z folderu instalacji: …/WindowsApps/Wikingowiec.SlideScribe_2.2.3.0_x64__qhcs83qhyfg08/_internal
+    -> Wikingowiec.SlideScribe_qhcs83qhyfg08 („” poza WindowsApps)."""
+    leaf = INTERNAL.parent.name
+    if "\\windowsapps\\" not in str(INTERNAL).lower() or "__" not in leaf:
+        return ""
+    return leaf.split("_", 1)[0] + "_" + leaf.rsplit("__", 1)[1]
+
+
 def _msix_package() -> str:
-    """Pełna nazwa paczki MSIX SlideScribe, z której działa proces („” = zwykła wersja z GitHuba). Proces potomny
-    (pythonw uruchomiony przez program startowy z paczki) dziedziczy tożsamość paczki. Inne paczki (np. Python
-    z Microsoft Store u programisty) się nie liczą."""
+    """Pełna nazwa paczki MSIX SlideScribe, z której działa proces („” = zwykła wersja z GitHuba).
+    Procesy potomne programu startowego z paczki (pythonw.exe, pip) zwykle NIE mają tożsamości paczki
+    (Windows 10 22H2 – sprawdzone w 2.2.3), dlatego liczy się też zmienna WYKLADY_PACKAGE_FAMILY ustawiana przez
+    launcher.c i folder WindowsApps. Inne paczki (np. Python z Microsoft Store u programisty) się nie liczą."""
     if not IS_WIN:
         return ""
     try:
@@ -59,11 +70,13 @@ def _msix_package() -> str:
                 return buf.value
     except Exception:  # noqa: BLE001 – starszy Windows bez API paczek
         pass
+    if os.environ.get("WYKLADY_PACKAGE_FAMILY", "").startswith((STORE_PACKAGE + "_", "msix")):
+        return os.environ["WYKLADY_PACKAGE_FAMILY"]
     return "msix" if "\\windowsapps\\" in str(INTERNAL).lower() else ""
 
 
-# wersja z Microsoft Store (paczka MSIX): folder instalacji tylko do odczytu, Python i biblioteki w
-# %LOCALAPPDATA%\WykladyAI\runtime, aktualizacje przez Store, nazwa „SlideScribe”
+# wersja z Microsoft Store (paczka MSIX): folder instalacji tylko do odczytu, Python, biblioteki i ustawienia
+# w folderze danych paczki, aktualizacje przez Store, nazwa „SlideScribe”
 IS_STORE = bool(_msix_package())
 APP_DISPLAY_NAME = "SlideScribe" if IS_STORE else "Wykłady"  # i18n: nie
 
@@ -83,13 +96,30 @@ def package_family() -> str:
                 return buf.value
     except Exception:  # noqa: BLE001
         pass
-    return ""
+    env = os.environ.get("WYKLADY_PACKAGE_FAMILY", "")
+    return env if env.startswith(STORE_PACKAGE + "_") else _family_from_path()
+
+
+def store_cache() -> Optional[Path]:
+    """Wersja ze Store: PRAWDZIWY folder danych paczki %LOCALAPPDATA%/Packages/<rodzina>/LocalCache.
+    Nie używamy %LOCALAPPDATA%/WykladyAI wprost: Windows przekierowuje go tylko dla procesów z tożsamością paczki,
+    a procesy potomne (python, pip, tar) jej nie mają i widziałyby inne pliki niż launcher (błąd 2.2.2:
+    „Rozpakowywanie – błąd (kod 1)”). Tę samą ścieżkę liczy launcher.c (store_paths) i podaje ją w zmiennych
+    WYKLADY_RUNTIME / WYKLADY_DATA. Windows usuwa ten folder przy odinstalowaniu paczki. Runtime jest widziany
+    przez krótkie dowiązanie %USERPROFILE%/.slidescribe (zob. runtime_dir)."""
+    fam = package_family()
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    p = Path(base) / "Packages" / fam if fam else None
+    return p / "LocalCache" if p is not None and p.is_dir() else None
 
 
 def data_dir() -> Path:
-    """Ustawienia, log (i na Macu runtime): %APPDATA%/WykladyAI albo ~/Library/Application Support/WykladyAI."""
+    """Ustawienia, log (i na Macu runtime): %APPDATA%/WykladyAI albo ~/Library/Application Support/WykladyAI;
+    wersja ze Store: <folder danych paczki>/LocalCache/Roaming/WykladyAI."""
     if IS_MAC:
         p = Path.home() / "Library" / "Application Support" / APP_ID
+    elif IS_STORE and (os.environ.get("WYKLADY_DATA") or store_cache()):
+        p = Path(os.environ.get("WYKLADY_DATA") or store_cache() / "Roaming" / APP_ID)
     else:
         base = os.environ.get("APPDATA")
         p = Path(base) / APP_ID if base else Path.home() / f".{APP_ID.lower()}"
@@ -101,7 +131,16 @@ def runtime_dir() -> Path:
     """Wbudowany Python z bibliotekami (tworzony przy pierwszym uruchomieniu)."""
     if IS_MAC:
         return Path.home() / "Library" / "Application Support" / APP_ID / "runtime"
-    if IS_STORE:        # tak samo liczy to program startowy (launcher.c)
+    if IS_STORE:        # tak samo liczy to program startowy (launcher.c, store_paths)
+        if os.environ.get("WYKLADY_RUNTIME"):
+            return Path(os.environ["WYKLADY_RUNTIME"])
+        # krótka ścieżka (dowiązanie do LocalCache/Local/WykladyAI) – pip przekraczał limit 260 znaków
+        short = Path.home() / ".slidescribe" / "runtime"
+        if short.is_dir():
+            return short
+        cache = store_cache()
+        if cache is not None:
+            return cache / "Local" / APP_ID / "runtime"
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(base) / APP_ID / "runtime"
     return INTERNAL / "runtime"

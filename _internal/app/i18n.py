@@ -68,7 +68,7 @@ def _en() -> dict:
     return EN
 
 
-def tr(text: str, **kw) -> str:
+def tr(text: str, /, **kw) -> str:
     """Tekst w języku interfejsu. Parametry wstawiane jak w str.format: tr("Wersja {v}", v="2.2")."""
     out = text
     if lang() == "en" and text:
@@ -98,7 +98,7 @@ def pl_form(n: int) -> int:
     return 2
 
 
-def tn(n: int, one: str, few: str, many: str, **kw) -> str:
+def tn(n: int, one: str, few: str, many: str, /, **kw) -> str:
     """Tekst z liczbą i odmianą: tn(n, "{n} fiszka", "{n} fiszki", "{n} fiszek").
     Po angielsku: EN_PLURAL["{n} fiszka"] = ("{n} card", "{n} cards"). Liczba wstawiana jako {n} (z separatorem)."""
     kw.setdefault("n", n)

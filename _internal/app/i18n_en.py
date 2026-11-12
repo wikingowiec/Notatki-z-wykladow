@@ -30,7 +30,7 @@ EN: dict[str, str] = {
     "Fiszka": "Flashcard",
     "Zapytaj": "Ask",
     "Egzamin próbny": "Practice exam",
-    "Zacznij serię – powtórz fiszki": "Start a study streak",
+    "Zacznij serię nauki": "Start a streak",
     "nowa wersja": "new version",
     "Ustawienia – dostępna wersja {ver}": "Settings – version {ver} available",
     "Trwa nagrywanie": "Recording in progress",
@@ -169,8 +169,10 @@ EN: dict[str, str] = {
     "Ile fiszek dziennie chcesz powtórzyć – pierścień na ekranie Fiszki.":
         "How many cards you want to review each day – the ring on the Flashcards screen.",
     "Notatki po nagraniu": "Notes after recording",
-    "Po zakończeniu nagrania automatycznie twórz notatki, podsumowanie i fiszki.":
-        "Automatically create notes, a summary and flashcards when a recording ends.",
+    "Po zakończeniu nagrania automatycznie twórz notatki i podsumowanie (fiszki – gdy przy nagraniu "
+    "włączysz „Zrób fiszki z tego wykładu”).":
+        "Automatically create notes and a summary when a recording ends (flashcards too, if you turn on "
+        "“Make flashcards from this lecture” when recording).",
     "Wydajność": "Performance",
     "Profil dobiera modele i tryby pracy do mocy komputera. Pojedyncze ustawienia możesz potem zmieniać niżej – "
     "wtedy profil zmienia się na „Własne”.":
@@ -422,8 +424,8 @@ EN: dict[str, str] = {
     "Dzień dobry! Co dziś notujemy?": "Good morning! What are we taking notes on today?",
     "Miłego popołudnia! Co dziś notujemy?": "Good afternoon! What are we taking notes on today?",
     "Dobry wieczór! Co dziś notujemy?": "Good evening! What are we taking notes on today?",
-    " Wybierz rodzaj notatki – transkrypcja, notatki i fiszki zrobią się same.":
-        " Choose the kind of note – the transcript, notes and flashcards will be made for you.",
+    " Wybierz rodzaj notatki – transkrypcja i notatki zrobią się same.":
+        " Choose the kind of note – the transcript and notes will be made for you.",
     "Nagrywanie na żywo na Macu wymaga macOS 14.4 (Sonoma) lub nowszego. Zaktualizuj system albo dodaj nagranie lub "
     "wideo z pliku.":
         "Live recording on a Mac requires macOS 14.4 (Sonoma) or later. Update macOS or add a recording or video "
@@ -543,9 +545,7 @@ EN: dict[str, str] = {
     "PAUZA": "PAUSED",
     "  ·  część {part_index}": "  ·  part {part_index}",
     "część {part_index}": "part {part_index}",
-    "dźwięk: {src}": "audio: {src}",
     "bez dźwięku": "no audio",
-    "slajdy: {src}": "slides: {src}",
     "bez slajdów": "no slides",
     "Zrzuty slajdów – notatka powstanie z ich treści po zakończeniu.":
         "Slide screenshots – the note will be made from their content afterwards.",
@@ -789,9 +789,41 @@ EN: dict[str, str] = {
     "Pokaż, co pisze AI": "Show what the AI is writing",
     "Ukryj podgląd": "Hide preview",
     "Brak notatek": "No notes",
-    "Lokalny model AI przygotuje podsumowanie, notatki według slajdów i fiszki. Nic nie jest wysyłane do internetu.":
-        "A local AI model will prepare a summary, notes following the slides and flashcards. Nothing is sent to the "
-        "internet.",
+    "Lokalny model AI przygotuje podsumowanie i notatki według slajdów (fiszki – na życzenie). Nic nie jest "
+    "wysyłane do internetu.":
+        "A local AI model will prepare a summary and notes following the slides (flashcards on request). Nothing is "
+        "sent to the internet.",
+    # fiszki na życzenie (2.3)
+    "Wygeneruj fiszki": "Generate flashcards",
+    "Dodaj więcej fiszek": "Add more flashcards",
+    "Generowanie fiszek": "Generating flashcards",
+    "Dodawanie fiszek": "Adding flashcards",
+    "Fiszki: czytam notatki…": "Flashcards: reading the notes…",
+    "Fiszki gotowe": "Flashcards ready",
+    "Ten wykład nie ma jeszcze notatek – najpierw wygeneruj notatki.":
+        "This lecture has no notes yet – generate the notes first.",
+    "W notatkach nie ma tematów, z których dałoby się zrobić fiszki.":
+        "The notes have no topics that flashcards could be made from.",
+    "Fiszki powstają tylko na życzenie – zrobię je z gotowych notatek (bez ponownej transkrypcji).":
+        "Flashcards are made only on request – I'll create them from the finished notes (no new transcription).",
+    "Fiszki powstają tylko na życzenie. Zrobię je z gotowych notatek – bez ponownej transkrypcji.":
+        "Flashcards are made only on request. I'll create them from the finished notes – no new transcription.",
+    "Najpierw wygeneruj notatki – potem zrobisz z nich fiszki.":
+        "Generate the notes first – then you can make flashcards from them.",
+    "Nie przybyło nowych fiszek – model powtarzał pytania, które już masz.":
+        "No new flashcards – the model kept repeating questions you already have.",
+    "Zrób fiszki z tego wykładu": "Make flashcards from this lecture",
+    "Fiszki do nauki powstaną razem z notatkami. Wyłączone – szybciej; fiszki zrobisz później jednym kliknięciem "
+    "w widoku wykładu.":
+        "Study flashcards will be created along with the notes. Off – faster; you can make flashcards later with one "
+        "click in the lecture view.",
+    "Fiszki powstają tylko na życzenie. Zrobię je z gotowych notatek wykładu „{title}” – bez ponownej transkrypcji.":
+        "Flashcards are made only on request. I'll create them from the finished notes of “{title}” – no new "
+        "transcription.",
+    "Fiszki powstają tylko na życzenie: włącz „Zrób fiszki z tego wykładu” przy nowej notatce albo kliknij "
+    "„Wygeneruj fiszki” w widoku wykładu.":
+        "Flashcards are made only on request: turn on “Make flashcards from this lecture” for a new note, or click "
+        "“Generate flashcards” in the lecture view.",
     "Zapisz zmiany": "Save changes",
     "Edycja notatki (Markdown): # nagłówki, - punkty, **pogrubienie**, wzory $x^2$.":
         "Editing the note (Markdown): # headings, - bullets, **bold**, formulas $x^2$.",
@@ -871,7 +903,6 @@ EN: dict[str, str] = {
     "Slajd {index} · {fmt_time}": "Slide {index} · {fmt_time}",
     "Slajd {data}": "Slide {data}",
     "Brak fiszek": "No flashcards",
-    "Fiszki powstają automatycznie razem z notatkami.": "Flashcards are created automatically with the notes.",
     "Opanowane: {known} z {n}": "Mastered: {known} of {n}",
     "Przygotuj egzamin": "Prepare an exam",
     "Egzamin próbny z tego wykładu": "Practice exam from this lecture",
@@ -964,8 +995,8 @@ EN: dict[str, str] = {
     "Dekodowanie dźwięku…": "Decoding audio…",
     "Plik: {name}": "File: {name}",
     "Wykrywanie slajdów w wideo…": "Detecting slides in the video…",
-    "Ollama nie działa. Zainstaluj ją z https://ollama.com/download i uruchom, a potem kliknij „Generuj notatki”.":
-        "Ollama isn't running. Install it from https://ollama.com/download, start it, then click “Generate notes”.",
+    "Ollama nie działa. Zainstaluj ją z https://ollama.com/download i uruchom, a potem kliknij „{button}”.":
+        "Ollama isn't running. Install it from https://ollama.com/download, start it, then click “{button}”.",
     "Pobieranie modelu {model} (jednorazowo)…": "Downloading model {model} (one time)…",
     "Pobieranie modelu: {st}": "Downloading model: {st}",
     "Pobieranie modelu do opisu slajdów {vision} (jednorazowo, ~6 GB)…":
@@ -1004,6 +1035,11 @@ EN: dict[str, str] = {
     "na dziś gotowe": "done for today",
     "{known} opanowane · {learning} w nauce · {new} nowe": "{known} mastered · {learning} learning · {new} new",
     "Zacznij serię": "Start a streak",
+    "jutro": "tomorrow",
+    "OPIS AI": "AI DESCRIPTION",
+    "odtwórz fragment": "play this part",
+    "slajd {a}": "slide {a}",
+    "slajdy {a}–{b}": "slides {a}–{b}",
     "Cel dzienny: {goal} ocenionych fiszek (zmiana w Ustawieniach)": "Daily goal: {goal} rated cards (change in Settings)",
     "cel osiągnięty ✓": "goal reached ✓",
     "cel dzienny": "daily goal",
@@ -1026,8 +1062,6 @@ EN: dict[str, str] = {
         "Space – answer · 1 / 2 – rate · Ctrl+Z – undo · E – edit",
     "Powtórz wszystkie": "Review all",
     "Powtórz wszystkie · {n}": "Review all · {n}",
-    "Fiszki powstają automatycznie razem z notatkami z wykładu – pogrupowane w kategorie.":
-        "Flashcards are created automatically with the lecture notes – grouped into categories.",
     "Na dziś wszystko": "All done for today",
     "Kolejne fiszki wrócą w wyznaczonym dniu (1, 3, 7… dni). Możesz też powtórzyć wszystkie od nowa.":
         "Cards come back on their scheduled day (1, 3, 7… days). You can also review them all again.",
@@ -1110,7 +1144,18 @@ EN: dict[str, str] = {
     "W wybranym zakresie nie ma wykładów z gotowymi notatkami.": "There are no lectures with finished notes in the "
                                                                 "selected range.",
     "Notatki są puste.": "The notes are empty.",
-    "Układam pytania… ({n}/{n2})": "Writing questions… ({n}/{n2})",
+    "Układam pytania… {n}/{n2} · szacuję czas…": "Writing questions… {n}/{n2} · estimating time…",
+    "Układam pytania… {n}/{n2} · zostało mniej niż minuta": "Writing questions… {n}/{n2} · less than a minute left",
+    "Układam pytania… {n}/{n2} · zostało około {m} min": "Writing questions… {n}/{n2} · about {m} min left",
+    "Zwalniam pamięć po innych modelach i ładuję model AI…": "Freeing memory from other models and loading the AI model…",
+    "W wyznaczonym czasie nie udało się ułożyć żadnego pytania. Wybierz „Szybciej” albo mniejszy zakres.":
+        "No questions could be written in the time limit. Choose “Faster” or a smaller scope.",
+    "Udało się ułożyć {n} z {n2} pytań w wyznaczonym czasie.": "{n} of {n2} questions were written within the time limit.",
+    "Szybciej": "Faster",
+    "Dokładniej": "More accurate",
+    "Tempo": "Speed",
+    "Szybciej – mniejszy model AI. Dokładniej – staranniejsze pytania, ale dłużej. Najwyżej 25 min.":
+        "Faster – a smaller AI model. More accurate – more careful questions, but slower. 25 min at most.",
     "Nie udało się ułożyć pytań potwierdzonych w notatkach. Spróbuj ponownie.":
         "Couldn't write questions confirmed by the notes. Try again.",
     "Brak odpowiedzi.": "No answer.",
@@ -1360,6 +1405,379 @@ EN: dict[str, str] = {
         "This is a source code folder (git) – program files stay.",
     "Przenoszę Wykłady.app do Kosza…": "Moving Wykłady.app to the Trash…",
     "Pliki programu usuną się po zamknięciu aplikacji": "Program files will be removed after the app closes",
+    # 2.3 – źródło dźwięku i szybki start nagrywania
+    "czeka na dźwięk": "waiting for sound",
+    "Szukaj…": "Search…",
+    "Szukaj źródła dźwięku": "Search audio sources",
+    "ostatnio używane": "last used",
+    "Programy do spotkań i przeglądarki": "Meeting apps and browsers",
+    "URUCHAMIAM NAGRYWANIE…": "STARTING RECORDING…",
+    "Uruchamiam nagrywanie…": "Starting recording…",
+    "Przerwij uruchamianie – nic nie zostanie nagrane": "Stop starting – nothing will be recorded",
+    "Nagrywanie anulowane.": "Recording cancelled.",
+    "Kończę poprzednie uruchamianie – spróbuj za chwilę.": "Finishing the previous start – try again in a moment.",
+    "Wybierz ekran albo okno ze slajdami.": "Choose the screen or window with the slides.",
+    "Nie udało się rozpocząć nagrywania": "Could not start recording",
+    "Wybierz źródło dźwięku.": "Choose an audio source.",
+    "Pierwszy fragment tekstu pojawi się po około 20–30 sekundach mowy.":
+        "The first piece of text will appear after about 20–30 seconds of speech.",
+    # --- sprawdzenie przed nagrywaniem (2.3)
+    "folderu Aplikacje": "the Applications folder",
+    "menu Start": "the Start menu",
+    "Ollama nie jest uruchomiona": "Ollama is not running",
+    "Bez niej nie powstaną notatki ani odpowiedzi na pytania.": "Without it there will be no notes and no answers to questions.",
+    "Uruchom Ollamę": "Start Ollama",
+    "Brakuje modelu {name}": "Model {name} is missing",
+    "Pobierz model": "Download model",
+    "Aplikacja „{name}” jest zamknięta": "“{name}” is closed",
+    "Źródło dźwięku nie działa": "The audio source is not working",
+    "Wybierz inne źródło": "Choose another source",
+    "Nie da się złapać slajdów": "Slides can’t be captured",
+    "Ollama nie jest zainstalowana": "Ollama is not installed",
+    "Bez Ollamy nie powstaną notatki ani odpowiedzi na pytania.":
+        "Without Ollama there will be no notes and no answers to questions.",
+    "Pobierz Ollamę": "Get Ollama",
+    "Kliknij „Uruchom Ollamę” – to potrwa kilka sekund.": "Click “Start Ollama” – it takes a few seconds.",
+    "Albo otwórz Ollamę z {where}.": "Or open Ollama from {where}.",
+    "Kliknij „Pobierz model” – to ok. {gb} GB, potrzebny jest internet.":
+        "Click “Download model” – about {gb} GB, an internet connection is needed.",
+    "Pobieranie może trwać w tle, także w trakcie nagrywania.": "It can download in the background, even while recording.",
+    "Nie ma skąd nagrać dźwięku wykładu.": "There’s nothing to record the lecture audio from.",
+    "Otwórz „{name}” i włącz wykład.": "Open “{name}” and start the lecture.",
+    "Kliknij „Wybierz inne źródło” i wskaż ją na liście (albo inną aplikację lub mikrofon).":
+        "Click “Choose another source” and pick it from the list (or another app or a microphone).",
+    "Wybrane urządzenie ({name}) jest odłączone albo niedostępne.":
+        "The selected device ({name}) is disconnected or unavailable.",
+    "Podłącz urządzenie ponownie albo wybierz inne.": "Plug the device back in or choose another one.",
+    "Kliknij „Wybierz inne źródło” i wskaż źródło na liście.": "Click “Choose another source” and pick one from the list.",
+    "Kliknij „Wybierz inne źródło”, żeby wskazać inny ekran albo okno.":
+        "Click “Choose another source” to pick a different screen or window.",
+    "„Nagrywaj mimo to” nagra sam dźwięk – slajdy możesz dodać później z plików.":
+        "“Record anyway” records audio only – you can add slides from files later.",
+    "Mało miejsca na dysku": "Low disk space",
+    "Zostało tylko {gb} GB w folderze biblioteki. Godzina wykładu to zwykle 50–200 MB, ale notatki, slajdy i modele "
+    "też potrzebują miejsca.":
+        "Only {gb} GB left in the library folder. An hour of lecture is usually 50–200 MB, but notes, slides and "
+        "models need space too.",
+    "Kliknij „Pobierz Ollamę” – otworzy się strona ollama.com.": "Click “Get Ollama” – the ollama.com page will open.",
+    "Zainstaluj Ollamę i uruchom ją.": "Install Ollama and start it.",
+    "Wróć tutaj – brakujące modele pobierzesz jednym kliknięciem.":
+        "Come back here – you can download the missing models with one click.",
+    "Bez niego nie powstaną notatki po wykładzie.": "Without it, no notes will be made after the lecture.",
+    "Bez niego nie będzie notatek na żywo – notatki powstaną po zakończeniu.":
+        "Without it there will be no live notes – notes will be made after recording.",
+    "Bez niego slajdy nie dostaną opisów obrazów i wykresów.":
+        "Without it, slides won’t get descriptions of images and charts.",
+    "Bez niego nie powstaną odpowiedzi na pytania.": "Without it, questions can’t be answered.",
+    "Brakuje modelu rozpoznawania mowy": "The speech recognition model is missing",
+    "Model {name} nie jest jeszcze pobrany. Pobierze się sam przy pierwszej transkrypcji (ok. {gb} GB) – bez "
+    "internetu transkrypcja nie zadziała.":
+        "Model {name} isn’t downloaded yet. It will download by itself at the first transcription (about {gb} GB) – "
+        "without internet, transcription won’t work.",
+    "Okno „{name}” jest zamknięte albo zminimalizowane.": "The “{name}” window is closed or minimized.",
+    "Nie udało się zrobić zrzutu ekranu.": "Could not take a screenshot.",
+    "Otwórz okno ze slajdami i nie minimalizuj go (może być zasłonięte).":
+        "Open the window with the slides and don’t minimize it (it can be covered).",
+    "Sprawdź, czy ekran jest podłączony i włączony.": "Check that the screen is connected and turned on.",
+    "Usuń niepotrzebne pliki albo opróżnij Kosz.": "Delete files you don’t need or empty the Recycle Bin.",
+    "Albo przenieś bibliotekę na inny dysk: Ustawienia → Biblioteka.":
+        "Or move the library to another drive: Settings → Library.",
+    "Transkrypcja nie działa": "Transcription is not working",
+    "Brakuje bibliotek do rozpoznawania mowy ({x}).": "Speech recognition libraries are missing ({x}).",
+    "Transkrypcja pójdzie na procesorze (wolniej)": "Transcription will run on the processor (slower)",
+    "Karta graficzna NVIDIA nie dała się uruchomić do rozpoznawania mowy. Wszystko zadziała, tylko tekst będzie się "
+    "pojawiał wolniej.":
+        "The NVIDIA graphics card couldn’t be used for speech recognition. Everything will work, text will just "
+        "appear more slowly.",
+    "Przełącz na CPU": "Switch to CPU",
+    "Kliknij „Pobierz model” – pobieranie idzie w tle, także w trakcie nagrywania.":
+        "Click “Download model” – it downloads in the background, even while recording.",
+    "Potrzebny jest internet.": "An internet connection is needed.",
+    "Okno „{name}” jest zminimalizowane – zminimalizowanego okna nie da się nagrać.":
+        "The “{name}” window is minimized – a minimized window can’t be recorded.",
+    "Zamknij aplikację i uruchom ją ponownie.": "Close the app and open it again.",
+    "Jeśli to nie pomoże: Ustawienia → Aktualizacje → „Sprawdź aktualizacje” albo pobierz aplikację jeszcze raz ze "
+    "strony.":
+        "If that doesn’t help: Settings → Updates → “Check for updates”, or download the app again from the website.",
+    "Kliknij „Przełącz na CPU”, żeby aplikacja nie próbowała już karty graficznej (dobierze lżejszy model).":
+        "Click “Switch to CPU” so the app stops trying the graphics card (it will pick a lighter model).",
+    "Jeśli chcesz używać karty: zaktualizuj sterownik NVIDIA i uruchom komputer ponownie.":
+        "To use the graphics card: update the NVIDIA driver and restart the computer.",
+    "Pobieram model {name}…": "Downloading model {name}…",
+    "Pobieram model {name}": "Downloading model {name}",
+    "Nagrywaj mimo to": "Record anyway",
+    "Nagrywanie się nie rozpoczęło. Napraw problem i spróbuj jeszcze raz.":
+        "Recording didn’t start. Fix the problem and try again.",
+    "To potrwa kilka sekund.": "This takes a few seconds.",
+    "Nagranie wykładu jest najważniejsze – „Nagrywaj mimo to” nagra dźwięk i slajdy, a transkrypcja i notatki zrobią "
+    "się później, gdy AI zadziała.":
+        "Recording the lecture comes first – “Record anyway” records audio and slides, and the transcript and notes "
+        "will be made later, once AI works.",
+    "Bez naprawy nagranie może być niepełne. Napraw problem albo nagrywaj mimo to.":
+        "Without a fix the recording may be incomplete. Fix the problem or record anyway.",
+    "Dźwięk już się nagrywa w tle – nic nie tracisz, gdy czytasz ten komunikat.":
+        "Audio is already being recorded in the background – you lose nothing while reading this.",
+    "Wróć": "Back",
+    "Przerwij – nic nie zostanie zapisane": "Stop – nothing will be saved",
+    "Nie udało się uruchomić Ollamy.": "Could not start Ollama.",
+    "Ollama nie jest zainstalowana – notatki i odpowiedzi na pytania nie powstaną":
+        "Ollama is not installed – no notes and no answers to questions",
+    "Pobierz ją ze strony ollama.com, zainstaluj i uruchom.": "Get it from ollama.com, install it and start it.",
+    "Nie udało się pobrać modelu {name}. Sprawdź internet i spróbuj ponownie.":
+        "Could not download model {name}. Check your internet connection and try again.",
+    "Ollama nie działa – odpowiedzi na pytania nie powstaną": "Ollama isn’t running – questions can’t be answered",
+    "Ollama nie działa – notatki i odpowiedzi na pytania nie powstaną":
+        "Ollama isn’t running – no notes and no answers to questions",
+    "Kliknij „Uruchom Ollamę” albo otwórz ją z {where}.": "Click “Start Ollama” or open it from {where}.",
+    "Nagrywać możesz i bez niej – notatki zrobią się później.": "You can record without it – notes will be made later.",
+    "Bez nich część notatek nie powstanie.": "Without them, some notes won’t be made.",
+    "Do pobrania ok. {gb} GB.": "About {gb} GB to download.",
+    "NIE UDAŁO SIĘ ROZPOCZĄĆ": "COULD NOT START",
+    "Nagrywanie trwa – transkrypcja i notatki zrobią się po zakończeniu, gdy AI zadziała.":
+        "Recording – the transcript and notes will be made after it ends, once AI works.",
+    "Wybierz źródło dźwięku, które teraz działa.": "Choose an audio source that works right now.",
+    "Wybierz ekran albo okno, które jest teraz widoczne.": "Choose a screen or window that is visible right now.",
+    "Nie udało się uruchomić Ollamy – otwórz ją z {where}.": "Could not start Ollama – open it from {where}.",
+    "Nie udało się pobrać modelu. Sprawdź internet i spróbuj ponownie.":
+        "Could not download the model. Check your internet connection and try again.",
+    "Powód: {err}": "Reason: {err}",
+    "Nie udało się pobrać modelu.": "Could not download the model.",
+    "Naprawione – wszystko działa.": "Fixed – everything works.",
+    "Sprawdź, czy wybrane źródło dźwięku i ekran są wciąż dostępne.":
+        "Check that the selected audio source and screen are still available.",
+    "Kliknij „Wybierz inne źródło” albo spróbuj jeszcze raz.": "Click “Choose another source” or try again.",
+    "Pobieram model rozpoznawania mowy…": "Downloading the speech recognition model…",
+    "Pobieram model rozpoznawania mowy · {x}%": "Downloading the speech recognition model · {x}%",
+    # 2.3 – zmiana źródeł w trakcie nagrywania, „Wstrzymaj slajdy”
+    "To nagranie jest bez dźwięku.": "This recording has no audio.",
+    "To nagranie jest bez slajdów.": "This recording has no slides.",
+    "Nie da się nagrywać tego źródła.": "This source can't be recorded.",
+    "Nie udało się zrobić zrzutu z „{label}”. {err}": "Could not capture “{label}”. {err}",
+    "zmiana źródła: {a} → {b}": "source changed: {a} → {b}",
+    "slajdy: {a} → {b}": "slides: {a} → {b}",
+    "Slajdy wstrzymane": "Slides paused",
+    "Źródła i slajdy": "Sources and slides",
+    "Wstrzymaj slajdy": "Pause slides",
+    "Wznów slajdy": "Resume slides",
+    "Nagrywasz dźwięk z: {name}. Kliknij, żeby przełączyć na inne źródło (np. z Teams na mikrofon) – nagranie się "
+    "nie przerwie.":
+        "Recording audio from: {name}. Click to switch to another source (e.g. from Teams to the microphone) – "
+        "the recording won't stop.",
+    "Slajdy z: {name}. Kliknij, żeby wybrać inny ekran albo okno – złapane slajdy zostają.":
+        "Slides from: {name}. Click to pick another screen or window – captured slides stay.",
+    "wznów: {keys}": "resume: {keys}",
+    "Przełączam dźwięk na „{name}”… Nagrywanie trwa.": "Switching audio to “{name}”… Recording continues.",
+    "Przełączam slajdy na „{name}”…": "Switching slides to “{name}”…",
+    "Wznów zrzuty slajdów ({keys}). Bieżący ekran porówna się z ostatnim slajdem – nic się nie zdubluje.":
+        "Resume slide capture ({keys}). The current screen is compared with the last slide – nothing gets duplicated.",
+    "Wstrzymaj zrzuty slajdów ({keys}) – np. gdy prowadzący pokazuje coś, czego nie chcesz w notatkach, albo gdy "
+    "przełączasz okna. Dźwięk i transkrypcja nagrywają się dalej.":
+        "Pause slide capture ({keys}) – e.g. when the lecturer shows something you don't want in your notes, or "
+        "while you switch windows. Audio and transcription keep recording.",
+    "Przełączam dźwięk…": "Switching audio…",
+    "Dźwięk: {name}": "Audio: {name}",
+    "Przełączam slajdy…": "Switching slides…",
+    "Slajdy: {name}": "Slides: {name}",
+    "Dźwięk: {name}…": "Audio: {name}…",
+    "Slajdy: {name}…": "Slides: {name}…",
+    "Slajdy wstrzymane – dźwięk i transkrypcja nagrywają się dalej. Wznów przyciskiem „Wznów slajdy” ({keys}).":
+        "Slides paused – audio and transcription keep recording. Resume with “Resume slides” ({keys}).",
+    "Slajdy wznowione – jeśli na ekranie jest ten sam slajd co przed przerwą, nie zapisze się drugi raz.":
+        "Slides resumed – if the screen shows the same slide as before the pause, it won't be saved twice.",
+    "Dźwięk nagrywa się teraz z „{name}”.": "Audio is now recorded from “{name}”.",
+    "Nie udało się przełączyć dźwięku – nagrywanie trwa dalej z „{name}”.":
+        "Could not switch audio – recording continues from “{name}”.",
+    "Zmiana źródła dźwięku": "Change audio source",
+    "Nie udało się otworzyć „{name}”:\n{e}\n\nNagrywanie trwa dalej z „{prev}”.":
+        "Could not open “{name}”:\n{e}\n\nRecording continues from “{prev}”.",
+    "Zmiana ekranu ze slajdami": "Change slide screen",
+    "Nie udało się przełączyć na „{name}”:\n{e}\n\nSlajdy dalej wykrywają się z poprzedniego źródła.":
+        "Could not switch to “{name}”:\n{e}\n\nSlides are still detected from the previous source.",
+    "Slajdy wykrywają się teraz z „{name}”. Wcześniejsze slajdy zostały.":
+        "Slides are now detected from “{name}”. Earlier slides were kept.",
+    "Zrzuty są wstrzymane – wznów je, gdy będziesz gotowy.": "Capture is paused – resume it when you're ready.",
+    "Zmień źródło dźwięku": "Change audio source",
+    "Skąd nagrywać dźwięk?": "Where should audio come from?",
+    "Nagrywanie trwa dalej – nowe źródło włączy się, zanim wyłączy się obecne, więc nic nie przepadnie. W "
+    "transkrypcji pojawi się notka o zmianie.":
+        "Recording continues – the new source starts before the current one stops, so nothing is lost. A note about "
+        "the change will appear in the transcript.",
+    "Przełącz": "Switch",
+    "Zmień ekran ze slajdami": "Change slide screen",
+    "Skąd brać slajdy?": "Where should slides come from?",
+    "Złapane slajdy, ich numeracja i czas zostają – kolejne slajdy będą wykrywane w nowym źródle.":
+        "Captured slides, their numbering and timing stay – new slides will be detected in the new source.",
+    "Odśwież listę okien": "Refresh the window list",
+    "To źródło już jest nagrywane.": "This source is already being recorded.",
+    "Wczytuję podgląd…": "Loading preview…",
+    "Nie ma żadnego ekranu ani okna.": "No screens or windows found.",
+    "Slajdy już są nagrywane z tego źródła – obszar zmienisz przyciskiem „Zmień obszar slajdu”.":
+        "Slides are already recorded from this source – change the area with “Change slide area”.",
+    "Slajdy już są nagrywane z tego źródła.": "Slides are already recorded from this source.",
+    # ------------------------------------------------------------------ zaplanowane nagrywanie (2.3)
+    "Teraz": "Now",
+    "O godzinie": "At a time",
+    "Rozpocznij:": "Start:",
+    "Zaplanuj nagrywanie": "Schedule recording",
+    "Godzina startu nagrywania": "Recording start time",
+    "dziś, za {left}": "today, in {left}",
+    "o {time}": "at {time}",
+    "jutro o {time}": "tomorrow at {time}",
+    "{day} o {time}": "{day} at {time}",
+    "jutro {time}": "tomorrow {time}",
+    "{n} s": "{n} s",
+    "{n} min": "{n} min",
+    "{h} godz. {m} min": "{h} h {m} min",
+    "{h} godz.": "{h} h",
+    "Nagrywanie rozpocznie się za {left}": "Recording starts in {left}",
+    "ZAPLANOWANE NAGRYWANIE": "SCHEDULED RECORDING",
+    "Zaplanowane nagrywanie": "Scheduled recording",
+    "Czas do startu nagrywania": "Time until recording starts",
+    "Zacznij teraz": "Start now",
+    "Zmień godzinę": "Change time",
+    "Nagrywanie rozpocznie się o godzinie:": "Recording will start at:",
+    "Anuluj zaplanowane nagrywanie – nic nie zostanie nagrane": "Cancel the scheduled recording – nothing will be recorded",
+    "Anuluj nagrywanie": "Cancel recording",
+    "Czekaj mimo to": "Wait anyway",
+    "Do startu jest jeszcze czas – napraw to teraz, żeby nagrywanie ruszyło bez kłopotów. Zaplanowany start i tak "
+    "nastąpi o czasie.":
+        "There is still time before the start – fix this now so recording starts without trouble. The scheduled "
+        "start will happen on time either way.",
+    "dźwięk": "audio",
+    "slajdy: {name}": "slides: {name}",
+    "Wszystko gotowe – nagrywanie ruszy samo.": "All set – recording will start on its own.",
+    "Komputer nie zaśnie do startu – zostaw aplikację otwartą. Ekran może się wygasić.":
+        "The computer won't go to sleep before the start – keep the app open. The screen may turn off.",
+    "wybrana aplikacja": "the selected app",
+    "Czekam na „{name}” – uruchom ją przed startem, nagrywanie zacznie się samo.":
+        "Waiting for “{name}” – open it before the start and recording will begin on its own.",
+    "Źródło dźwięku „{name}” jest teraz niedostępne – podłącz je przed startem.":
+        "Audio source “{name}” isn't available right now – connect it before the start.",
+    "Okno „{name}” jest teraz niedostępne – otwórz je przed startem.":
+        "Window “{name}” isn't available right now – open it before the start.",
+    "Ekran „{name}” jest teraz niedostępny – podłącz go przed startem.":
+        "Screen “{name}” isn't available right now – connect it before the start.",
+    "Czekam na źródło…": "Waiting for the source…",
+    "Nagrywanie się nie rozpoczęło": "Recording hasn't started",
+    "Zaplanowany start ({time}) minął {n} min temu": "The scheduled start ({time}) was {n} min ago",
+    "Komputer był chyba uśpiony. Zacząć nagrywanie teraz?": "The computer was probably asleep. Start recording now?",
+    "Start minął {n} min temu – zacząć teraz?": "The start was {n} min ago – start now?",
+    "Pora nagrywania, ale „{name}” nadal nie działa": "It's time to record, but “{name}” still isn't running",
+    "Pora nagrywania, ale „{name}” jest niedostępne": "It's time to record, but “{name}” isn't available",
+    "Bez źródła nagrywanie się nie zacznie. Uruchom aplikację – nagrywanie ruszy samo, gdy się pojawi – albo wybierz "
+    "inne źródło.":
+        "Recording won't start without a source. Open the app – recording will start on its own once it appears – or "
+        "choose another source.",
+    "Czekaj dalej": "Keep waiting",
+    "Wybierz inne źródło i zaplanuj nagrywanie jeszcze raz.": "Choose another source and schedule the recording again.",
+    "Zaplanowane nagrywanie anulowane.": "Scheduled recording cancelled.",
+    "Nagrywanie rozpoczęte": "Recording started",
+    "{title} · start spóźniony o {n} min": "{title} · started {n} min late",
+    "start spóźniony o {n} min": "started {n} min late",
+    "zaplanowane {time}": "scheduled {time}",
+    "Zaplanowane nagrywanie: {time} – kliknij, żeby zobaczyć": "Scheduled recording: {time} – click to view",
+    "Masz zaplanowane nagrywanie {when}. Anuluj je albo poczekaj na start.":
+        "You have a recording scheduled {when}. Cancel it or wait for it to start.",
+    "Masz zaplanowane nagrywanie – zaktualizuj po nim albo je anuluj.":
+        "You have a scheduled recording – update after it, or cancel it.",
+    "Masz zaplanowane nagrywanie {when}. Zamknąć i anulować?": "You have a recording scheduled {when}. Close and cancel it?",
+    # ------------------------------------------------------------------ Egzamin › Rozwiąż test (2.3)
+    "Sprawdź się": "Test yourself",
+    "Rozwiąż test": "Solve a test",
+    "Wklej gotowy test albo wczytaj go z pliku. Aplikacja odpowie na pytania wyłącznie na podstawie Twoich notatek – gdy odpowiedzi w nich nie ma, napisze „nie wiem”.":
+        "Paste a ready-made test or load it from a file. The app answers the questions using only your notes – when the answer isn't in them, it says “don't know”.",
+    "Wklej pytania…\n\n1. Które organellum odpowiada za oddychanie komórkowe?\na) rybosom\nb) mitochondrium\nc) lizosom\nd) jądro":
+        "Paste the questions…\n\n1. Which organelle is responsible for cellular respiration?\na) ribosome\nb) mitochondrion\nc) lysosome\nd) nucleus",
+    "Wczytaj z pliku": "Load from file",
+    "Rozpoznaję numerację „1.”, „1)”, „Pytanie 1”, „Zad. 1” i odpowiedzi „a)”, „A.”, „(a)” – także wklejki z Moodle i MS Forms. Pliki: .txt, .docx, .pdf z tekstem.":
+        "Recognises numbering like “1.”, “1)”, “Question 1” and answers like “a)”, “A.”, “(a)” – also text pasted from Moodle and MS Forms. Files: .txt, .docx, .pdf with a text layer.",
+    "Zakres i ustawienia": "Scope and settings",
+    "Szybciej – mniejszy model AI. Dokładniej – staranniej, ale dłużej. Najwyżej 25 min.":
+        "Faster – a smaller AI model. More accurate – more careful, but slower. 25 min at most.",
+    "Gdy brak w notatkach – zgadnij z wiedzy ogólnej": "If it's not in the notes – guess from general knowledge",
+    "Zgadnięte odpowiedzi są oznaczone znakiem zapytania, np. „4 = a?”.": "Guessed answers are marked with a question mark, e.g. “4 = a?”.",
+    "Rozpoznaj pytania": "Recognise questions",
+    "Rozwiązane testy": "Solved tests",
+    " · z notatek: {n}": " · from notes: {n}",
+    " · niedokończony": " · unfinished",
+    "Wczytaj test": "Load test",
+    "Test (*.txt *.docx *.pdf *.md);;Wszystkie pliki (*)": "Test (*.txt *.docx *.pdf *.md);;All files (*)",
+    "Wklej pytania albo wczytaj test z pliku.": "Paste the questions or load a test from a file.",
+    "Rozpoznawanie pytań": "Recognising questions",
+    "Tekst jest nieregularny – pytania rozpoznaje AI…": "The text is irregular – AI is recognising the questions…",
+    "Sprawdź pytania": "Check the questions",
+    "Rozpoznaj przez AI": "Recognise with AI",
+    "Gdy pytania są źle podzielone – AI podzieli tekst jeszcze raz.": "If the questions are split wrongly – AI will split the text again.",
+    "Nie rozpoznano żadnego pytania.": "No questions recognised.",
+    "Pytania podzieliło AI – sprawdź, czy niczego nie pominęło.": "The questions were split by AI – check that nothing is missing.",
+    "Część odpowiedzi nie miała liter – nadałem im kolejno a, b, c…": "Some answers had no letters – they were labelled a, b, c… in order.",
+    "Niektóre numery pytań się powtarzają – sprawdź, czy pytanie nie jest rozdzielone.":
+        "Some question numbers repeat – check that no question was split in two.",
+    "Popraw": "Edit",
+    "Scal z następnym": "Merge with next",
+    "Test – {scope}": "Test – {scope}",
+    "Rozwiązywanie testu": "Solving the test",
+    "Przygotowuję model AI…": "Preparing the AI model…",
+    "AI nie podzieliło tekstu lepiej ({msg}) – pokazuję wynik zwykłego rozpoznawania.":
+        "AI didn't split the text any better ({msg}) – showing the regular recognition.",
+    "Nowy test": "New test",
+    "Dokończ pozostałe": "Finish the rest",
+    "Odpowiedzi": "Answers",
+    "Eksportuj .txt": "Export .txt",
+    "Popraw pytania": "Edit questions",
+    "Wróć do listy pytań i rozwiąż test jeszcze raz.": "Go back to the question list and solve the test again.",
+    "Z notatek": "From notes",
+    "Zgadnięte": "Guessed",
+    "Nie wiem": "Don't know",
+    "Z notatek: {a} · zgadnięte: {g} · nie wiem: {u}": "From notes: {a} · guessed: {g} · don't know: {u}",
+    " · bez odpowiedzi: {n}": " · unanswered: {n}",
+    "Notatki: {scope}": "Notes: {scope}",
+    "czas: {m} min": "time: {m} min",
+    "Nie zdążyłem odpowiedzieć na {n} z {n2} pytań w wyznaczonym czasie.": "{n} of {n2} questions weren't answered in the time limit.",
+    "Rozwiązywanie przerwane – zostało {n} z {n2} pytań.": "Solving stopped – {n} of {n2} questions left.",
+    "z notatek · pewność: {c}": "from notes · confidence: {c}",
+    "zgadnięte z wiedzy ogólnej – brak w notatkach": "guessed from general knowledge – not in the notes",
+    "czeka…": "waiting…",
+    "bez odpowiedzi – zabrakło czasu": "unanswered – ran out of time",
+    "brak w notatkach": "not in the notes",
+    "Brak pytań w tym widoku.": "No questions in this view.",
+    "Skopiowano": "Copied",
+    "odpowiedzi": "answers",
+    "Eksportuj odpowiedzi": "Export answers",
+    "Popraw pytanie": "Edit question",
+    "Numer, treść i odpowiedzi – każda odpowiedź w osobnej linii (a), b), c)…).":
+        "Number, question and answers – each answer on its own line (a), b), c)…).",
+    "Wielokrotny wybór": "Multiple choice",
+    "Rodzaj pytania": "Question type",
+    "Wpisz treść pytania.": "Enter the question.",
+    "Pytanie zamknięte potrzebuje co najmniej dwóch odpowiedzi.": "A closed question needs at least two answers.",
+    "{n} abcd": "{n} abcd",
+    "{n} prawda/fałsz": "{n} true/false",
+    "AI rozpoznaje pytania… część {k} z {n}": "AI is recognising questions… part {k} of {n}",
+    "Rozwiązuję test… {n}/{n2} · szacuję czas…": "Solving the test… {n}/{n2} · estimating time…",
+    "Rozwiązuję test… {n}/{n2} · zostało mniej niż minuta": "Solving the test… {n}/{n2} · less than a minute left",
+    "Rozwiązuję test… {n}/{n2} · zostało około {m} min": "Solving the test… {n}/{n2} · about {m} min left",
+    "Szukam w notatkach fragmentów do pytań…": "Looking for matching passages in the notes…",
+    "W notatkach z tego zakresu nie ma nic na ten temat.": "The notes in this scope don't cover this.",
+    "Model nie podał odpowiedzi na to pytanie.": "The model gave no answer to this question.",
+    "Odpowiedź nie ma potwierdzenia w notatkach.": "The answer isn't confirmed by the notes.",
+    "Fragmenty notatek nie rozstrzygają tego pytania.": "The notes don't settle this question.",
+    "nie wiem": "don't know",
+    "prawda": "true",
+    "fałsz": "false",
+    "wysoka": "high",
+    "średnia": "medium",
+    "niska": "low",
+    "Odpowiedzi z notatek: {a} · zgadnięte: {g} · nie wiem: {u}": "Answers from notes: {a} · guessed: {g} · don't know: {u}",
+    "   Odpowiedź: {a}": "   Answer: {a}",
+    " (pewność: {c})": " (confidence: {c})",
+    "   Nie zdążyłem odpowiedzieć (koniec czasu).": "   Not answered (out of time).",
+    "Nie umiem odczytać plików {ext}. Wybierz .txt, .docx albo .pdf.": "Can't read {ext} files. Choose .txt, .docx or .pdf.",
+    "Nie udało się odczytać pliku Word: {e}": "Couldn't read the Word file: {e}",
+    "Odczyt PDF nie jest jeszcze dostępny. Otwórz PDF, zaznacz cały tekst (Ctrl+A), skopiuj i wklej go w pole „Wklej pytania”.":
+        "Reading PDF isn't available yet. Open the PDF, select all text (Ctrl+A), copy it and paste it into the questions box.",
+    "Nie udało się odczytać pliku PDF: {e}": "Couldn't read the PDF file: {e}",
+    "Ten PDF nie ma warstwy tekstu (to skan). Wklej pytania jako tekst.": "This PDF has no text layer (it's a scan). Paste the questions as text.",
 }
 
 # liczba mnoga: pierwsza polska forma z tn(...) → (1 sztuka, wiele)
@@ -1368,6 +1786,7 @@ EN_PLURAL: dict[str, tuple[str, str]] = {
     "Seria: {n} dzień z rzędu · dziś ocenione fiszki: {today}": ("Streak: {n} day · cards reviewed today: {today}",
                                                                  "Streak: {n} days · cards reviewed today: {today}"),
     "{n} wykład": ("{n} lecture", "{n} lectures"),
+    "za {n} dzień": ("in {n} day", "in {n} days"),
     "{n} fiszka": ("{n} card", "{n} cards"),
     "{n} slajd": ("{n} slide", "{n} slides"),
     "{n} temat": ("{n} topic", "{n} topics"),
@@ -1379,4 +1798,9 @@ EN_PLURAL: dict[str, tuple[str, str]] = {
     "rekord: {n} dzień": ("best: {n} day", "best: {n} days"),
     "{n} dzień z rzędu": ("{n} day in a row", "{n} days in a row"),
     "{n} opanowana": ("{n} mastered", "{n} mastered"),
+    "Brakuje modelu {names}": ("Model {names} is missing", "Models missing: {names}"),
+    "Przed nagrywaniem: {n} problem": ("Before recording: {n} problem", "Before recording: {n} problems"),
+    "Rozpoznano {n} pytanie": ("Recognised {n} question", "Recognised {n} questions"),
+    "{n} wielokrotnego wyboru": ("{n} multiple choice", "{n} multiple choice"),
+    "{n} otwarte": ("{n} open", "{n} open"),
 }

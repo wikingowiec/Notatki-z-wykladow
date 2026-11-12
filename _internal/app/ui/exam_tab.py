@@ -18,6 +18,34 @@ from .widgets import JobRunner, run_async
 from ..i18n import tn, tr
 
 LEVELS = [("easy", tr("Łatwy")), ("medium", tr("Średni")), ("hard", tr("Trudny"))]
+SPEEDS = ["fast", "accurate"]
+
+
+def default_speed(settings) -> str:
+    """Profil Lekki albo komputer bez karty NVIDIA (poza Makiem – tam model liczy GPU) → „Szybciej”."""
+    if settings.hw_profile == "lekki":
+        return "fast"
+    hw = getattr(settings, "hw_info", None) or {}
+    if hw and not hw.get("apple"):
+        from ..perf import has_nvidia
+        if not has_nvidia(hw):
+            return "fast"
+    return "accurate"
+
+
+def exam_llm(settings, speed: str):
+    """Ollama i model zadania egzaminu / testu: „Szybciej” – mniejszy model (live_model), gdy jest pobrany."""
+    from ..llm import LLMError, Ollama
+    llm = Ollama(settings.ollama_url)
+    if not llm.is_running():
+        raise LLMError(tr("Ollama nie działa – uruchom ją i spróbuj ponownie."))
+    model = settings.ollama_model
+    if speed == "fast" and settings.live_model and settings.live_model != model:
+        if llm.has_model(settings.live_model):
+            model = settings.live_model
+        else:
+            EX.log.info("Egzamin: brak modelu %s – używam %s", settings.live_model, model)
+    return llm, model
 
 
 class ExamTab(QWidget):
@@ -32,17 +60,56 @@ class ExamTab(QWidget):
         self.order: list[int] = []
         self.pos = 0
         self.answers: dict[int, dict] = {}
+        self._is_recording = lambda: False
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_setup())
         self.stack.addWidget(self._build_take())
         self.stack.addWidget(self._build_result())
+        # dwa tryby: „Sprawdź się” (egzamin z notatek) i „Rozwiąż test” (gotowy test rozwiązany z notatek)
+        from .solver_view import SolverView
+        self.solver = SolverView(settings, runner)
+        self.solver.open_lecture.connect(self.open_lecture)
+        self.mode = SegmentedControl([tr("Sprawdź się"), tr("Rozwiąż test")])
+        self.mode.changed.connect(self._set_mode)
+        self.mode_bar = hbox("stretch", self.mode, "stretch", margins=(14, 16, 14, 0))
+        self.modes = QStackedWidget()
+        self.modes.addWidget(self.stack)
+        self.modes.addWidget(self.solver)
+        self.stack.currentChanged.connect(lambda _i: self._mode_bar_visible())
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.stack)
+        lay.setSpacing(0)
+        lay.addWidget(self.mode_bar)
+        lay.addWidget(self.modes, 1)
 
         runner.progress.connect(self._job_progress)
         runner.finished.connect(self._job_finished)
+
+    # nagrywanie trzyma model notatek na żywo – egzamin i test nie zwalniają wtedy modeli
+    @property
+    def is_recording(self):
+        return self._is_recording
+
+    @is_recording.setter
+    def is_recording(self, fn):
+        self._is_recording = fn
+        self.solver.is_recording = fn
+
+    def _set_mode(self, i: int):
+        self.modes.setCurrentIndex(i)
+        if i == 1:
+            self.solver.refresh()
+        elif self.stack.currentIndex() == 0:
+            self.refresh()
+        self._mode_bar_visible()
+
+    def _mode_bar_visible(self):
+        """Przełącznik trybów – na ekranach wyboru; w trakcie egzaminu i na jego wyniku chowa się."""
+        show_if(self.mode_bar, self.modes.currentIndex() == 1 or self.stack.currentIndex() == 0)
+
+    def show_solver(self):
+        self.mode.set_current(1, emit=True)
 
     # ================================================================== tworzenie
     def _build_setup(self) -> QWidget:
@@ -76,6 +143,12 @@ class ExamTab(QWidget):
         g.add_row(tr("Prawda / fałsz"), self.t_pf)
         g.add_row(tr("Otwarte"), self.t_open)
         g.add_row(tr("Poziom"), self.level)
+        self.speed = SegmentedControl([tr("Szybciej"), tr("Dokładniej")])
+        self.speed.set_current(SPEEDS.index(self._default_speed()))
+        self._speed_touched = False
+        self.speed.changed.connect(lambda _i: setattr(self, "_speed_touched", True))
+        g.add_row(tr("Tempo"), self.speed,
+                  tr("Szybciej – mniejszy model AI. Dokładniej – staranniejsze pytania, ale dłużej. Najwyżej 25 min."))
         v.addWidget(g)
 
         self.instr = QPlainTextEdit()
@@ -114,8 +187,12 @@ class ExamTab(QWidget):
         l.addWidget(w)
         return box
 
+    def _default_speed(self) -> str:
+        return default_speed(self.settings)
+
     def preselect(self, folder: str):
         """Zakres = jeden wykład (przycisk „Przygotuj egzamin” w bibliotece)."""
+        self.mode.set_current(0, emit=True)
         self.stack.setCurrentIndex(0)
         self.refresh()
         i = self.scope.findData(("lecture", folder))
@@ -123,6 +200,8 @@ class ExamTab(QWidget):
             self.scope.setCurrentIndex(i)
 
     def refresh(self):
+        if self.modes.currentIndex() == 1:
+            self.solver.refresh()
         cur = self.scope.currentData()
         lectures = [l for l in list_lectures(self.settings.library_path()) if l.notes_path.exists()]
         self.scope.fill_scope(lectures, "", subject_prefix=tr("Cały przedmiot: "), keep=cur)
@@ -130,6 +209,9 @@ class ExamTab(QWidget):
         if i < 0 and self.settings.last_subject:
             i = self.scope.findData(("subject", self.settings.last_subject))
         self.scope.setCurrentIndex(max(0, i))
+        if not self._speed_touched:          # profil mógł się zmienić w Ustawieniach
+            self.speed.set_current(SPEEDS.index(self._default_speed()))
+            self._speed_touched = False
         self.btn_make.setEnabled(self.scope.count() > 0 and not self.runner.busy)
         if not self.scope.count():
             self.make_status.setText(tr("Najpierw potrzebne są wykłady z gotowymi notatkami."))
@@ -170,16 +252,14 @@ class ExamTab(QWidget):
             return
         spec = EX.ExamSpec(scope=data[0], value=data[1], n=self.n.value(), types=types,
                            level=LEVELS[self.level.current()][0], instructions=self.instr.toPlainText(),
-                           use_exam_info=self.use_info.isChecked())
+                           use_exam_info=self.use_info.isChecked(), speed=SPEEDS[self.speed.current()])
         s = self.settings
         lib = s.library_path()
+        prepare = not self.is_recording()     # nagrywanie trzyma model notatek na żywo – nie zwalniaj go
 
         def fn(prog, cancel, tok):
-            from ..llm import LLMError, Ollama
-            llm = Ollama(s.ollama_url)
-            if not llm.is_running():
-                raise LLMError(tr("Ollama nie działa – uruchom ją i spróbuj ponownie."))
-            exam = EX.generate_exam(lib, spec, llm, s.ollama_model, s.ollama_ctx, prog, cancel)
+            llm, model = exam_llm(s, spec.speed)
+            exam = EX.generate_exam(lib, spec, llm, model, EX.EXAM_CTX, prog, cancel, prepare=prepare)
             EX.save_exam(lib, exam)
             self._created = exam
         self._created = None
@@ -207,7 +287,12 @@ class ExamTab(QWidget):
         if ok and getattr(self, "_created", None):
             self.make_status.setText("")
             self._fill_history()
-            self.start(self._created)
+            ex = self._created
+            self.start(ex)
+            if ex.get("timed_out"):
+                self.take_note.setText(tr("Udało się ułożyć {n} z {n2} pytań w wyznaczonym czasie.",
+                                          n=len(ex["questions"]), n2=ex.get("wanted", len(ex["questions"]))))
+                show_if(self.take_note, True)
         else:
             self.make_status.setText(msg)
 
@@ -229,6 +314,9 @@ class ExamTab(QWidget):
         self.take_sub = label("", "secondary")
         tv.addWidget(self.take_title)
         tv.addWidget(self.take_sub)
+        self.take_note = label("", "footnote", wrap=True)     # „Udało się ułożyć 24 z 30 pytań…”
+        self.take_note.hide()
+        tv.addWidget(self.take_note)
         head.addLayout(tv, 1)
         b_quit = QPushButton(tr("Zakończ"))
         b_quit.clicked.connect(self.finish)
@@ -303,6 +391,7 @@ class ExamTab(QWidget):
         self.pos = 0
         self.answers = {}
         self.take_title.setText(exam.get("title", tr("Egzamin")))
+        show_if(self.take_note, False)
         self.stack.setCurrentIndex(1)
         self._show()
 
@@ -376,10 +465,11 @@ class ExamTab(QWidget):
         self.open_edit.setEnabled(False)
         self.feedback.setText(tr("Sprawdzam…"))
         s = self.settings
+        model = self.exam.get("model") or s.ollama_model     # ten sam, już załadowany model co przy układaniu
 
         def work():
             from ..llm import Ollama
-            return EX.grade_open(q, ans, Ollama(s.ollama_url), s.ollama_model, min(8192, s.ollama_ctx))
+            return EX.grade_open(q, ans, Ollama(s.ollama_url), model, EX.EXAM_CTX)
 
         def done(res):
             pts, comment = res

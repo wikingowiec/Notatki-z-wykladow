@@ -46,6 +46,10 @@ def transcribe_lecture(lecture: Lecture, settings: Settings, progress: Progress,
             for sg in segs:
                 sg["start"] = round(sg["start"] + offset, 2)
                 sg["end"] = round(sg["end"] + offset, 2)
+            # zmiana źródła w trakcie: stara część nagrała chwilę dłużej niż start następnej – bez powtórzeń
+            nxt = parts[k][1] if k < len(parts) else None
+            if nxt is not None and nxt > offset:
+                segs = [sg for sg in segs if sg["start"] < nxt - 0.05]
             all_segs += segs
         lecture.write_segments(all_segs)
         if all_segs:
@@ -90,18 +94,43 @@ def import_file(path: str, lecture: Lecture, settings: Settings, progress: Progr
         transcribe_lecture(lecture, settings, progress, cancel)
 
 
-def generate_notes(lecture: Lecture, settings: Settings, progress: Progress, cancel: threading.Event,
-                   on_token: Optional[Callable[[str], None]] = None, use_cache: bool = False) -> None:
+def _notes_llm(settings: Settings, progress: Progress, cancel: threading.Event, button: str):
+    """Ollama z modelem notatek (pobranym, gdy go brak). button – nazwa przycisku do ponowienia w komunikacie."""
     from .llm import Ollama, LLMError
-    from .notes_pipeline import generate
     llm = Ollama(settings.ollama_url)
     if not llm.is_running():
         raise LLMError(tr("Ollama nie działa. Zainstaluj ją z https://ollama.com/download i uruchom, "
-                       "a potem kliknij „Generuj notatki”."))
+                       "a potem kliknij „{button}”.", button=button))
     model = settings.ollama_model
     if not llm.has_model(model):
         progress(tr("Pobieranie modelu {model} (jednorazowo)…", model=model), 0)
         llm.pull(model, progress=lambda st, f: progress(tr("Pobieranie modelu: {st}", st=st), f), cancel=cancel)
+    return llm, model
+
+
+def generate_flashcards(lecture: Lecture, settings: Settings, progress: Progress, cancel: threading.Event,
+                        on_token: Optional[Callable[[str], None]] = None) -> int:
+    """Sam krok fiszek z gotowego notes.md (bez transkrypcji i notatek od nowa). Zwraca liczbę nowych fiszek."""
+    from .notes_pipeline import generate_flashcards as make
+    if not lecture.notes_path.exists():
+        raise RuntimeError(tr("Ten wykład nie ma jeszcze notatek – najpierw wygeneruj notatki."))
+    before = len(lecture.load_flashcards())
+    llm, model = _notes_llm(settings, progress, cancel, tr("Wygeneruj fiszki"))
+    try:
+        progress(tr("Fiszki: czytam notatki…"), 0.0)
+        cards = make(lecture, settings, progress, cancel, llm=llm, model=model)
+        if not lecture.meta.make_flashcards:          # użytkownik chce fiszek z tego wykładu – także po ponownym
+            lecture.meta.make_flashcards = True       # generowaniu notatek
+            lecture.save_meta()
+        return len(cards) - before
+    finally:
+        llm.unload(model)   # zwolnij pamięć karty graficznej
+
+
+def generate_notes(lecture: Lecture, settings: Settings, progress: Progress, cancel: threading.Event,
+                   on_token: Optional[Callable[[str], None]] = None, use_cache: bool = False) -> None:
+    from .notes_pipeline import generate
+    llm, model = _notes_llm(settings, progress, cancel, tr("Generuj notatki"))
     vision = None
     if getattr(settings, "describe_slides", True) and settings.vision_model and lecture.load_slides().get("slides"):
         vision = settings.vision_model

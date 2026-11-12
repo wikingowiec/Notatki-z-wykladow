@@ -179,6 +179,21 @@ class SlideDetector:
             self.saved[self.current_index - 1] = s
         return True
 
+    def reset_motion(self) -> None:
+        """Przerwa w obrazie (wstrzymane slajdy): zapominamy ruch i stabilność, ale nie ostatni slajd – ekran po
+        wznowieniu porównuje się z nim, więc ten sam slajd nie zapisze się drugi raz."""
+        self.prev = None
+        self.history.clear()
+        self.stable_since = None
+        self.change_started = None
+
+    def new_source(self) -> None:
+        """Inny ekran/okno: obraz ma inny kadr i rozdzielczość, więc nie porównujemy go z bieżącym slajdem
+        (fałszywa „animacja” albo „ten sam slajd”). Pierwszy stabilny kadr przejdzie normalną drogę – porównanie
+        ze wszystkimi zapisanymi slajdami (powrót) i sprawdzenie duplikatów w magazynie (tekst + odcisk obrazu)."""
+        self.reset_motion()
+        self.current = None
+
     def merge(self, new_local: int, target_local: int, replace: bool) -> None:
         """Magazyn uznał „nowy” slajd za duplikat (powrót / animacja) – scal go z wcześniejszym."""
         if new_local == len(self.saved) and 1 <= target_local < new_local:
@@ -446,11 +461,23 @@ class SlideRecorder:
         self.t0 = 0.0
         self.last_frame: Optional[np.ndarray] = None   # ostatni pełny zrzut (do wyboru obszaru w trakcie)
         self._pending_roi: Optional[list] = None       # [roi] – nowy obszar czekający na kolejną klatkę
+        self._pending_source: Optional[list] = None    # [grabber, roi] – nowe źródło czekające na kolejną klatkę
         self._rebase = False
+        self.held = False                              # „Wstrzymaj slajdy” – bez zrzutów, czas biegnie dalej
+        self._resync = False
 
     def set_roi(self, roi) -> None:
         """Zmiana obszaru w trakcie nagrywania – zadziała od następnej klatki, bez przerywania nagrania."""
         self._pending_roi = [tuple(roi) if roi else None]
+
+    def set_source(self, grabber, roi=None) -> None:
+        """Nowy ekran/okno w trakcie nagrywania. Podmiana w wątku slajdów (tam też zamyka się stary grabber)."""
+        self._pending_source = [grabber, tuple(roi) if roi else None]
+
+    def hold(self, on: bool) -> None:
+        if self.held and not on:
+            self._resync = True
+        self.held = bool(on)
 
     def start(self, t0: float):
         self.t0 = t0
@@ -479,10 +506,24 @@ class SlideRecorder:
         next_t = time.monotonic()
         try:
             while not self._stop.is_set():
-                if self.paused:
+                src = self._pending_source
+                if src is not None:
+                    self._pending_source = None
+                    old, self.grabber = self.grabber, src[0]
+                    try:
+                        old.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self.roi, self._pending_roi, self._rebase = src[1], None, False
+                    self.detector.new_source()
+                    self.last_frame = None
+                if self.paused or self.held:
                     self._stop.wait(0.2)
                     next_t = time.monotonic()
                     continue
+                if self._resync:
+                    self._resync = False
+                    self.detector.reset_motion()
                 now = time.monotonic()
                 try:
                     img = self.grabber.grab()
@@ -518,10 +559,12 @@ class SlideRecorder:
                 next_t += self.interval
                 self._stop.wait(max(0.05, next_t - time.monotonic()))
         finally:
-            try:
-                self.grabber.close()
-            except Exception:
-                pass
+            for g in (self.grabber, (self._pending_source or [None])[0]):
+                try:
+                    if g is not None:
+                        g.close()
+                except Exception:
+                    pass
 
 
 def video_duration(path: str) -> Optional[float]:

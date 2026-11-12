@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import weakref
 
-from PySide6.QtCore import (Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, QSize, Qt, Signal)
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QBoxLayout, QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtCore import (Property, QEasingCurve, QEvent, QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt,
+                            Signal)
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QWheelEvent
+from PySide6.QtWidgets import (QAbstractButton, QAbstractScrollArea, QAbstractSlider, QAbstractSpinBox, QApplication, QBoxLayout,
+                               QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollBar,
                                QSizePolicy, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout, QWidget)
 
 from .theme import T, display_font, icon_pixmap, palette_color, qcolor, soft, svg_icon, theme
@@ -498,6 +500,70 @@ def hbox(*widgets, spacing: int = 8, margins=(0, 0, 0, 0)) -> QWidget:
 
 
 # ---------------------------------------------------------------------------
+# Kółko myszy nie zmienia wartości pól (cała aplikacja)
+# ---------------------------------------------------------------------------
+class _WheelGuard(QObject):
+    """Filtr zdarzeń na QApplication: kółko nad listą rozwijaną, polem liczbowym, polem czasu, suwakiem albo
+    kontrolką segmentową przewija stronę zamiast zmieniać wartość – zdarzenie dostaje najbliższy przewijany
+    obszar nad polem (QScrollArea strony). Wartość zmienia się kliknięciem i klawiaturą (strzałki, gdy pole
+    ma fokus). Fokus nie wpada do pola od samego kółka (StrongFocus zamiast WheelFocus)."""
+
+    def eventFilter(self, obj, ev):
+        et = ev.type()
+        if et == QEvent.Type.Wheel:
+            target = _guarded_ancestor(obj)
+            if target is None:
+                return False
+            # Qt nie przekazuje dalej sztucznych zdarzeń kółka, więc sami szukamy przewijanego obszaru nad polem
+            # (gdy jest już na końcu, próbujemy następnego wyżej)
+            w = target.parentWidget()
+            while w is not None:
+                if isinstance(w, QAbstractScrollArea):
+                    vp = w.viewport()
+                    fwd = QWheelEvent(obj.mapTo(vp, ev.position()) if vp.isAncestorOf(obj) else ev.position(),
+                                      ev.globalPosition(), ev.pixelDelta(), ev.angleDelta(), ev.buttons(),
+                                      ev.modifiers(), ev.phase(), ev.inverted(), ev.source())
+                    fwd.ignore()
+                    QApplication.sendEvent(vp, fwd)
+                    if fwd.isAccepted():
+                        break
+                if w.isWindow():
+                    break
+                w = w.parentWidget()
+            return True
+        if et == QEvent.Type.Polish and isinstance(obj, QWidget) and _guarded(obj) \
+                and obj.focusPolicy() == Qt.FocusPolicy.WheelFocus:
+            obj.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        return False
+
+
+def _guarded(w) -> bool:
+    if isinstance(w, QScrollBar):            # paski przewijania zostają przy kółku
+        return False
+    return isinstance(w, (QComboBox, QAbstractSpinBox, QAbstractSlider, SegmentedControl))
+
+
+def _guarded_ancestor(obj):
+    """Pole, którego dotyczy kółko – także gdy kursor jest nad jego wnętrzem (np. pole tekstowe w liście
+    rozwijanej z wpisywaniem albo w polu liczbowym)."""
+    w = obj if isinstance(obj, QWidget) else None
+    for _ in range(3):
+        if w is None or w.isWindow():
+            return None
+        if _guarded(w):
+            return w
+        w = w.parentWidget()
+    return None
+
+
+def install_wheel_guard(app) -> None:
+    """Wołane raz przy starcie (main.create_app)."""
+    if getattr(app, "_wheel_guard", None) is None:
+        app._wheel_guard = _WheelGuard(app)
+        app.installEventFilter(app._wheel_guard)
+
+
+# ---------------------------------------------------------------------------
 STATUS = {
     "gotowy": (tr("Gotowe"), "green"),
     "nagrany": (tr("Bez notatek"), "gray"),
@@ -610,12 +676,17 @@ class RecordButton(QAbstractButton):
         super().__init__()
         self._size = size
         self.recording = False
+        self.scheduled = False         # „Rozpocznij: O godzinie” – na kole tarcza zegara
         self.setFixedSize(size, size)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAccessibleName(tr("Nagrywanie"))
 
     def set_recording(self, on: bool):
         self.recording = on
+        self.update()
+
+    def set_scheduled(self, on: bool):
+        self.scheduled = on
         self.update()
 
     def paintEvent(self, _e):
@@ -643,6 +714,13 @@ class RecordButton(QAbstractButton):
         else:
             d = s - 20
             p.drawEllipse(QRectF(10, 10, d, d))
+            if self.scheduled:           # wskazówki zegara w kolorze tła
+                c =QPointF(s / 2, s / 2)
+                pen = QPen(qcolor(t.surface), max(2.5, s * 0.055))
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                p.setPen(pen)
+                p.drawLine(c, QPointF(s / 2, s / 2 - d * 0.30))
+                p.drawLine(c, QPointF(s / 2 + d * 0.22, s / 2 + d * 0.08))
         p.end()
 
     def enterEvent(self, e):
@@ -1036,7 +1114,7 @@ def title_font_for(size: float) -> QFont:
 # ---------------------------------------------------------------------------
 # Listy rozwijane z kolorami (zakres: wszystkie / przedmiot / wykład)
 # ---------------------------------------------------------------------------
-from PySide6.QtWidgets import QComboBox, QStyleOptionComboBox, QStylePainter  # noqa: E402
+from PySide6.QtWidgets import QStyleOptionComboBox, QStylePainter  # noqa: E402
 
 C_COLOR = Qt.ItemDataRole.UserRole + 20
 C_TAG = Qt.ItemDataRole.UserRole + 21

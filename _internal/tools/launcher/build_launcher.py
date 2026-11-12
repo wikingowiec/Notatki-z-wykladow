@@ -51,11 +51,12 @@ BEGIN
 END
 '''
     (build / "launcher.rc").write_text(rc, encoding="utf-8")
-    shutil.copy(HERE / "launcher.c", build / "launcher.c")
+    for f in ("launcher.c", "miniz.c", "miniz.h"):        # launcher.c dołącza miniz.c (#include)
+        shutil.copy(HERE / f, build / f)
     out = ROOT / "Wykłady.exe"
     cmd = [sys.executable, "-m", "ziglang", "cc", "-target", "x86_64-windows-gnu", "-municode", "-Os", "-s",
-           "launcher.c", "launcher.rc", "-o", str(out), "-Wl,--subsystem,windows",
-           "-lwininet", "-lgdi32", "-luser32", "-lshell32", "-ldwmapi"]
+           f'-DAPP_VERSION="{ver}"', "launcher.c", "launcher.rc", "-o", str(out), "-Wl,--subsystem,windows",
+           "-lwininet", "-lgdi32", "-luser32", "-lshell32", "-ldwmapi", "-lbcrypt", "-ladvapi32", "-lole32"]
     subprocess.run(cmd, cwd=build, check=True)
     for f in ROOT.glob("Wykłady.pdb"):
         f.unlink()

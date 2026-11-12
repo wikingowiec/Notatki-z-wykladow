@@ -269,6 +269,7 @@ class StudyTab(QWidget):
     reviewed = Signal()
     open_note = Signal(str, str)          # folder wykładu, kotwica tematu
     play_at = Signal(object, float)       # wykład, sekunda nagrania
+    make_cards = Signal(object)           # Lecture – „Wygeneruj fiszki” (wykład z notatkami, bez fiszek)
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
@@ -450,8 +451,12 @@ class StudyTab(QWidget):
         self.btn_again = QPushButton(tr("Powtórz wszystkie"))
         self.btn_again.setObjectName("primary")
         self.btn_again.clicked.connect(self._repeat_all)
-        self.empty = EmptyState("cards", tr("Brak fiszek"),
-                                tr("Fiszki powstają automatycznie razem z notatkami z wykładu – pogrupowane w kategorie."))
+        self.btn_make = QPushButton(tr("Wygeneruj fiszki"))
+        self.btn_make.setObjectName("primary")
+        set_icon(self.btn_make, "sparkles", "on_accent", 15)
+        self.btn_make.clicked.connect(lambda: self._make_for is not None and self.make_cards.emit(self._make_for))
+        self._make_for: Lecture | None = None
+        self.empty = EmptyState("cards", tr("Brak fiszek"), "", self.btn_make)
         self.finished = EmptyState("check", tr("Na dziś wszystko"),
                                    tr("Kolejne fiszki wrócą w wyznaczonym dniu (1, 3, 7… dni). "
                                    "Możesz też powtórzyć wszystkie od nowa."), self.btn_again)
@@ -703,6 +708,23 @@ class StudyTab(QWidget):
                            + tn(known, "{n} opanowana", "{n} opanowane", "{n} opanowanych") + " · "
                            + tr("{total} wszystkie", total=total) if total else tr("Brak fiszek"))
 
+    def _fill_empty(self):
+        """Brak fiszek: podpowiedź i „Wygeneruj fiszki” dla najnowszego wykładu z notatkami, ale bez fiszek."""
+        lec = next((l for l in sorted(self._lectures_in_scope(), key=lambda l: l.meta.created or "", reverse=True)
+                    if l.notes_path.exists() and not l.load_flashcards()), None)
+        self._make_for = lec
+        if lec is not None:
+            self.empty.text.setText(tr("Fiszki powstają tylko na życzenie. Zrobię je z gotowych notatek wykładu "
+                                       "„{title}” – bez ponownej transkrypcji.", title=lec.meta.title))
+        else:
+            self.empty.text.setText(tr("Fiszki powstają tylko na życzenie: włącz „Zrób fiszki z tego wykładu” przy "
+                                       "nowej notatce albo kliknij „Wygeneruj fiszki” w widoku wykładu."))
+        show_if(self.btn_make, lec is not None)
+
+    def set_busy(self, busy: bool):
+        """Trwa inne zadanie w tle – przycisk „Wygeneruj fiszki” czeka."""
+        self.btn_make.setEnabled(not busy)
+
     def _bar(self):
         states = [("current" if k == self.cur else self.state.get(k, "todo")) for k in self.order]
         self.session_bar.set_states(states)
@@ -715,6 +737,7 @@ class StudyTab(QWidget):
         self._update_header()
         if not self.items:
             self.cur = None
+            self._fill_empty()
             self.stack.setCurrentIndex(1)
             return
         if not self.queue:

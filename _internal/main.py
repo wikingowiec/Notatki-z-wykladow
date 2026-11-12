@@ -12,6 +12,10 @@ import traceback
 from logging.handlers import RotatingFileHandler
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+if BASE not in sys.path:
+    # wersja ze Store: runtime jest poza _internal, więc „..\..” z python312._pth nie wskazuje tego folderu,
+    # a Python z plikiem ._pth nie dodaje sam folderu skryptu
+    sys.path.insert(0, BASE)
 INSTANCE_KEY = "Wyklady-jedno-okno"
 
 
@@ -73,6 +77,8 @@ def create_app(settings):
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
+    from app.ui.controls import install_wheel_guard
+    install_wheel_guard(app)          # kółko myszy przewija stronę, a nie zmienia wartości pól
     load_fonts()
     app.setFont(ui_font(10.5))
     icon = os.path.join(BASE, "icon.ico")

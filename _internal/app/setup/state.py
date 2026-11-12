@@ -10,7 +10,7 @@ from pathlib import Path
 from ..system import IS_MAC, requirements_files, runtime_dir
 
 BASE = Path(__file__).resolve().parents[2]          # folder _internal
-RUNTIME = runtime_dir()                             # Windows: _internal/runtime (Store: %LOCALAPPDATA%), Mac: Application Support
+RUNTIME = runtime_dir()                             # Windows: _internal/runtime (Store: folder danych paczki), Mac: Application Support
 PYTHON_DIR = RUNTIME / "python"
 MARKER = RUNTIME / "setup.json"
 REQ_FILES = requirements_files()
@@ -18,8 +18,7 @@ REQ_FILES = requirements_files()
 
 def embedded() -> bool:
     """Aplikacja działa na własnym Pythonie z runtime (a nie np. z .venv programisty)."""
-    # wersja ze Store: Windows przenosi pliki z %LOCALAPPDATA% do folderu paczki, więc resolve() może zwrócić
-    # inną ścieżkę niż RUNTIME – porównujemy też ścieżki bez rozwijania
+    # porównujemy ścieżki bez rozwijania i po resolve() (dowiązania, krótkie nazwy 8.3)
     exe = os.path.normcase(os.path.abspath(sys.executable))
     if exe.startswith(os.path.normcase(os.path.abspath(RUNTIME)) + os.sep):
         return True

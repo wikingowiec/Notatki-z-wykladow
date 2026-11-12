@@ -1,13 +1,14 @@
-"""Wybór źródła dźwięku: lista „Grają teraz / Urządzenia / Pozostałe” z poziomem na żywo,
-przyciski „Odsłuchaj”, „Odśwież” i „Pokaż wszystkie”."""
+"""Wybór źródła dźwięku: lista „Programy do spotkań i przeglądarki / Grają teraz / Urządzenia / Pozostałe”
+z poziomem na żywo, polem „Szukaj…” (gdy źródeł jest dużo), przyciskami „Odsłuchaj”, „Odśwież” i „Pokaż wszystkie”.
+Lista sama się odświeża co kilka sekund, gdy jest widoczna – bez zmiany zaznaczenia i bez przewijania."""
 from __future__ import annotations
 
 import math
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QPainter
-from PySide6.QtWidgets import (QAbstractItemView, QListWidget, QListWidgetItem, QPushButton, QStyle,
-                               QStyledItemDelegate, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSizePolicy,
+                               QStyle, QStyledItemDelegate, QVBoxLayout, QWidget)
 
 from ..audio_capture import LevelMonitor, PLAYING, list_audio_sources, play_preview, record_preview, source_key
 from .controls import hbox, label, set_icon, show_if
@@ -18,7 +19,15 @@ from ..i18n import tr
 R_IDX = Qt.ItemDataRole.UserRole          # indeks w liście źródeł; -1 = nagłówek grupy
 PREVIEW_S = 4
 ROW_H, HEAD_H = 44, 26
+MAX_ROWS = 6                              # wyżej lista ma własny pasek przewijania
+SEARCH_FROM = 9                           # pole „Szukaj…” od tylu źródeł
+AUTO_REFRESH_MS = 4000
 ICONS = {"process": "speaker", "system": "display", "mic": "mic"}
+
+
+def _key(s) -> tuple:
+    """Tożsamość źródła między odświeżeniami (PID się zmienia po ponownym uruchomieniu aplikacji, exe – nie)."""
+    return (s.kind, (s.exe or "").lower(), s.device_index)
 
 
 class _SourceDelegate(QStyledItemDelegate):
@@ -44,7 +53,11 @@ class _SourceDelegate(QStyledItemDelegate):
             f.setWeight(QFont.Weight.DemiBold)
             p.setFont(f)
             p.setPen(qcolor(t.text3))
-            p.drawText(r.adjusted(14, 0, -8, -2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, text.upper())
+            p.drawText(r.adjusted(14, 0, -8, -2), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
+                       p.fontMetrics().elidedText(text.upper(), Qt.TextElideMode.ElideRight, int(r.width() - 22)))
+            p.restore()
+            return
+        if not (0 <= idx < len(self.picker.sources)):
             p.restore()
             return
         info = self.picker.sources[idx]
@@ -79,8 +92,11 @@ class _SourceDelegate(QStyledItemDelegate):
         f2 = QFont(option.font)
         f2.setPointSizeF(f2.pointSizeF() - 1.5)
         p.setFont(f2)
-        p.setPen(qcolor(t.green if info.active and info.detail.startswith("gra") else t.text3))
-        sub = info.detail or (" " if info.kind != "mic" else "")
+        p.setPen(qcolor(t.green if info.active and info.kind == "process" else t.text3))
+        sub = info.detail
+        if self.picker.is_last_used(info):
+            sub = (sub + " · " if sub else "") + tr("ostatnio używane")
+        sub = sub or (" " if info.kind != "mic" else "")
         p.drawText(QRectF(x, box.center().y() + 1, tw, box.height() / 2 - 3),
                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
                    p.fontMetrics().elidedText(sub, Qt.TextElideMode.ElideRight, int(tw)))
@@ -122,14 +138,27 @@ class AudioSourcePicker(QWidget):
         self._previewing = False
         self._auto_refresh_at = 0
         self._cur = -1
+        self._last_used: dict | None = None    # {"kind", "exe", "device"} z settings.last_rec
+        self._user_picked = False              # ręczny wybór – „ostatnio używane” już go nie nadpisze
+        self._rows_sig: tuple | None = None
+
+        self.search = QLineEdit()
+        self.search.setObjectName("search")
+        self.search.setPlaceholderText(tr("Szukaj…"))
+        self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName(tr("Szukaj źródła dźwięku"))
+        self.search.textChanged.connect(lambda _t: self._rebuild())
+        show_if(self.search, False)
 
         self.list = QListWidget()
         self.list.setObjectName("sourceList")
         self.list.setMouseTracking(True)
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.list.setItemDelegate(_SourceDelegate(self))
-        self.list.itemClicked.connect(lambda _i: self.picked.emit())
+        self.list.itemClicked.connect(self._clicked)
         self.list.currentRowChanged.connect(self._row_changed)
 
         self.btn_preview = QPushButton(tr("Odsłuchaj"))
@@ -145,23 +174,47 @@ class AudioSourcePicker(QWidget):
         self.status = label("", "footnote", wrap=True)
         show_if(self.status, False)
 
+        # pole szukania, lista i przyciski jeden pod drugim – układ zna wysokość listy, więc przyciski
+        # zawsze stoją pod nią (nigdy na niej)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(12, 2, 12, 12)
         lay.setSpacing(8)
+        lay.addWidget(self.search)
         lay.addWidget(self.list)
         lay.addWidget(hbox(self.btn_preview, self.btn_refresh, "stretch", self.btn_all, spacing=6))
         lay.addWidget(self.status)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         self.timer = QTimer(self)
         self.timer.setInterval(80)
         self.timer.timeout.connect(self._tick)
+        self.auto_timer = QTimer(self)              # samoczynne odświeżanie, gdy lista jest widoczna
+        self.auto_timer.setInterval(AUTO_REFRESH_MS)
+        self.auto_timer.timeout.connect(lambda: self._previewing or self.refresh(quiet=True))
 
     # ------------------------------------------------------------------ lista
-    def refresh(self):
+    def set_last_used(self, audio: dict | None):
+        """Ostatnio nagrywane źródło (settings.last_rec["audio"]) – zaznaczane od razu, gdy jest na liście."""
+        self._last_used = dict(audio) if audio else None
+        self.list.viewport().update()
+
+    def is_last_used(self, info) -> bool:
+        lu = self._last_used
+        if not lu or info.kind != lu.get("kind"):
+            return False
+        if info.kind == "process":
+            return bool(info.exe) and info.exe.lower() == (lu.get("exe") or "").lower()
+        if info.kind == "mic":
+            return info.device_index == lu.get("device", -1)
+        return True
+
+    def refresh(self, quiet: bool = False):
+        """quiet – samoczynne odświeżenie w tle (przycisk „Odśwież” nie miga)."""
         if self._loading:
             return
         self._loading = True
-        self.btn_refresh.setEnabled(False)
+        if not quiet:
+            self.btn_refresh.setEnabled(False)
 
         def work():
             try:
@@ -180,56 +233,102 @@ class AudioSourcePicker(QWidget):
         self._loading = False
         self.btn_refresh.setEnabled(True)
         prev = self.current()
-        prev_key = (prev.kind, (prev.exe or "").lower(), prev.device_index) if prev else None
+        prev_key = _key(prev) if prev else None
         self.sources = list(sources)
         self._cur = -1
         self.monitor.set_known(s.pid for s in self.sources if s.kind == "process")
-        self._rebuild()
         idx = -1
         if prev_key:
-            idx = next((i for i, s in enumerate(self.sources)
-                        if (s.kind, (s.exe or "").lower(), s.device_index) == prev_key), -1)
+            idx = next((i for i, s in enumerate(self.sources) if _key(s) == prev_key), -1)
+        if idx < 0 and not self._user_picked:      # ostatnio używane, jeśli jest uruchomione
+            idx = next((i for i, s in enumerate(self.sources) if self.is_last_used(s)), -1)
         if idx < 0:
             idx = next((i for i, s in enumerate(self.sources) if s.kind == "process" and s.active), 0)
-        self.set_current(idx)
+        self._cur = idx if 0 <= idx < len(self.sources) else -1
+        many = len(self.sources) >= SEARCH_FROM
+        if not many and self.search.text():
+            self.search.blockSignals(True)
+            self.search.clear()
+            self.search.blockSignals(False)
+        show_if(self.search, many)
+        self._rebuild()
+        self._row_changed()
         self.loaded.emit()
 
     def _groups(self):
-        playing = [i for i, s in enumerate(self.sources) if s.kind == "process" and not s.hidden]
-        devices = [i for i, s in enumerate(self.sources) if s.kind != "process" and (self.show_all or not s.hidden)]
-        rest = [i for i, s in enumerate(self.sources) if s.kind == "process" and s.hidden]
+        q = self.search.text().strip().lower() if not self.search.isHidden() else ""
         cur = self.current_index()
-        if not self.show_all:        # wybrane źródło nie znika z listy, nawet gdy jest „schowane”
-            rest = [i for i in rest if i == cur]
-            devices += [cur] if cur >= 0 and self.sources[cur].kind != "process" and cur not in devices else []
-        return [(tr("Grają teraz"), playing), (tr("Urządzenia"), devices), (tr("Pozostałe aplikacje"), rest)]
+        if q:              # szukanie obejmuje też schowane źródła
+            def match(s):
+                return q in s.label.lower() or q in (s.exe or "").lower() or q in (s.detail or "").lower()
+            ok = [i for i, s in enumerate(self.sources) if match(s)]
+            meeting = [i for i in ok if self.sources[i].group == "meeting"]
+            playing = [i for i in ok if self.sources[i].kind == "process" and not self.sources[i].group and
+                       not self.sources[i].hidden]
+            devices = [i for i in ok if self.sources[i].kind != "process"]
+            rest = [i for i in ok if self.sources[i].kind == "process" and not self.sources[i].group and
+                    self.sources[i].hidden]
+        else:
+            meeting = [i for i, s in enumerate(self.sources) if s.group == "meeting"]
+            playing = [i for i, s in enumerate(self.sources) if s.kind == "process" and not s.group and not s.hidden]
+            devices = [i for i, s in enumerate(self.sources) if s.kind != "process" and (self.show_all or not s.hidden)]
+            rest = [i for i, s in enumerate(self.sources) if s.kind == "process" and not s.group and s.hidden]
+            if not self.show_all:        # wybrane źródło nie znika z listy, nawet gdy jest „schowane”
+                rest = [i for i in rest if i == cur]
+                devices += [cur] if cur >= 0 and self.sources[cur].kind != "process" and cur not in devices else []
+        return [(tr("Programy do spotkań i przeglądarki"), meeting), (tr("Grają teraz"), playing),
+                (tr("Urządzenia"), devices), (tr("Pozostałe aplikacje"), rest)]
 
     def _rebuild(self):
+        """Odbudowuje wiersze tylko wtedy, gdy coś się zmieniło – przewinięcie listy zostaje na miejscu."""
         cur = self.current_index()
-        self.list.blockSignals(True)
-        self.list.clear()
-        height = 4
+        rows = []
         for title, idxs in self._groups():
-            if not idxs:
-                continue
-            head = QListWidgetItem(title)
-            head.setData(R_IDX, -1)
-            head.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.list.addItem(head)
-            height += HEAD_H
-            for i in idxs:
-                it = QListWidgetItem(self.sources[i].label)
+            if idxs:
+                rows.append((-1, title))
+                rows += [(i, self.sources[i].label) for i in idxs]
+        sig = tuple((i, text, _key(self.sources[i]) if i >= 0 else None) for i, text in rows)
+        if sig != self._rows_sig:
+            self._rows_sig = sig
+            scroll = self.list.verticalScrollBar().value()
+            self.list.setUpdatesEnabled(False)
+            self.list.blockSignals(True)
+            self.list.clear()
+            for i, text in rows:
+                it = QListWidgetItem(text)
                 it.setData(R_IDX, i)
+                if i == -1:
+                    it.setFlags(Qt.ItemFlag.NoItemFlags)
+                    it.setSizeHint(QSize(0, HEAD_H))
+                else:
+                    it.setSizeHint(QSize(0, ROW_H))
                 self.list.addItem(it)
-                height += ROW_H
-                if i == cur:
-                    self.list.setCurrentItem(it)
-        self.list.blockSignals(False)
-        self.list.setFixedHeight(min(height, HEAD_H * 2 + ROW_H * 6))
+            self.list.blockSignals(False)
+            self._sync_height(rows)
+            self.list.verticalScrollBar().setValue(scroll)
+            self.list.setUpdatesEnabled(True)
+        self._select_item(cur)
+        self.list.viewport().update()
         hidden = sum(1 for s in self.sources if s.hidden)
+        searching = bool(self.search.text().strip())
         self.btn_all.setText(tr("Pokaż mniej") if self.show_all else tr("Pokaż wszystkie ({hidden})", hidden=hidden))
-        show_if(self.btn_all, hidden > 0 or self.show_all)
+        show_if(self.btn_all, (hidden > 0 or self.show_all) and not searching)
         self._update_buttons()
+
+    def _sync_height(self, rows):
+        """Lista ma wysokość treści, najwyżej MAX_ROWS wierszy – dalej przewija się sama. Przyciski są pod nią
+        w tym samym układzie, a karta wokół rośnie razem z nią."""
+        content = sum(HEAD_H if i == -1 else ROW_H for i, _ in rows) or ROW_H
+        fw = 2 * self.list.frameWidth()
+        cap = HEAD_H * 2 + ROW_H * MAX_ROWS
+        self.list.setFixedHeight(min(content, cap) + fw + 4)
+        self.list.updateGeometry()
+        w = self
+        while w is not None and not w.isWindow():       # karta, kolumna i przewijana strona przeliczają wysokość
+            w.updateGeometry()
+            if w.layout() is not None:
+                w.layout().invalidate()
+            w = w.parentWidget()
 
     def _toggle_all(self):
         self.show_all = not self.show_all
@@ -249,16 +348,30 @@ class AudioSourcePicker(QWidget):
         self._cur = idx
         if self._item_for(idx) is None:      # schowane źródło – lista pokaże je mimo to (patrz _groups)
             self._rebuild()
-        self.list.blockSignals(True)
-        self.list.setCurrentItem(self._item_for(idx))
-        self.list.blockSignals(False)
+        self._select_item(idx)
         self._row_changed()
 
+    def _select_item(self, idx: int):
+        self.list.blockSignals(True)
+        it = self._item_for(idx)
+        if it is not None:
+            self.list.setCurrentItem(it)
+        else:
+            self.list.clearSelection()
+        self.list.blockSignals(False)
+
     def _item_for(self, idx: int):
+        if idx < 0:
+            return None
         for r in range(self.list.count()):
             if self.list.item(r).data(R_IDX) == idx:
                 return self.list.item(r)
         return None
+
+    def _clicked(self, it):
+        if it is not None and isinstance(it.data(R_IDX), int) and it.data(R_IDX) >= 0:
+            self._user_picked = True
+            self.picked.emit()
 
     def _row_changed(self, *_):
         it = self.list.currentItem()
@@ -304,18 +417,20 @@ class AudioSourcePicker(QWidget):
                 starting.add(s.pid)
         if starting and not self._auto_refresh_at and not self._loading and not self._previewing:
             self._auto_refresh_at = 3000 // self.timer.interval()
-            self.refresh()
+            self.refresh(quiet=True)
 
     def start_monitor(self):
         if not self.monitor.running:
             self.monitor.set_source(self.current())
             self.monitor.start()
         self.timer.start()
+        self.auto_timer.start()
 
     def stop_monitor(self):
         """Zwalnia mikrofon i mierniki – wołane m.in. tuż przed startem nagrywania."""
         self.timer.stop()
-        self.monitor.stop()
+        self.auto_timer.stop()
+        self.monitor.stop(wait=False)          # wątek UI nie czeka – mikrofon zamknie się za chwilę
         self._levels = {}
         self.list.viewport().update()
 

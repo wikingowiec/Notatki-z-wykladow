@@ -82,6 +82,7 @@ KIND_ANCHOR = {"def": "def", "formula": "wz", "example": "prz", "important": "wa
 def _slide_figures(body: str, t, slide_times: dict, img_w: int) -> str:
     """Slajd w notatce: obraz ~300 px, obok „Slajd 6 · 31:05” i „OPIS AI” z opisem z ramki „Na slajdzie”."""
     from .storage import fmt_time
+    from .i18n import tr
     on_slide = "|".join(k for k, v in LABELS.items() if v == "slide")
     pat = re.compile(r'<p>\s*(<img (?![^>]*src="file:)[^>]*?alt="([^"]*)"[^>]*?/?>)\s*</p>\s*'
                      r'(<blockquote>\s*(<p>\s*<strong>(?:' + on_slide + r')\s*:?\s*</strong>.*?)</blockquote>)?',
@@ -102,11 +103,13 @@ def _slide_figures(body: str, t, slide_times: dict, img_w: int) -> str:
         img = re.sub(r'width="\d+"', f'width="{img_w}"', img)
         num = re.search(r"(\d+)", alt or "")
         cap = alt or ""
+        if num and re.fullmatch(r"\s*(slajd|slide)\s+\d+\s*", cap, re.IGNORECASE):
+            cap = tr("Slajd {x}", x=num.group(1))       # podpis w języku interfejsu (alt jest w języku notatki)
         if num and int(num.group(1)) in slide_times:
-            cap = f"{alt} · {fmt_time(slide_times[int(num.group(1))])}"
+            cap = f"{cap} · {fmt_time(slide_times[int(num.group(1))])}"
         desc = re.sub(r"<p>", '<p style="margin:0 0 4px 0; line-height:150%;">', desc)
         right = (f'<p style="margin:0 0 8px 0; color:{t.text2}; font-size:9.5pt; font-weight:600;">{_html.escape(cap)}</p>'
-                 + (f'<p style="margin:0 0 3px 0; color:{t.text3}; font-size:8pt; font-weight:700;">OPIS AI</p>'
+                 + (f'<p style="margin:0 0 3px 0; color:{t.text3}; font-size:8pt; font-weight:700;">{tr("OPIS AI")}</p>'
                     f'<div style="color:{t.text2}; font-size:10pt;">{desc}</div>' if desc else ""))
         return (f'<table width="100%" cellspacing="0" cellpadding="0" style="margin:14px 0 16px 0;"><tr>'
                 f'<td width="{img_w}" valign="top"><p style="margin:0; line-height:100%;">{img}</p></td><td width="16"></td>'
@@ -168,18 +171,20 @@ def style_qt(body: str, t, num_colors: dict | None = None, slide_times: dict | N
         body)
 
     # wiersz pod nagłówkiem tematu: czas · ▶ odtwórz fragment · slajdy 5–6
+    from .i18n import tr
+
     def time_line(chunk: str) -> str:
         nums = sorted({int(x) for x in re.findall(r'alt="[^"]*?(\d+)"', chunk)})
         sl = ""
         if nums:
-            sl = f"slajd {nums[0]}" if len(nums) == 1 else f"slajdy {nums[0]}–{nums[-1]}"
+            sl = tr("slajd {a}", a=nums[0]) if len(nums) == 1 else tr("slajdy {a}–{b}", a=nums[0], b=nums[-1])
 
         def repl(m):
             parts = [f'<span style="color:{t.text3};">{m.group(1)}</span>']
             if seek:
                 start = _secs(m.group(1).split("–")[0].split("-")[0].strip())
                 parts.append(f'<a href="seek:{start}" style="color:{t.accent_text}; font-weight:600; '
-                             f'text-decoration:none;">▶ odtwórz fragment</a>')
+                             f'text-decoration:none;">▶ {tr("odtwórz fragment")}</a>')
             if sl:
                 parts.append(f'<span style="color:{t.text3};">{sl}</span>')
             sep = f'<span style="color:{t.text3};"> · </span>'

@@ -295,6 +295,7 @@ _ICONS = {
     "question": '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7M12 17v.3"/>',
     "continue": '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>',
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+    "warning": '<path d="M10.3 4.2a2 2 0 0 1 3.4 0l7.6 13.1a2 2 0 0 1-1.7 3H4.4a2 2 0 0 1-1.7-3z"/><path d="M12 9.5v4.5M12 17v.3"/>',
     "chevron-left": '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
     "chevron-down": '<path d="M5.5 9.5L12 16l6.5-6.5"/>',
     "chevron-right": '<path d="M9.5 5.5L16 12l-6.5 6.5"/>',
@@ -475,6 +476,7 @@ QPushButton#chipBtn {{ min-height: 34px; padding: 0 12px; border-radius: 17px; f
     color: {t.accent_text}; background: {t.surface}; border: 1px solid {t.separator}; }}
 QPushButton#chipBtn:hover {{ border-color: {t.accent}; background: {t.accent_soft}; }}
 QPushButton#chipBtn:disabled {{ color: {t.text3}; }}
+QPushButton#chipBtn:checked {{ background: {t.highlight_soft}; border-color: {t.accent}; color: {t.text}; }}
 QPushButton#streak {{ background: transparent; border: none; color: {t.text2}; text-align: left; padding: 0 8px;
     min-height: 34px; font-weight: 600; border-radius: {R['sm']}px; }}
 QPushButton#streak[rail="true"] {{ padding: 0; text-align: center; }}
@@ -490,6 +492,7 @@ QLabel#headline {{ font-weight: 600; }}
 QLabel#secondary {{ color: {t.text2}; }}
 QLabel#footnote {{ color: {t.text2}; font-size: {pt('small')}; }}
 QLabel#caption {{ color: {t.text3}; font-size: {pt('caption')}; }}
+QLabel#schedCaption {{ color: {t.accent_text}; font-size: {pt('caption')}; font-weight: 600; }}
 QLabel#overline {{ color: {t.accent_text}; font-size: {pt('overline')}; font-weight: 700; }}
 QLabel#sectionHeader {{ color: {t.text3}; font-size: {pt('overline')}; font-weight: 700;
     padding: 0 0 0 4px; }}
@@ -507,15 +510,22 @@ QFrame#hairline {{ background: {t.separator}; max-height: 1px; min-height: 1px; 
 QFrame#card {{ background: {t.surface}; border-radius: {R['xl']}px; border: 1px solid {t.separator}; }}
 QFrame#banner {{ background: {t.accent_soft}; border-radius: {R['md']}px; border: none; }}
 QFrame#warnBanner {{ background: {t.highlight_soft}; border-radius: {R['md']}px; border: none; }}
+QFrame#healthBanner {{ background: {t.wazBg}; border-radius: {R['md']}px; border: none; border-left: 4px solid {t.wazBar}; }}
+QFrame#problemCard {{ background: {t.surface}; border-radius: {R['lg']}px; border: 1px solid {t.separator};
+    border-left: 4px solid {t.wazBar}; }}
+QFrame#problemCard[crit="true"] {{ border-left: 4px solid {t.red}; }}
+QFrame#problemItem {{ background: {t.surface2}; border-radius: {R['md']}px; border: none; }}
+QLabel#warnTitle {{ color: {t.wazText}; font-weight: 600; }}
+QLabel#errTitle {{ color: {t.red_text}; font-weight: 600; }}
 QFrame#recBar {{ background: {t.surface}; border-radius: {R['lg']}px; border: 1px solid {t.separator}; }}
 QFrame#pane {{ background: {t.surface}; border-radius: {R['lg']}px; border: 1px solid {t.separator}; }}
 
 /* --- pola --- */
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTimeEdit {{
     background: {t.surface2}; border: 1px solid {t.separator}; border-radius: {R['md']}px;
     padding: 0 12px; min-height: 38px; selection-background-color: {t.accent_soft}; selection-color: {t.text}; }}
-QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {t.line2}; }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 2px solid {focus_ring}; padding: 0 11px; }}
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QTimeEdit:hover {{ border-color: {t.line2}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTimeEdit:focus {{ border: 2px solid {focus_ring}; padding: 0 11px; }}
 QLineEdit:disabled, QComboBox:disabled {{ color: {t.text3}; background: {t.hover}; }}
 QLineEdit#search {{ background-color: {t.surface2}; border: 1px solid {t.separator}; border-radius: {R['md']}px;
     padding: 0 10px 0 34px; {lens_css} }}
@@ -551,6 +561,7 @@ QPushButton#mark {{ background: {t.mark}; border: 1px solid {t.markLine}; color:
 QPushButton#mark:checked {{ background: {t.markLine}; border-color: {t.markLine}; color: {t.text}; }}
 QPushButton:checked {{ background: {t.accent_soft}; border-color: {t.accent}; }}
 QPushButton#mark:hover {{ border-color: {t.text3}; background: {t.mark}; }}
+QPushButton#mark:disabled {{ background: {t.hover}; border-color: {t.separator}; color: {t.text3}; }}
 QPushButton#danger {{ background: {t.red}; border: none; color: {t.on_red}; }}
 QPushButton#danger:hover {{ background: {mix(t.red, t.text, 0.12)}; }}
 QPushButton#destructive {{ background: {t.red_soft}; border: none; color: {t.red_text}; }}

@@ -15,6 +15,41 @@ from .theme import T
 from ..i18n import tr
 
 
+def short_audio(label: str) -> str:
+    """„Microsoft Teams  (gra teraz)  [PID 4412]” → „Teams” (stare etykiety miały też emoji na początku)."""
+    t = re.split(r"\s{2,}|\(|\[", (label or "").lstrip("🔊🖥🎤 "))[0].strip()
+    for pre in ("Microsoft ", "Google "):
+        if t.startswith(pre) and len(t) > len(pre) + 2:
+            t = t[len(pre):]
+    if t.lower().startswith(("cały dźwięk", tr("Cały dźwięk").lower())):  # i18n: nie (stare etykiety)
+        return tr("dźwięk systemu")
+    return t[:22]
+
+
+def short_video(info) -> str:
+    if info.kind == "monitor":
+        return tr("Monitor {index}", index=info.index)
+    t = re.sub(r"\s+", " ", info.title or info.label or tr("okno")).strip()
+    return (tr("Okno: ") + t)[:26]
+
+
+def short_video_label(label: str) -> str:
+    """Etykieta ekranu/okna z meta.json („🖥 Monitor 1  (1920×1080)”, „🪟 PowerPoint – wykład”) → krótka nazwa."""
+    t = re.split(r"\s{2,}", re.sub(r"^[🖥🪟]️?\s*", "", label or ""))[0].strip()
+    return t[:26]
+
+
+def switch_note(entry: dict) -> str:
+    """Notka w transkrypcji o zmianie źródła w trakcie nagrywania (wpis z meta.switches)."""
+    if entry.get("kind") == "late":          # zaplanowane nagrywanie ruszyło po wybudzeniu komputera (2.3)
+        return tr("start spóźniony o {n} min", n=int(entry.get("minutes") or 0))
+    if entry.get("kind") == "video":
+        return tr("slajdy: {a} → {b}", a=short_video_label(entry.get("from", "")) or "—",
+                  b=short_video_label(entry.get("to", "")))
+    return tr("zmiana źródła: {a} → {b}", a=short_audio(entry.get("from", "")) or "—",
+              b=short_audio(entry.get("to", "")))
+
+
 def slide_title(text: str, limit: int = 42) -> str:
     """Pierwsza sensowna linia tekstu slajdu – do separatora w transkrypcji."""
     for line in (text or "").splitlines():
@@ -66,8 +101,8 @@ def transcript_html(items: list[dict], marks: list[dict], slide_texts: dict, liv
     return f"<body style='color:{t.text}; line-height:150%'>{''.join(out)}</body>"
 
 
-def skeleton_html(text: str) -> str:
-    """Fragment notatki w trakcie pisania: przerywana ramka z szarymi paskami."""
+def skeleton_html(text: str, head: str | None = None) -> str:
+    """Fragment notatki w trakcie pisania: przerywana ramka z szarymi paskami (head – nagłówek ramki)."""
     t = T()
     bars = "".join(
         f"<table width='100%' cellspacing='0' cellpadding='0' style='margin:0 0 10px 0;'><tr>"
@@ -76,7 +111,7 @@ def skeleton_html(text: str) -> str:
         for w in (46, 92, 84, 70))
     return (f"<table width='100%' border='1' cellspacing='0' cellpadding='16' "
             f"style='border-style:dashed; border-color:{t.line2}; margin-top:18px;'><tr><td>"
-            f"<p style='margin:0 0 12px 0; color:{t.text3}; font-size:8.5pt; font-weight:700;'>{tr('PISZĘ NASTĘPNY FRAGMENT')}</p>"
+            f"<p style='margin:0 0 12px 0; color:{t.text3}; font-size:8.5pt; font-weight:700;'>{html.escape(tr('PISZĘ NASTĘPNY FRAGMENT') if head is None else head)}</p>"
             f"{bars}<p style='margin:6px 0 0 0; color:{t.text3};'>{html.escape(text)}</p></td></tr></table>")
 
 
@@ -107,10 +142,19 @@ class CurrentSlide(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         h.addWidget(self.head, 1)
         h.addWidget(self.b_copy)
+        # „Slajdy wstrzymane” – nad podglądem, dopóki użytkownik nie wznowi zrzutów
+        self.held = QFrame()
+        self.held.setObjectName("warnBanner")
+        hl = QHBoxLayout(self.held)
+        hl.setContentsMargins(10, 5, 10, 5)
+        self.held_text = label(tr("Slajdy wstrzymane"), "footnote", wrap=True)
+        hl.addWidget(self.held_text, 1)
+        self.held.hide()
         self.left = QWidget()
         lv = QVBoxLayout(self.left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(6)
+        lv.addWidget(self.held)
         lv.addWidget(self.img)
         lv.addWidget(self.cap)
         self.right = QWidget()
@@ -148,6 +192,13 @@ class CurrentSlide(QWidget):
                           tr("<span style='color:{text3}'>Odczytuję tekst…</span>", text3=T().text3))
         self.b_copy.setEnabled(bool(self.text.strip()))
         self._fit()
+
+    def set_held(self, on: bool, hint: str = ""):
+        """Napis „Slajdy wstrzymane” nad podglądem (hint – np. skrót klawiszowy do wznowienia)."""
+        self.held_text.setText(f"<b>{html.escape(tr('Slajdy wstrzymane'))}</b>"
+                               + (f" · {html.escape(hint)}" if hint else ""))
+        from .controls import show_if
+        show_if(self.held, on)
 
     def set_horizontal(self, on: bool):
         """Wąskie okno: slajd z lewej (220 px), tekst obok."""

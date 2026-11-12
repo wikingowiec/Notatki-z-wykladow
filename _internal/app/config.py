@@ -63,6 +63,7 @@ class Settings:
     live_ctx: int = 8192                     # kontekst modelu w trakcie nagrywania (mniej pamięci GPU)
     reuse_live_notes: bool = False           # po wykładzie zostaw fragmenty napisane na żywo (szybciej)
     flashcards_per_section: int = 4
+    auto_flashcards: bool = False            # domyślny stan „Zrób fiszki z tego wykładu” (fiszki tylko na życzenie)
     notes_language: str = ""                 # domyślny język notatek: "" = jak wykład, "pl", "en", …
     describe_slides: bool = True             # opisuj obrazy/schematy/wykresy na slajdach (model widzący obrazy)
     vision_model: str = "qwen3-vl:8b-instruct"

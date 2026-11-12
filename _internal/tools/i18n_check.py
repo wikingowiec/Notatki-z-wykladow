@@ -22,7 +22,7 @@ PL_WORDS = re.compile(r"\b(nie|jest|się|na|do|w|z|ze|oraz|lub|albo|brak|plik|pl
                       r"notatka|fiszki|ustawienia|pobierz|otwórz|zapisz|usuń|dodaj|zamknij|anuluj|gotowe|błąd|"
                       r"tak|ok\.|min|sek|godz|dziś|teraz|model|nagranie|slajd|slajdy|egzamin|pytanie|pytania|"
                       r"odpowiedź|kategoria|kategorie|temat|tematy|start|stop|pauza|zapytaj|nauka|wróć|dalej|"
-                      r"wstecz|szukaj|wszystkie|przedmiot|tytuł|data|czas)\b", re.I)
+                      r"wstecz|szukaj|wszystkie|przedmiot|tytuł|data|czas|dni|jutro|za)\b", re.I)
 
 
 def load_en():
@@ -148,10 +148,12 @@ def main():
         print("BŁĄD – parametry:", w)
     all_keys, missing, missing_pl, loose_all = set(), [], [], []
     for p in sorted(APP.rglob("*.py")) + [APP.parent / "main.py"]:
-        if p.name in POMIŃ:
+        if p.name in ("i18n.py", "i18n_en.py"):
             continue
         rel = p.relative_to(APP.parent) if p.parent == APP.parent else p.relative_to(APP)
         keys, plurals, loose = scan(p)
+        if p.name in POMIŃ:           # treść notatek: klucze tr() sprawdzamy, luźnych tekstów nie
+            loose = []
         for k, ln in keys:
             all_keys.add(k)
             if k not in en:

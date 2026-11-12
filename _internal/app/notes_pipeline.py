@@ -281,8 +281,11 @@ def section_prompt(sec: Section, i: int, n: int, title: str, subject: str, lang:
     return "\n".join(parts)
 
 
-def flashcards_prompt(notes: str, k: int, lang: str = "pl", src: str = "") -> str:
-    return texts(lang, src).flashcards.format(k=k, notes=notes)
+def flashcards_prompt(notes: str, k: int, lang: str = "pl", src: str = "", avoid: Optional[list] = None) -> str:
+    """avoid – pytania, które student już ma (przy „Dodaj więcej fiszek”)."""
+    from .prompts import avoid_questions
+    p = texts(lang, src).flashcards.format(k=k, notes=notes)
+    return avoid_questions(p, lang, avoid) if avoid else p
 
 
 def summary_prompt(notes: str, title: str, subject: str, lang: str = "pl", src: str = "") -> str:
@@ -502,17 +505,194 @@ def translate_titles(llm, model: str, notes: list[str], lang: str, src: str, num
 
 
 # ---------------------------------------------------------------------------
+# 4b. fiszki – w pipeline'ie albo osobno, z gotowego notes.md („Wygeneruj fiszki” / „Dodaj więcej fiszek”)
+# ---------------------------------------------------------------------------
+@dataclass
+class CardSource:
+    """Jeden temat notatki, z którego powstają fiszki."""
+    num: int                   # numer tematu (sekcji) w notatce
+    note: str                  # notatka tematu (Markdown, z nagłówkiem ###)
+    words: int                 # długość fragmentu – od niej zależy liczba fiszek
+    start: float = 0.0         # sekunda nagrania
+    marks: list = field(default_factory=list)
+    category: str = ""
+    topic: str = ""
+
+
+_SEC_HEAD = re.compile(r"^##\s+(\d+)\.\s+(.*?)\s*$")
+_SEC_TIME = re.compile(r"^\*(\d+(?::\d+){1,2})\s*[–-]\s*(\d+(?::\d+){1,2})\*")
+_SKIP_LINE = re.compile(r"^\s*(!\[[^\]]*\]\([^)]*\)|\*\([^)]*\)\*)\s*$")     # obrazy slajdów, „(wróć do slajdu…)”
+
+
+def _clock(t: str) -> float:
+    v = 0
+    for x in t.split(":"):
+        v = v * 60 + int(x)
+    return float(v)
+
+
+def note_sources(lecture: Lecture, md: Optional[str] = None) -> list[CardSource]:
+    """Tematy z „Notatek szczegółowych” gotowego notes.md (także poprawionego ręcznie)."""
+    from .topics import category_of, clean_title, load_categories
+    md = md if md is not None else lecture.read_text(lecture.notes_path)
+    lines = md.splitlines()
+    h1 = [i for i, ln in enumerate(lines) if ln.startswith("# ")]
+    begin = h1[1] + 1 if len(h1) > 1 else 0          # pierwszy „# ” to tytuł, drugi – notatki szczegółowe
+    raw: list[dict] = []
+    cur: Optional[dict] = None
+    for ln in lines[begin:]:
+        m = _SEC_HEAD.match(ln)
+        if m:
+            cur = {"num": int(m.group(1)), "title": m.group(2).lstrip("★ ").strip(), "body": [], "t": None}
+            raw.append(cur)
+            continue
+        if cur is None or _SKIP_LINE.match(ln):
+            continue
+        tm = _SEC_TIME.match(ln.strip())
+        if tm and cur["t"] is None and not any(x.strip() for x in cur["body"]):
+            cur["t"] = (_clock(tm.group(1)), _clock(tm.group(2)))
+            continue
+        cur["body"].append(ln)
+    cats = load_categories(lecture, md)
+    marks = lecture.load_marks()
+    out = []
+    for r in raw:
+        body = "\n".join(r["body"]).strip()
+        if len(body.split()) < 8:
+            continue
+        t0, t1 = r["t"] or (0.0, 0.0)
+        kinds = sorted({mk.get("kind", "") for mk in marks
+                        if r["t"] and t0 <= float(mk.get("start", -1)) < t1 and mk.get("kind")})
+        out.append(CardSource(r["num"], f"### {r['title']}\n\n{body}", len(body.split()), t0, kinds,
+                              category_of(cats, r["num"]), clean_title(r["title"])))
+    return out
+
+
+def _qkey(q: str) -> str:
+    return re.sub(r"\W+", "", q.lower())
+
+
+def _qtoks(q: str) -> set:
+    return set(re.findall(r"\w{4,}", q.lower()))
+
+
+def card_target(minutes: float) -> int:
+    """Ile fiszek na cały wykład: ok. 1 na 2 minuty, od 12 do 60."""
+    return int(max(12, min(60, round(minutes * 0.5))))
+
+
+def generate_flashcards(lecture: Lecture, settings=None, progress: Optional[Callable[[str, float], None]] = None,
+                        cancel: Optional[threading.Event] = None, *, llm=None, model: Optional[str] = None,
+                        num_ctx: Optional[int] = None, cards_per_section: Optional[int] = None,
+                        sources: Optional[list[CardSource]] = None, replace: bool = False,
+                        span: tuple[float, float] = (0.0, 1.0), save: bool = True) -> list[dict]:
+    """Fiszki wykładu: liczba zależna od długości, bez powtórzeń, z kategorią i tematem.
+
+    sources – tematy notatki (brak = z gotowego notes.md, bez transkrypcji i notatek od nowa).
+    replace=True (pipeline): nowa talia zastępuje starą, ale fiszki z tym samym pytaniem zachowują postęp nauki.
+    replace=False („Wygeneruj fiszki” / „Dodaj więcej fiszek”): nowe fiszki dochodzą do obecnych, pytania podobne do
+    tych, które już są, odpadają. span – część paska postępu dla tego kroku. Zwraca całą talię."""
+    def prog(msg, f):
+        if progress:
+            progress(msg, span[0] + (span[1] - span[0]) * f)
+    if llm is None:
+        from .llm import Ollama
+        llm = Ollama(settings.ollama_url)
+    model = model or settings.ollama_model
+    num_ctx = int(num_ctx or (settings.ollama_ctx if settings is not None else 16384))
+    if cards_per_section is None:
+        cards_per_section = int(getattr(settings, "flashcards_per_section", 4) or 4)
+    src, lang = lecture_lang(lecture), notes_lang(lecture)
+    T = texts(lang, src)
+    if sources is None:
+        sources = note_sources(lecture)
+        if not sources:
+            raise RuntimeError(tr("W notatkach nie ma tematów, z których dałoby się zrobić fiszki."))
+    old_cards = lecture.load_flashcards()
+    more = bool(old_cards) and not replace
+    seen_q: list[set] = [] if replace else [_qtoks(c.get("q", "")) for c in old_cards]
+
+    def similar(q: str) -> bool:
+        toks = _qtoks(q)
+        for other in seen_q:
+            if toks and len(toks & other) / max(1, len(toks | other)) >= 0.6:
+                return True
+        seen_q.append(toks)
+        return False
+
+    total_words = sum(s.words for s in sources) or 1
+    minutes = (lecture.meta.duration or 0) / 60 or total_words / 130
+    target = card_target(minutes)
+    if more:                                   # „Dodaj więcej”: około połowy zwykłej liczby
+        target = max(8, target // 2)
+    n = len(sources)
+    new: list[dict] = []
+    for i, s in enumerate(sources, 1):
+        prog(tr("Fiszki: fragment {i}/{n}", i=i, n=n), (i - 1) / n)
+        if cancel is not None and cancel.is_set():
+            break
+        if not s.note:
+            continue
+        share = max(s.words, 60) / total_words
+        k = max(1, min(cards_per_section, round(target * share))) + (1 if s.marks else 0)
+        avoid = [c.get("q", "") for c in old_cards
+                 if c.get("section") == s.num or (s.topic and c.get("topic") == s.topic)][:15] if more else None
+        prompt = flashcards_prompt(s.note, k, lang, src, avoid)
+        try:
+            raw = llm.chat(model, [{"role": "system", "content": T.system}, {"role": "user", "content": prompt}],
+                           num_ctx=num_ctx, cancel=cancel, json_mode=True, temperature=0.5 if more else 0.2)
+        except Exception as e:  # noqa: BLE001
+            if cancel is not None and cancel.is_set():
+                raise
+            log.warning("fiszki %d: %s", i, e)
+            continue
+        for c in parse_flashcards(raw)[:k + 1]:
+            if similar(c["q"]):
+                continue
+            c.update({"section": s.num, "t": round(s.start, 1), "known": 0,
+                      "category": s.category, "topic": s.topic})
+            if s.marks:
+                c["marks"] = list(s.marks)
+            new.append(c)
+    if cancel is not None and cancel.is_set():
+        from .llm import Cancelled
+        raise Cancelled()
+    if replace:
+        # zachowaj postęp nauki fiszek, które się powtarzają (np. po ponownym generowaniu)
+        old = {_qkey(c.get("q", "")): c for c in old_cards}
+        for c in new:
+            o = old.get(_qkey(c["q"]))
+            if o:
+                for f in ("due", "ivl", "reps", "lapses", "known"):
+                    if f in o:
+                        c[f] = o[f]
+        cards = new
+    else:
+        cards = old_cards + new
+    prog(tr("Fiszki gotowe"), 1.0)
+    if save:
+        lecture.save_flashcards(cards)
+    return cards
+
+
+# ---------------------------------------------------------------------------
 # 5. całość
 # ---------------------------------------------------------------------------
 def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_section: int = 4,
              progress: Optional[Callable[[str, float], None]] = None,
              on_token: Optional[Callable[[str], None]] = None,
              cancel: Optional[threading.Event] = None, use_cache: bool = False,
-             vision_model: Optional[str] = None, reuse_models: Optional[list] = None) -> None:
-    """reuse_models: modele, których fragmenty (np. napisane na żywo lżejszym modelem) zostają w notatce."""
+             vision_model: Optional[str] = None, reuse_models: Optional[list] = None,
+             make_flashcards: Optional[bool] = None) -> None:
+    """reuse_models: modele, których fragmenty (np. napisane na żywo lżejszym modelem) zostają w notatce.
+    make_flashcards: robić fiszki (None = jak w meta wykładu, meta.make_flashcards)."""
+    make_cards = bool(lecture.meta.make_flashcards if make_flashcards is None else make_flashcards)
+
     def prog(msg, frac):
         if progress:
-            progress(msg, frac)
+            if not make_cards and frac >= 0:     # bez fiszek ich część paska (0,60–0,85) znika, reszta się rozciąga
+                frac = (frac if frac < 0.60 else max(0.60, frac - 0.25)) / 0.75
+            progress(msg, min(1.0, frac))
 
     title, subject = lecture.meta.title, lecture.meta.subject
     src, lang = lecture_lang(lecture), notes_lang(lecture)     # język wykładu i język notatek
@@ -629,49 +809,14 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     cat_of = {n: c["name"] for c in cats for n in c["sections"]}
     title_of = dict(titles)
 
-    # --- fiszki: liczba zależna od długości wykładu, bez powtórzeń, z kategorią i tematem ---
-    cards: list[dict] = []
-    seen_q: list[set] = []
-    total_words = sum(sec.words for sec in sections) or 1
-    minutes = (lecture.meta.duration or 0) / 60 or total_words / 130
-    target = int(max(12, min(60, round(minutes * 0.5))))
-
-    def similar(q: str) -> bool:
-        toks = set(re.findall(r"\w{4,}", q.lower()))
-        for other in seen_q:
-            if toks and len(toks & other) / max(1, len(toks | other)) >= 0.6:
-                return True
-        seen_q.append(toks)
-        return False
-    for i, (sec, note) in enumerate(zip(sections, notes), 1):
-        prog(tr("Fiszki: fragment {i}/{n}", i=i, n=n), 0.60 + 0.25 * (i - 1) / n)
-        if not note:
-            continue
-        share = max(sec.words, 60) / total_words
-        k = max(1, min(cards_per_section, round(target * share))) + (1 if sec.marks else 0)
-        try:
-            raw = chat(flashcards_prompt(note, k, lang, src), json_mode=True, temperature=0.2)
-        except Exception as e:  # noqa: BLE001
-            if cancel is not None and cancel.is_set():
-                raise
-            log.warning("fiszki %d: %s", i, e)
-            continue
-        for c in parse_flashcards(raw)[:k + 1]:
-            if similar(c["q"]):
-                continue
-            c.update({"section": i, "t": round(sec.start, 1), "known": 0,
-                      "category": cat_of.get(i, ""), "topic": title_of.get(i, "")})
-            if sec.marks:
-                c["marks"] = sec.marks
-            cards.append(c)
-    # zachowaj postęp nauki fiszek, które się powtarzają (np. po ponownym generowaniu)
-    old = {re.sub(r"\W+", "", c["q"].lower()): c for c in lecture.load_flashcards()}
-    for c in cards:
-        o = old.get(re.sub(r"\W+", "", c["q"].lower()))
-        if o:
-            for f in ("due", "ivl", "reps", "lapses", "known"):
-                if f in o:
-                    c[f] = o[f]
+    # --- fiszki (tylko gdy użytkownik ich chce; obecne fiszki wykładu zostają nietknięte) ---
+    cards: Optional[list[dict]] = None
+    if make_cards:
+        sources = [CardSource(i, note, sec.words, sec.start, list(sec.marks), cat_of.get(i, ""), title_of.get(i, ""))
+                   for i, (sec, note) in enumerate(zip(sections, notes), 1)]
+        cards = generate_flashcards(lecture, progress=prog, cancel=cancel, llm=llm, model=model, num_ctx=num_ctx,
+                                    cards_per_section=cards_per_section, sources=sources, replace=True,
+                                    span=(0.60, 0.85), save=False)
 
     # --- podsumowanie ---
     prog(tr("Podsumowanie wykładu…"), 0.86)
@@ -701,7 +846,8 @@ def generate(lecture: Lecture, llm, model: str, num_ctx: int = 16384, cards_per_
     # --- złożenie plików ---
     prog(tr("Zapisywanie…"), 0.97)
     lecture.summary_path.write_text(summary + "\n", encoding="utf-8")
-    lecture.save_flashcards(cards)
+    if cards is not None:
+        lecture.save_flashcards(cards)
     lecture.notes_path.write_text(assemble_markdown(lecture, sections, notes, summary, marked_notes, exam_items, marks),
                                   encoding="utf-8")
     lecture.meta.notes_model = model

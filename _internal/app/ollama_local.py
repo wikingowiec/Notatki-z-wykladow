@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -61,14 +62,18 @@ def start(url: str = "http://localhost:11434", wait: float = 20, exe: Optional[s
         kw["creationflags"] = NO_WINDOW | 0x00000008          # DETACHED_PROCESS
     else:
         kw["start_new_session"] = True                        # działa dalej po zamknięciu aplikacji (jak Ollama.app)
+    # Ollama działa dalej po zamknięciu aplikacji, więc w wersji ze Store nie może trzymać nic otwartego w folderach
+    # paczki (log w folderze danych, bieżący folder w WindowsApps) – inaczej Windows nie usunie danych paczki przy
+    # odinstalowaniu i nie zainstaluje jej ponownie (błąd 0x80073D05)
+    from .system import IS_STORE, data_dir
     try:
-        from .system import data_dir
-        out = open(data_dir() / "ollama.log", "ab")
+        log_dir = Path(tempfile.gettempdir()) if IS_STORE else data_dir()
+        out = open(log_dir / "ollama.log", "ab")
     except OSError:
         out = subprocess.DEVNULL
     try:
         subprocess.Popen([exe, "serve"], stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                         env=ollama_env(), close_fds=True, **kw)
+                         env=ollama_env(), close_fds=True, cwd=str(Path.home()), **kw)
     except OSError as e:
         log.warning("Nie udało się uruchomić Ollamy (%s): %s", exe, e)
         return False
@@ -82,3 +87,20 @@ def start(url: str = "http://localhost:11434", wait: float = 20, exe: Optional[s
             return True
         time.sleep(0.5)
     return is_up(url)
+
+
+def quick_is_up(url: str = "http://localhost:11434", timeout: float = 2) -> bool:
+    """Jak is_up, ale szybko, gdy Ollama nie działa (nowe w 2.3). Na Windows odmowa połączenia na localhost trwa
+    ok. 2 s (system ponawia próbę), więc najpierw patrzymy na listę procesów: bez procesu „ollama…” od razu False."""
+    if sys.platform == "win32":
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+        if host in ("localhost", "127.0.0.1", "::1"):
+            try:
+                from .audio_capture import process_table
+                table = process_table()
+            except Exception:  # noqa: BLE001
+                table = []
+            if table and not any(exe.lower().startswith("ollama") for _p, _pp, exe in table):
+                return False
+    return is_up(url, timeout)

@@ -17,12 +17,14 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout, QLab
 from ..storage import Lecture, fmt_time, list_lectures
 from ..system import IS_MAC, LIVE_RECORDING
 from .ask_panel import AskPanel
+from .live_view import short_audio, short_video, switch_note
 from .reader import Reader
 from .controls import (show_if, ModeCard, SegmentedControl, GroupSection, LevelMeter, PulseDot, RecordButton, ToggleSwitch, hbox, icon_button, label,
                        rounded_pixmap, set_icon)
 from .theme import T, qcolor, theme
 from .widgets import RoiDialog, ask_video_roi, bgr_to_qpixmap, run_async
 from ..i18n import tr
+from ..timing import StepTimer
 
 if TYPE_CHECKING:     # moduły nagrywania (WASAPI / Core Audio, zrzuty ekranu) ładują się tylko z nagrywaniem na żywo
     from ..screen_capture import VideoSourceInfo
@@ -107,24 +109,6 @@ def greeting() -> str:
 
 
 
-def short_audio(label: str) -> str:
-    """„Microsoft Teams  (gra teraz)  [PID 4412]” → „Teams” (stare etykiety miały też emoji na początku)."""
-    import re as _re
-    t = _re.split(r"\s{2,}|\(|\[", (label or "").lstrip("🔊🖥🎤 "))[0].strip()
-    for pre in ("Microsoft ", "Google "):
-        if t.startswith(pre) and len(t) > len(pre) + 2:
-            t = t[len(pre):]
-    if t.lower().startswith(("cały dźwięk", tr("Cały dźwięk").lower())):  # i18n: nie (stare etykiety)
-        return tr("dźwięk systemu")
-    return t[:22]
-
-
-def short_video(info) -> str:
-    import re as _re
-    if info.kind == "monitor":
-        return tr("Monitor {index}", index=info.index)
-    t = _re.sub(r"\s+", " ", info.title or info.label or tr("okno")).strip()
-    return (tr("Okno: ") + t)[:26]
 
 
 class RecordTab(QWidget):
@@ -139,12 +123,28 @@ class RecordTab(QWidget):
     recording_finished = Signal(object, bool)      # do MainWindow
     recording_state = Signal(bool)                 # do paska bocznego
     last_rec_changed = Signal()
+    start_done = Signal(object)                    # wynik uruchamiania nagrywania w tle
+    health_done = Signal(object, object)           # (próba startu, lista Problem) – sprawdzenie przed nagrywaniem
+    health_fixed = Signal(str, object)             # (klucz problemu, nowe problemy albo None = błąd naprawy)
+    health_progress = Signal(str, str, float)      # (klucz problemu, opis, postęp 0–1 / -1)
+    schedule_state = Signal(str)                   # zaplanowane nagrywanie: „10:15” / „jutro 8:15”, "" = brak planu
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.setObjectName("page")
         self.settings = settings
         self.session: RecordingSession | None = None
+        self._pending: dict | None = None           # nagrywanie się uruchamia (wątek roboczy)
+        self._start_thread: threading.Thread | None = None
+        self._cleanups: list = []                    # (wątek, folder) – sprzątanie po anulowanym starcie
+        self._preloaded = False
+        self._attempt: dict | None = None            # ostatnia próba startu (także po starcie – karta problemu)
+        self._fix_key = ""                           # problem naprawiany przez OllamaWatch (postęp na karcie)
+        # zaplanowane nagrywanie (2.3) – tylko w pamięci, po restarcie aplikacji znika (zob. schedule.py)
+        self._plan: dict | None = None
+        self._plan_timer = QTimer(self)
+        self._plan_timer.setInterval(1000)           # zegar ścienny sprawdzany co sekundę (uśpienie, zmiana czasu)
+        self._plan_timer.timeout.connect(self._plan_tick)
         self.rois: dict[str, tuple] = {}
         self._video_sources = []
         self._preview_img: np.ndarray | None = None
@@ -166,6 +166,10 @@ class RecordTab(QWidget):
         self.status_signal.connect(self._set_status)
         self.video_status_signal.connect(self._on_video_status)
         self.stopped_signal.connect(self._on_stopped)
+        self.start_done.connect(self._on_start_done)
+        self.health_done.connect(self._on_health_done)
+        self.health_fixed.connect(self._on_health_fixed)
+        self.health_progress.connect(lambda k, text, f: self.problem_card.set_busy(k, text, f))
         self.notes_update_signal.connect(self._on_notes_update)
         self.notes_status_signal.connect(self.live_notes_status.setText)
         theme().changed.connect(self._render_preview)
@@ -187,9 +191,19 @@ class RecordTab(QWidget):
         v.setSpacing(22)
 
         from .controls import Heading
-        self.heading = Heading(tr("Nowa notatka"), greeting() + tr(" Wybierz rodzaj notatki – transkrypcja, notatki i "
-                               "fiszki zrobią się same."), today_line())
+        self.heading = Heading(tr("Nowa notatka"), greeting() + tr(" Wybierz rodzaj notatki – transkrypcja i notatki "
+                               "zrobią się same."), today_line())
         self.setup_title = self.heading.title
+        # Ollama nie działa / brakuje modelu – baner na górze, sprawdzany w tle co ok. 10 s (healthcheck, 2.3)
+        from .health_ui import OllamaBanner, OllamaWatch
+        from ..healthcheck import needed_models
+        self.ollama_banner = OllamaBanner(self.settings, lambda: needed_models(
+            self.settings, bool(self.settings.live_notes and getattr(self, "live_cb", None) is not None
+                                and self.live_cb.isChecked() and self.live_notes_cb.isChecked()),
+            getattr(self, "mode", "av") in ("av", "slides", "files")))
+        v.addWidget(self.ollama_banner)
+        self._watch = OllamaWatch.get(self.settings)
+        self._watch.changed.connect(self._watch_changed)
         v.addWidget(self.heading)
 
         from PySide6.QtWidgets import QGridLayout
@@ -260,6 +274,9 @@ class RecordTab(QWidget):
         else:
             self.audio_picker = _NoAudioPicker()
         self.audio_picker.loaded.connect(self._apply_audio)
+        if hasattr(self.audio_picker, "set_last_used"):     # zaznacz od razu, gdy ta aplikacja jest uruchomiona
+            self.audio_picker.set_last_used((self.settings.last_rec or {}).get("audio"))
+        self._audio_active = None
         self.audio_picker.current_changed.connect(self._update_perms)
         self.video_combo = QComboBox()
         self.video_combo.setMinimumWidth(200)
@@ -329,7 +346,14 @@ class RecordTab(QWidget):
         self.row_live_notes = g3.add_row(tr("Notatki i pytania na żywo"), self.live_notes_cb,
                    tr("AI pisze notatki z każdego zakończonego fragmentu (po zmianie slajdu albo co kilka minut), "
                    "a Ty możesz zadawać pytania w trakcie wykładu. Mocniej obciąża kartę graficzną."))
+        self.cards_cb = ToggleSwitch(bool((self.settings.last_rec or {}).get("make_flashcards",
+                                                                             self.settings.auto_flashcards)))
+        self.row_cards = g3.add_row(tr("Zrób fiszki z tego wykładu"), self.cards_cb,
+                   tr("Fiszki do nauki powstaną razem z notatkami. Wyłączone – szybciej; fiszki zrobisz później "
+                   "jednym kliknięciem w widoku wykładu."))
         self.live_cb.toggled.connect(self.live_notes_cb.setEnabled)
+        self.live_cb.toggled.connect(lambda _on: self.ollama_banner.refresh())
+        self.live_notes_cb.toggled.connect(lambda _on: self.ollama_banner.refresh())
         self.g_opts = g3
 
         # dwie kolumny na szerokim ekranie, jedna na zwykłym i wąskim
@@ -366,6 +390,22 @@ class RecordTab(QWidget):
         cap.setSpacing(2)
         self.start_caption = label(tr("Rozpocznij nagrywanie"), "headline")
         cap.addWidget(self.start_caption)
+        # „Rozpocznij: Teraz | O godzinie” (2.3) – domyślnie zawsze „Teraz”
+        from .schedule_view import TimePicker
+        self.when_seg = SegmentedControl([tr("Teraz"), tr("O godzinie")])
+        self.when_seg.changed.connect(self._when_changed)
+        self.when_picker = TimePicker()
+        self.when_hint = label("", "footnote")
+        self.when_picker.use_external_hint(self.when_hint)
+        self.when_row = QWidget()
+        wr = QVBoxLayout(self.when_row)
+        wr.setContentsMargins(0, 2, 0, 2)
+        wr.setSpacing(3)
+        wr.addWidget(hbox(label(tr("Rozpocznij:"), "footnote"), self.when_seg, self.when_picker, "stretch", spacing=8))
+        wr.addWidget(self.when_hint)
+        show_if(self.when_picker, False)
+        show_if(self.when_hint, False)
+        cap.addWidget(self.when_row)
         self.setup_status = label(tr("Nagrywanie możesz zakończyć w dowolnym momencie."), "footnote", wrap=True)
         self.setup_status.setMaximumWidth(420)
         cap.addWidget(self.setup_status)
@@ -622,6 +662,8 @@ class RecordTab(QWidget):
     def set_mode(self, mode: str):
         """Dopasowuje formularz do rodzaju notatki."""
         self.mode = mode
+        if getattr(self, "ollama_banner", None) is not None:      # inny rodzaj = inne potrzebne modele
+            self.ollama_banner.refresh()
         rec = mode in ("av", "audio", "slides")
         self.g_audio.setVisible(mode in ("av", "audio"))
         self.g_slides.setVisible(mode in ("av", "slides"))
@@ -631,7 +673,8 @@ class RecordTab(QWidget):
         self.btn_start.setVisible(rec)
         self.btn_create.setVisible(not rec)
         self.start_caption.setVisible(rec)
-        self.start_caption.setText(tr("Rozpocznij zrzuty slajdów") if mode == "slides" else tr("Rozpocznij nagrywanie"))
+        show_if(self.when_row, rec and LIVE_RECORDING)
+        self._update_start_caption()
         self.setup_status.setText({
             "av": tr("Nagrywanie możesz zakończyć w dowolnym momencie."),
             "audio": tr("Nagrywanie możesz zakończyć w dowolnym momencie."),
@@ -703,6 +746,9 @@ class RecordTab(QWidget):
         self.settings.save()
         if self.continue_lecture is not None:
             lecture = self.continue_lecture
+            if lecture.meta.make_flashcards != self.cards_cb.isChecked():
+                lecture.meta.make_flashcards = self.cards_cb.isChecked()
+                lecture.save_meta()
         else:
             lecture = Lecture.create(self.settings.library_path(), self.title.text(), subject)
             lecture.meta.kind = "files"
@@ -710,6 +756,7 @@ class RecordTab(QWidget):
             if lang not in ("", "auto"):
                 lecture.meta.language = lang
             lecture.meta.notes_language = self._remember_notes_lang()
+            lecture.meta.make_flashcards = self._remember_cards()
             lecture.save_meta()
         self.files_requested.emit(lecture, audio, photos, self.straighten_cb.isChecked(), rois)
         self.audio_files.clear()
@@ -819,18 +866,85 @@ class RecordTab(QWidget):
         self.tools_b_lay.addWidget(self.btn_pause)
         self.tools_b_lay.addWidget(self.btn_stop)
         tl.addWidget(self.tools_b)
+        # wąskie okno: zmiana źródeł i „Wstrzymaj slajdy” schowane w menu „⋯”
+        self.btn_more = QToolButton()
+        self.btn_more.setObjectName("icon")
+        self.btn_more.setToolTip(tr("Źródła i slajdy"))
+        self.btn_more.setAccessibleName(tr("Źródła i slajdy"))
+        self.btn_more.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_more.setFixedSize(40, 40)
+        set_icon(self.btn_more, "more", "text", 18)
+        self.btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.more_menu = QMenu(self.btn_more)
+        self.more_menu.aboutToShow.connect(self._fill_more_menu)
+        self.btn_more.setMenu(self.more_menu)
+        self.btn_more.hide()
+        tl.addWidget(self.btn_more)
         top.addLayout(info, 1)
         self.top_tools_slot = QHBoxLayout()
         top.addLayout(self.top_tools_slot)
         fv.addLayout(top)
         self.bottom_tools_slot = QHBoxLayout()
         fv.addLayout(self.bottom_tools_slot)
+        # źródła w trakcie nagrywania: [Dźwięk: Teams ▾] [Slajdy: Monitor 1 ▾] [Wstrzymaj slajdy]
+        self.btn_src_audio = QPushButton("")
+        self.btn_src_audio.setObjectName("chipBtn")
+        set_icon(self.btn_src_audio, "speaker", "accent_text", 14)
+        self.btn_src_audio.clicked.connect(self._switch_audio)
+        self.btn_src_video = QPushButton("")
+        self.btn_src_video.setObjectName("chipBtn")
+        set_icon(self.btn_src_video, "display", "accent_text", 14)
+        self.btn_src_video.clicked.connect(self._switch_video)
+        self.btn_hold = QPushButton(tr("Wstrzymaj slajdy"))
+        self.btn_hold.setObjectName("chipBtn")
+        self.btn_hold.setCheckable(True)
+        set_icon(self.btn_hold, "pause", "accent_text", 14)
+        self.btn_hold.toggled.connect(self._toggle_hold)
+        for b_ in (self.btn_src_audio, self.btn_src_video, self.btn_hold):
+            b_.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.src_row = hbox(self.btn_src_audio, self.btn_src_video, self.btn_hold, "stretch", spacing=8)
+        fv.addWidget(self.src_row)
+        self._switching = ""             # "audio" / "video" – trwa zmiana źródła
+        self._src_names = {"audio": "", "video": ""}
+        self._update_hold_tip()
         self.rec_frame = frame
         frame.installEventFilter(self)
         v.addWidget(frame)
+        # karta „coś nie działa” po sprawdzeniu przed nagrywaniem (healthcheck)
+        from .health_ui import ProblemCard
+        self.problem_card = ProblemCard()
+        self.problem_card.action.connect(self._health_action)
+        self.problem_card.proceed.connect(self._health_proceed)
+        self.problem_card.cancel.connect(self._health_cancel)
+        self.problem_card.shown.connect(self._problem_shown)
+        # karta dostaje całe miejsce pod paskiem (z przewijaniem) – panele wracają po decyzji
+        self.problem_scroll = QScrollArea()
+        self.problem_scroll.setObjectName("page")
+        self.problem_scroll.setWidgetResizable(True)
+        self.problem_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        ps_host = QWidget()
+        ps_lay = QVBoxLayout(ps_host)
+        ps_lay.setContentsMargins(0, 0, 0, 0)
+        ps_lay.addWidget(self.problem_card)
+        ps_lay.addStretch(1)
+        self.problem_scroll.setWidget(ps_host)
+        self.problem_scroll.hide()
+        # zaplanowane nagrywanie (2.3): odliczanie na środku zamiast paneli; karta problemu może stać pod spodem
+        from .schedule_view import WaitPanel
+        self.wait_panel = WaitPanel()
+        self.wait_panel.start_now.connect(lambda: self._plan_fire(now=True))
+        self.wait_panel.change_time.connect(self._plan_change_time)
+        self.wait_panel.cancel.connect(lambda: self._cancel_plan(tr("Zaplanowane nagrywanie anulowane.")))
+        self.wait_panel.answered.connect(self._plan_answer)
+        self.wait_panel.hide()
+        v.addWidget(self.wait_panel, 1)
+        v.addWidget(self.problem_scroll, 1)
         sc = QShortcut(QKeySequence("Ctrl+M"), self)
         sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
         sc.activated.connect(lambda: self.session is not None and self.btn_mark.isVisible() and self.btn_mark.toggle())
+        sc2 = QShortcut(QKeySequence("Ctrl+Shift+S"), self)       # na Macu Qt zamienia Ctrl na ⌘
+        sc2.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        sc2.activated.connect(self._hold_shortcut)
 
         self.autostop = QFrame()
         self.autostop.setObjectName("warnBanner")
@@ -974,11 +1088,13 @@ class RecordTab(QWidget):
         self.alt_lay.setContentsMargins(0, 0, 0, 0)
         self.alt_lay.setSpacing(18)
         self.alt.hide()
-        self.live_body = QVBoxLayout()
+        self.live_panels = QWidget()             # panele transkrypcji / notatek / slajdów (chowane pod kartą problemu)
+        self.live_body = QVBoxLayout(self.live_panels)
+        self.live_body.setContentsMargins(0, 0, 0, 0)
         self.live_body.setSpacing(10)
         self.live_body.addWidget(split, 1)
         self.live_body.addWidget(self.alt, 1)
-        v.addLayout(self.live_body, 1)
+        v.addWidget(self.live_panels, 1)
         self.bottom_bar = QFrame()               # 9:16 – duże przyciski na dole
         self.bottom_bar.setObjectName("footerBar")
         self.bottom_lay = QHBoxLayout(self.bottom_bar)
@@ -1045,11 +1161,11 @@ class RecordTab(QWidget):
                 self.col_s.setMaximumHeight(16777215)
                 self.col_s.setFixedWidth(304)
                 self.slides.setWrapping(True)
-            # przyciski: w nagłówku albo w dolnym pasku (56 px)
+            # przyciski: w nagłówku albo w dolnym pasku (56 px); w oczekiwaniu na start pasek jest pusty
             if narrow:
                 self.bottom_lay.addWidget(self.tools_b)
                 self.live_v.addWidget(self.bottom_bar)
-                self.bottom_bar.show()
+                show_if(self.bottom_bar, self._plan is None)
             else:
                 self.tools.layout().addWidget(self.tools_b)
                 self.bottom_bar.hide()
@@ -1062,8 +1178,197 @@ class RecordTab(QWidget):
             else:
                 self.btn_pause.setFixedWidth(46)
             self._pause_text()
-            self.live_sub.setVisible(not narrow)
+            self.live_sub.setVisible(not narrow and bool(self.live_sub.text()))
+            self._update_src_buttons()
+        # zegar nigdy nie jest ściskany (w wąskim oknie obok stoi jeszcze przycisk „⋯”); czcionka zależy od motywu
+        self.time_label.ensurePolished()
+        self.time_label.setMinimumWidth(self.time_label.fontMetrics().horizontalAdvance(
+            self.time_label.text() or "00:00") + 6)
         self._place_tools()
+
+    # ------------------------------------------------------------------ zmiana źródeł w trakcie nagrywania
+    @staticmethod
+    def _hold_keys() -> str:
+        return "⌘⇧S" if IS_MAC else "Ctrl+Shift+S"
+
+    def _update_hold_tip(self):
+        held = self.btn_hold.isChecked()
+        self.btn_hold.setText(tr("Wznów slajdy") if held else tr("Wstrzymaj slajdy"))
+        set_icon(self.btn_hold, "play" if held else "pause", "accent_text", 14)
+        self.btn_hold.setToolTip(
+            tr("Wznów zrzuty slajdów ({keys}). Bieżący ekran porówna się z ostatnim slajdem – nic się nie zdubluje.",
+               keys=self._hold_keys()) if held else
+            tr("Wstrzymaj zrzuty slajdów ({keys}) – np. gdy prowadzący pokazuje coś, czego nie chcesz w notatkach, "
+               "albo gdy przełączasz okna. Dźwięk i transkrypcja nagrywają się dalej.", keys=self._hold_keys()))
+
+    @staticmethod
+    def _elide_chip(b: QPushButton, text: str, max_w: int = 250):
+        fm = b.fontMetrics()
+        avail = max_w - b.iconSize().width() - 36
+        b.setText(fm.elidedText(text, Qt.TextElideMode.ElideRight, avail))
+        b.setMaximumWidth(max_w)
+
+    def _update_src_buttons(self):
+        """Napisy i widoczność przycisków źródeł: w szerokim i średnim trybie rząd pod tytułem, w wąskim menu „⋯”."""
+        if not hasattr(self, "src_row"):
+            return
+        s = self.session
+        running = s is not None and self._pending is None
+        has_audio = bool(s is not None and getattr(s, "recorder", None) is not None)
+        has_video = bool(s is not None and getattr(s, "slide_rec", None) is not None)
+        starting = self._pending is not None
+        p = self._pending or {}
+        show_audio = has_audio or (starting and p.get("audio") is not None)
+        show_video = has_video or (starting and p.get("video") is not None)
+        narrow = self._live_mode == "narrow"
+        a_name, v_name = self._src_names["audio"], self._src_names["video"]
+        self._elide_chip(self.btn_src_audio, tr("Przełączam dźwięk…") if self._switching == "audio" else
+                         tr("Dźwięk: {name}", name=a_name))
+        self._elide_chip(self.btn_src_video, tr("Przełączam slajdy…") if self._switching == "video" else
+                         tr("Slajdy: {name}", name=v_name))
+        self.btn_src_audio.setToolTip(tr("Nagrywasz dźwięk z: {name}. Kliknij, żeby przełączyć na inne źródło "
+                                         "(np. z Teams na mikrofon) – nagranie się nie przerwie.", name=a_name))
+        self.btn_src_video.setToolTip(tr("Slajdy z: {name}. Kliknij, żeby wybrać inny ekran albo okno – złapane "
+                                         "slajdy zostają.", name=v_name))
+        busy = bool(self._switching)
+        self.btn_src_audio.setEnabled(running and has_audio and not busy)
+        self.btn_src_video.setEnabled(running and has_video and not busy)
+        self.btn_hold.setEnabled(running and has_video)
+        show_if(self.btn_src_audio, show_audio)
+        show_if(self.btn_src_video, show_video)
+        show_if(self.btn_hold, show_video)
+        show_if(self.src_row, (show_audio or show_video) and not narrow)
+        show_if(self.btn_more, (show_audio or show_video) and narrow)
+        self.btn_more.setEnabled(running)
+
+    def _fill_more_menu(self):
+        """Menu „⋯” w wąskim oknie – te same polecenia co rząd przycisków w szerszym."""
+        from PySide6.QtGui import QAction
+        m = self.more_menu
+        m.clear()
+        s = self.session
+        busy = bool(self._switching)
+        if s is not None and s.recorder is not None:
+            a = QAction(tr("Dźwięk: {name}…", name=self._src_names["audio"]), m)
+            a.setEnabled(not busy)
+            a.triggered.connect(self._switch_audio)
+            m.addAction(a)
+        if s is not None and s.slide_rec is not None:
+            a = QAction(tr("Slajdy: {name}…", name=self._src_names["video"]), m)
+            a.setEnabled(not busy)
+            a.triggered.connect(self._switch_video)
+            m.addAction(a)
+            a = QAction(tr("Zmień obszar slajdu"), m)
+            a.triggered.connect(self._change_live_roi)
+            m.addAction(a)
+            m.addSeparator()
+            # skrót tylko jako podpis (po \t) – działa przez QShortcut, więc bez konfliktu „niejednoznaczny skrót”
+            a = QAction((tr("Wznów slajdy") if self.btn_hold.isChecked() else tr("Wstrzymaj slajdy"))
+                        + "\t" + self._hold_keys(), m)
+            a.triggered.connect(self.btn_hold.toggle)
+            m.addAction(a)
+
+    def _hold_shortcut(self):
+        s = self.session
+        if s is not None and s.slide_rec is not None and self.stack.currentIndex() == 1 and self.btn_hold.isEnabled():
+            self.btn_hold.toggle()
+
+    def _toggle_hold(self, on: bool):
+        s = self.session
+        self._update_hold_tip()
+        if s is None or s.slide_rec is None:
+            self.cur_slide.set_held(False)
+            return
+        s.hold_slides(on)
+        self.cur_slide.set_held(on, tr("wznów: {keys}", keys=self._hold_keys()))
+        self._set_status(tr("Slajdy wstrzymane – dźwięk i transkrypcja nagrywają się dalej. Wznów przyciskiem "
+                            "„Wznów slajdy” ({keys}).", keys=self._hold_keys()) if on else
+                         tr("Slajdy wznowione – jeśli na ekranie jest ten sam slajd co przed przerwą, nie zapisze się "
+                            "drugi raz."))
+
+    def _switch_audio(self):
+        s = self.session
+        if s is None or s.recorder is None or self._switching:
+            return
+        from .source_switch import AudioSwitchDialog
+        dlg = AudioSwitchDialog(s.audio_info, self)
+        ok = dlg.exec()
+        info = dlg.result_info() if ok else None
+        monitor = getattr(dlg.picker, "monitor", None)
+        dlg.picker.stop_monitor()
+        if info is None or self.session is not s:
+            return
+        old = s.audio_info
+        self._switching = "audio"
+        self._update_src_buttons()
+        self._set_status(tr("Przełączam dźwięk na „{name}”… Nagrywanie trwa.", name=short_audio(info.label)))
+
+        def work():
+            if monitor is not None:         # zwolnij mikrofon miernika, zanim otworzy go nagrywanie
+                monitor.stop()
+            return s.switch_audio(info)
+
+        def done(entry):
+            self._switching = ""
+            if self.session is not s:
+                return
+            self._src_names["audio"] = short_audio(info.label)
+            self._titems.append({"kind": "note", "text": switch_note(entry)})
+            self._render_transcript()
+            self._update_src_buttons()
+            self._set_status(tr("Dźwięk nagrywa się teraz z „{name}”.", name=short_audio(info.label)))
+
+        def fail(e):
+            self._switching = ""
+            if self.session is not s:
+                return
+            self._update_src_buttons()
+            prev = short_audio(old.label) if old else ""
+            self._set_status(tr("Nie udało się przełączyć dźwięku – nagrywanie trwa dalej z „{name}”.", name=prev))
+            QMessageBox.warning(self, tr("Zmiana źródła dźwięku"),
+                                tr("Nie udało się otworzyć „{name}”:\n{e}\n\nNagrywanie trwa dalej z „{prev}”.",
+                                   name=short_audio(info.label), e=e, prev=prev))
+        run_async(work, done, fail)
+
+    def _switch_video(self):
+        s = self.session
+        if s is None or s.slide_rec is None or self._switching:
+            return
+        from .source_switch import VideoSwitchDialog
+        dlg = VideoSwitchDialog(s.video_info, self.rois, self._video_key, self)
+        if not dlg.exec() or self.session is not s:
+            return
+        info, roi = dlg.result()
+        if info is None:
+            return
+        self.rois = dlg.rois
+        self._switching = "video"
+        self._update_src_buttons()
+        self._set_status(tr("Przełączam slajdy na „{name}”…", name=short_video(info)))
+
+        def done(entry):
+            self._switching = ""
+            if self.session is not s:
+                return
+            self._live_roi_key = self._video_key(info)
+            self._src_names["video"] = short_video(info)
+            self._titems.append({"kind": "note", "text": switch_note(entry)})
+            self._render_transcript()
+            self._update_src_buttons()
+            self.video_status.setText("")
+            self._set_status(tr("Slajdy wykrywają się teraz z „{name}”. Wcześniejsze slajdy zostały.",
+                                name=short_video(info)) +
+                             (" " + tr("Zrzuty są wstrzymane – wznów je, gdy będziesz gotowy.") if self.btn_hold.isChecked() else ""))
+
+        def fail(e):
+            self._switching = ""
+            if self.session is not s:
+                return
+            self._update_src_buttons()
+            QMessageBox.warning(self, tr("Zmiana ekranu ze slajdami"),
+                                tr("Nie udało się przełączyć na „{name}”:\n{e}\n\nSlajdy dalej wykrywają się z "
+                                   "poprzedniego źródła.", name=short_video(info), e=e))
+        run_async(lambda: s.switch_video(info, roi), done, fail)
 
     def _pause_text(self):
         narrow = self._live_mode == "narrow"
@@ -1132,10 +1437,36 @@ class RecordTab(QWidget):
         self.audio_picker.refresh()
 
     def _apply_audio(self):
+        if self._plan is not None:          # zaplanowane nagrywanie czeka na aplikację (np. Teams)?
+            self._plan_sources_changed()
         self._match_want_audio()
-        active = sum(1 for s in self.audio_picker.sources if s.kind == "process" and s.active)
+        active = any(s.kind == "process" and (s.active or s.group == "meeting") for s in self.audio_picker.sources)
+        if active == self._audio_active:       # lista odświeża się co kilka sekund – podpis zmieniamy tylko przy zmianie
+            return
+        self._audio_active = active
         self.setup_status.setText(tr("Nagrywanie możesz zakończyć w dowolnym momencie.") if active else
                                   tr("Żadna aplikacja teraz nie gra – włącz dźwięk wykładu i odśwież listę."))
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if LIVE_RECORDING and not self._preloaded:
+            self._preloaded = True
+            QTimer.singleShot(1200, self._preload)
+
+    @staticmethod
+    def _preload():
+        """Import bibliotek nagrywania i rozpoznawania mowy w tle (sam import, bez modelu) – po wejściu na
+        „Nowa notatka”, żeby późniejszy start nagrywania nie czekał na wczytanie plików z dysku."""
+        def work():
+            steps = StepTimer("Wstępne wczytanie bibliotek")  # i18n: nie
+            for name in ("ctranslate2", "faster_whisper", "app.session"):
+                try:
+                    __import__(name)
+                    steps.step(name)
+                except Exception as e:  # noqa: BLE001
+                    steps.step(f"{name} – błąd {e.__class__.__name__}")  # i18n: nie
+            steps.done()
+        threading.Thread(target=work, name="Preload", daemon=True).start()
 
     def refresh_video(self):
         prev = self.video_combo.currentText()
@@ -1314,6 +1645,15 @@ class RecordTab(QWidget):
         self.settings.save()
         return code
 
+    def _remember_cards(self) -> bool:
+        """„Zrób fiszki z tego wykładu” – zapamiętane w last_rec na następny raz."""
+        on = self.cards_cb.isChecked()
+        lr = self.settings.last_rec or {}
+        lr["make_flashcards"] = on
+        self.settings.last_rec = lr
+        self.settings.save()
+        return on
+
     # ------------------------------------------------------------------ nagraj jak ostatnio
     def quick_label(self) -> str:
         """„Teams + Monitor 1” – co wypełni Ctrl+Shift+R (pusty tekst, gdy jeszcze nic nie nagrywano)."""
@@ -1324,7 +1664,7 @@ class RecordTab(QWidget):
     def quick_prepare(self):
         """Wypełnia formularz nowej notatki ostatnimi ustawieniami. Nagrywanie startuje dopiero po „Start”.
         Źródło, którego teraz nie ma, jest opisane pod swoim polem (i wybierze się samo po odświeżeniu listy)."""
-        if self.session is not None:
+        if self.session is not None or self._plan is not None:
             return
         self.cancel_continue()
         self.title.clear()
@@ -1340,6 +1680,7 @@ class RecordTab(QWidget):
         self.modes[mode].setChecked(True)
         self.subject.setEditText(lr.get("subject", self.settings.last_subject) or "")
         self.set_notes_lang(lr.get("notes_language", self.settings.notes_language))
+        self.cards_cb.setChecked(bool(lr.get("make_flashcards", self.settings.auto_flashcards)))
         want_v = lr.get("video") if mode in ("av", "slides") else None
         if want_v and lr.get("roi"):
             self.rois[want_v["key"]] = tuple(lr["roi"])
@@ -1360,11 +1701,11 @@ class RecordTab(QWidget):
         row.subtitle.setText(text)
         show_if(row.subtitle, text)
 
-    def _match_want_audio(self):
-        want = self._want_audio
+    def _find_audio(self, want: dict | None) -> int:
+        """Pozycja źródła {kind, exe, device} na obecnej liście (−1 = nie ma). Aplikacja po nazwie pliku (.exe), nie
+        po PID – po ponownym uruchomieniu Teams to wciąż „to samo” źródło. Grająca ma pierwszeństwo."""
         if not want:
-            self._field_warn(self.row_audio, "")
-            return
+            return -1
         idx = -1
         for i, s_ in enumerate(self.audio_picker.sources):
             if s_.kind != want.get("kind"):
@@ -1376,6 +1717,14 @@ class RecordTab(QWidget):
             idx = i
             if s_.active:
                 break
+        return idx
+
+    def _match_want_audio(self):
+        want = self._want_audio
+        if not want:
+            self._field_warn(self.row_audio, "")
+            return
+        idx = self._find_audio(want)
         if idx >= 0:
             self.audio_picker.set_current(idx)
             self._field_warn(self.row_audio, "")
@@ -1399,58 +1748,178 @@ class RecordTab(QWidget):
 
     # ------------------------------------------------------------------ nagrywanie
     def is_recording(self) -> bool:
-        return self.session is not None
+        return self.session is not None or self._pending is not None
 
     def start(self):
-        if self.session is not None or not LIVE_RECORDING:
+        """Kliknięcie przycisku startu. „Teraz”: od razu _launch. „O godzinie”: te same ustawienia zostają
+        zapamiętane w planie (tylko w pamięci), a _launch ruszy o czasie."""
+        if self.session is not None or self._pending is not None or self._plan is not None or not LIVE_RECORDING:
             return
-        from ..session import RecordingSession
+        scheduled = self.when_seg.current() == 1 and not self.when_row.isHidden()
+        cfg = self._collect(scheduled)
+        if cfg is None:
+            return
+        if scheduled:
+            self._schedule(cfg, self.when_picker.when())
+            return
+        self._launch(cfg)
+
+    def _collect(self, scheduled: bool = False) -> dict | None:
+        """Ustawienia nagrywania z formularza (z ostrzeżeniem, gdy czegoś brakuje). Przy planowaniu źródło
+        „jak ostatnio”, którego teraz nie ma (np. Teams jeszcze zamknięty), też się liczy – plan na nie poczeka."""
         mode = self.mode
-        audio = None
+        audio = audio_spec = None
         if mode in ("av", "audio"):
-            audio = self.audio_picker.current()
-            if audio is None:
-                QMessageBox.warning(self, "Nagrywanie", "Wybierz źródło dźwięku.")
-                return
-            self.audio_picker.stop_monitor()      # zwolnij mikrofon, zanim otworzy go nagrywanie
-        video = self._current_video() if mode in ("av", "slides") else None
-        if video and video.kind == "none":
-            video = None
-        if mode == "slides" and video is None:
-            QMessageBox.warning(self, "Nagrywanie", "Wybierz ekran albo okno ze slajdami.")
-            return
-        if not self._mac_permissions_ok(audio, video):
-            if self.audio_picker.isVisible():
-                self.audio_picker.start_monitor()
-            return
-        roi = self.rois.get(self._video_key(video)) if video else None
-        subject = self.subject.currentText().strip()
+            want = self._want_audio
+            if scheduled and want and self._find_audio(want) < 0:
+                audio_spec = dict(want)
+            else:
+                audio = self.audio_picker.current()
+                if audio is None:
+                    QMessageBox.warning(self, tr("Nagrywanie"), tr("Wybierz źródło dźwięku."))
+                    return None
+                audio_spec = self._audio_spec(audio)
+        video = video_spec = None
+        if mode in ("av", "slides"):
+            want = self._want_video
+            if scheduled and want and not any(self._video_key(v) == want.get("key") for v in self._video_sources):
+                video_spec = dict(want)
+            else:
+                video = self._current_video()
+                if video and video.kind == "none":
+                    video = None
+                if video is not None:
+                    video_spec = {"key": self._video_key(video), "label": short_video(video)}
+        if mode == "slides" and video_spec is None:
+            QMessageBox.warning(self, tr("Nagrywanie"), tr("Wybierz ekran albo okno ze slajdami."))
+            return None
+        from types import SimpleNamespace
+        a_check = audio if audio is not None else (SimpleNamespace(kind=audio_spec["kind"]) if audio_spec else None)
+        if not self._mac_permissions_ok(a_check, video if video is not None else video_spec):
+            return None
+        return {"mode": mode, "audio": audio, "audio_spec": audio_spec, "video": video, "video_spec": video_spec,
+                "roi": self.rois.get(video_spec["key"]) if video_spec else None,
+                "title": self.title.text(), "subject": self.subject.currentText().strip(),
+                "notes_language": self.notes_lang_combo.currentData() or "",
+                "make_flashcards": self.cards_cb.isChecked(),
+                "language": self.lang_combo.currentData(),
+                "live": self.live_cb.isChecked(),
+                "live_notes": self.live_cb.isChecked() and self.live_notes_cb.isChecked(),
+                "continue_lecture": self.continue_lecture}
+
+    @staticmethod
+    def _audio_spec(audio) -> dict:
+        return {"kind": audio.kind, "exe": audio.exe, "label": short_audio(audio.label), "device": audio.device_index}
+
+    def _start_busy(self, cont) -> bool:
+        """Poprzednie (anulowane) uruchamianie jeszcze się sprząta – nowe musi chwilę poczekać."""
+        self._cleanups = [(th, f) for th, f in self._cleanups if th.is_alive()]
+        busy_folder = cont is not None and any(f == cont.folder for _th, f in self._cleanups)
+        return busy_folder or (self._start_thread is not None and self._start_thread.is_alive())
+
+    def _launch(self, cfg: dict, late_min: int = 0) -> bool:
+        """Start nagrywania w dwóch krokach – wspólny dla „Teraz” i zaplanowanego. W wątku UI tylko to, co szybkie:
+        ustawienia, nowy folder wykładu i przejście na ekran nagrywania w stanie „Uruchamiam nagrywanie…”. Dźwięk,
+        ekran, slajdy i silnik mowy uruchamiają się w wątku roboczym – wynik wraca sygnałem start_done
+        (_on_start_done). late_min – zaplanowany start po uśpieniu komputera (notka w transkrypcji)."""
+        if self.session is not None or self._pending is not None:
+            return False
+        if self._start_busy(cfg["continue_lecture"]):
+            self.setup_status.setText(tr("Kończę poprzednie uruchamianie – spróbuj za chwilę."))
+            return False
+        steps = StepTimer("Start nagrywania – wątek UI")  # i18n: nie
+        mode, audio, video, roi, subject = cfg["mode"], cfg["audio"], cfg["video"], cfg["roi"], cfg["subject"]
         self.settings.last_subject = subject
         self.settings.last_rec = {
             "mode": mode,
-            "audio": ({"kind": audio.kind, "exe": audio.exe, "label": short_audio(audio.label),
-                       "device": audio.device_index} if audio else None),
+            "audio": self._audio_spec(audio) if audio else None,
             "video": ({"key": self._video_key(video), "label": short_video(video)} if video else None),
             "roi": list(roi) if roi else None,
             "subject": subject,
-            "notes_language": self.notes_lang_combo.currentData() or "",
+            "notes_language": cfg["notes_language"],
+            # kontynuacja pokazuje stan tamtego wykładu – nie zmienia zapamiętanego wyboru dla nowych
+            "make_flashcards": bool((self.settings.last_rec or {}).get("make_flashcards", self.settings.auto_flashcards)
+                                    if cfg["continue_lecture"] is not None else cfg.get("make_flashcards", False)),
         }
         self.settings.save()
+        if audio is not None and hasattr(self.audio_picker, "set_last_used"):
+            self.audio_picker.set_last_used(self.settings.last_rec["audio"])
         self._want_audio = self._want_video = None
         self._field_warn(self.row_audio, "")
         self._field_warn(self.row_video, "")
         self.last_rec_changed.emit()
-        continuing = self.continue_lecture is not None
+        steps.step("ustawienia")
+        lecture = cfg["continue_lecture"]
+        continuing = lecture is not None
+        pending = {"continuing": continuing, "cancelled": False, "sess": None, "err": "",
+                   "audio": audio, "video": video, "subject": subject, "clicked": steps.t0, "late_min": late_min}
         if continuing:
-            lecture = self.continue_lecture
-            parts_before = [dict(p) for p in (lecture.meta.parts or [])]
-            duration_before = lecture.meta.duration
-            status_before = lecture.meta.status
+            pending.update(parts_before=[dict(p) for p in (lecture.meta.parts or [])],
+                           duration_before=lecture.meta.duration, status_before=lecture.meta.status)
+            if "make_flashcards" in cfg and lecture.meta.make_flashcards != bool(cfg["make_flashcards"]):
+                lecture.meta.make_flashcards = bool(cfg["make_flashcards"])
+                lecture.save_meta()
         else:
-            lecture = Lecture.create(self.settings.library_path(), self.title.text(), subject)
+            lecture = Lecture.create(self.settings.library_path(), cfg["title"], subject)
             lecture.meta.kind = mode
-            lecture.meta.notes_language = self.notes_lang_combo.currentData() or ""
+            lecture.meta.notes_language = cfg["notes_language"]
+            lecture.meta.make_flashcards = bool(cfg.get("make_flashcards", False))
             lecture.save_meta()
+        pending["lecture"] = lecture
+        steps.step("Lecture.create")
+        live = cfg["live"]
+        live_notes = cfg["live_notes"]
+        language = self._language_for(cfg)
+        self._pending = pending
+        self._show_starting(lecture, audio, video, subject, live and audio is not None, live_notes and audio is not None)
+        steps.step("ekran nagrywania")
+        cb = dict(on_segments=self.segments_signal.emit,
+                  on_slide=lambda ev, path: self.slide_signal.emit(ev.index, ev.is_new, path or "", ev.t, ev.updated),
+                  on_status=self.status_signal.emit, on_video_status=self.video_status_signal.emit,
+                  on_notes_update=self.notes_update_signal.emit, on_notes_status=self.notes_status_signal.emit)
+        settings = self.settings
+        monitor = getattr(self.audio_picker, "monitor", None)
+
+        def work():
+            sess = None
+            try:
+                if monitor is not None:          # zwolnij mikrofon miernika, zanim otworzy go nagrywanie
+                    monitor.stop()
+                from ..session import RecordingSession
+                sess = RecordingSession(lecture, settings, audio, video, roi, live_transcription=live,
+                                        live_notes=live_notes, language=language, **cb)
+                pending["sess"] = sess
+                sess.start()
+            except Exception as e:  # noqa: BLE001
+                log.exception("start")
+                pending["err"] = str(e) or e.__class__.__name__
+                if sess is not None:
+                    try:
+                        if sess.slide_rec:
+                            sess.slide_rec.stop()
+                        if sess.recorder:
+                            sess.recorder.stop()
+                    except Exception:  # noqa: BLE001
+                        log.exception("start: sprzątanie")
+            self.start_done.emit(pending)
+
+        self._start_thread = threading.Thread(target=work, name="RecordingStart", daemon=True)
+        self._start_thread.start()
+        self._attempt = pending
+        self._start_healthcheck(pending, audio, video, live_notes)
+        steps.done()
+        return True
+
+    def _language_for(self, cfg: dict) -> str:
+        """Język wykładu dla sesji (kontynuacja trzyma się języka wykrytego wcześniej)."""
+        lec = cfg["continue_lecture"]
+        lang = (lec.meta.language or cfg["language"]) if lec is not None else cfg["language"]
+        return lang or self.settings.language
+
+    def _show_starting(self, lecture, audio, video, subject: str, live: bool, notes_on: bool):
+        """Ekran nagrywania od razu po kliknięciu: szkielet paneli, pulsująca kropka, aktywne tylko „Anuluj”."""
+        from .live_view import skeleton_html
+        t = T()
         self.transcript.clear()
         self.slides.clear()
         self.cur_slide.set_slide(None)
@@ -1460,43 +1929,28 @@ class RecordTab(QWidget):
         self.slides_title.setText(tr("SLAJDY · 0"))
         self.video_status.setText("")
         self.meter.reset()
+        self.time_label.setText("00:00")
         self._live_roi_key = self._video_key(video) if video else None
-        sess = RecordingSession(
-            lecture, self.settings, audio, video, roi, live_transcription=self.live_cb.isChecked(),
-            on_segments=self.segments_signal.emit,
-            on_slide=lambda ev, path: self.slide_signal.emit(ev.index, ev.is_new, path or "", ev.t, ev.updated),
-            on_status=self.status_signal.emit,
-            on_video_status=self.video_status_signal.emit,
-            live_notes=self.live_cb.isChecked() and self.live_notes_cb.isChecked(),
-            on_notes_update=self.notes_update_signal.emit,
-            on_notes_status=self.notes_status_signal.emit,
-            language=(lecture.meta.language or self.lang_combo.currentData()) if continuing else self.lang_combo.currentData(),
-        )
-        try:
-            sess.start()
-        except Exception as e:  # noqa: BLE001
-            log.exception("start")
-            try:
-                if sess.slide_rec:
-                    sess.slide_rec.stop()
-                if sess.recorder:
-                    sess.recorder.stop()
-            except Exception:
-                pass
-            if continuing:        # przywróć stan wykładu sprzed próby
-                lecture.meta.parts, lecture.meta.duration, lecture.meta.status = parts_before, duration_before, status_before
-                lecture.save_meta()
-            else:
-                shutil.rmtree(lecture.folder, ignore_errors=True)
-            QMessageBox.critical(self, "Nie udało się rozpocząć nagrywania", str(e))
-            if self.audio_picker.isVisible():
-                self.audio_picker.start_monitor()
-            return
-        self.session = sess
-        self._last_sound = 0.0
-        self._autostop_deadline = None
-        self._autostop_snooze = 0.0
         self.autostop.hide()
+        self.problem_card.set_problems([])
+        self.rec_label.setText(tr("URUCHAMIAM NAGRYWANIE…"))
+        self.live_title.setText(lecture.meta.title)
+        # źródła widać na przyciskach pod tytułem – w podtytule zostaje przedmiot i to, czego nie nagrywamy
+        self.live_sub.setText(" · ".join(x for x in [subject, "" if audio else tr("bez dźwięku"),
+                                                      "" if video else tr("bez slajdów")] if x))
+        self._src_names = {"audio": short_audio(audio.label) if audio else "",
+                           "video": short_video(video) if video else ""}
+        self._switching = ""
+        self.btn_hold.blockSignals(True)
+        self.btn_hold.setChecked(False)
+        self.btn_hold.blockSignals(False)
+        self._update_hold_tip()
+        self.cur_slide.set_held(False)
+        self._set_status(tr("Uruchamiam nagrywanie…"))
+        for w_ in (self.meter, self.btn_mark, self.btn_mark_kind):
+            w_.setVisible(audio is not None)
+        for b_ in (self.btn_mark, self.btn_mark_kind, self.btn_pause):
+            b_.setEnabled(False)
         self.btn_mark.blockSignals(True)
         self.btn_mark.setChecked(False)
         self._set_mark_kind("important")
@@ -1504,41 +1958,727 @@ class RecordTab(QWidget):
         self.btn_pause.blockSignals(True)
         self.btn_pause.setChecked(False)
         self.btn_pause.blockSignals(False)
-        self.rec_label.setText(tr("NAGRYWANIE"))
-        self._marks_count = 0
-        self.live_title.setText(lecture.meta.title + (tr("  ·  część {part_index}", part_index=sess.part_index) if sess.is_continuation else ""))
-        src = audio.label if audio else ""
-        self.live_sub.setText(" · ".join(x for x in [subject, tr("dźwięk: {src}", src=src) if audio else tr("bez dźwięku"),
-                                                      tr("slajdy: {src}", src=self.video_combo.currentText()) if video else tr("bez slajdów")] if x))
-        if audio is None:
-            self._set_status(tr("Zrzuty slajdów – notatka powstanie z ich treści po zakończeniu."))
-        else:
-            self._set_status(tr("Ładowanie modelu rozpoznawania mowy…") if sess.live else
-                             tr("Nagrywanie – transkrypcja zrobi się po zakończeniu."))
-        for w_ in (self.meter, self.btn_mark, self.btn_mark_kind):
-            w_.setVisible(audio is not None)
-        show_if(self.btn_live_roi, sess.slide_rec is not None)
-        self._has_text = False
-        if continuing:            # pokaż dotychczasową transkrypcję – nowa część dopisze się pod nią
-            self._titems = [dict(x, kind="seg") for x in lecture.load_segments()[-40:]]
-            self._titems.append({"kind": "note", "text": tr("część {part_index}", part_index=sess.part_index)})
-        self._render_transcript()
-        self._setup_live_panels(sess)
+        show_if(self.btn_live_roi, False)
+        self.btn_stop.setText(tr("Anuluj"))
+        self.btn_stop.setToolTip(tr("Przerwij uruchamianie – nic nie zostanie nagrane"))
+        set_icon(self.btn_stop, "xmark", "on_red", 16)
         self.btn_stop.setEnabled(True)
+        self._has_text = False
+        self._setup_live_panels(lecture, audio is not None, live, notes_on)
+        self.live_ask_field.setEnabled(False)
+        self.transcript.setHtml(f"<body style='color:{t.text2}'>" + skeleton_html(tr("Pierwszy fragment tekstu pojawi się po około 20–30 sekundach mowy."), tr("TRANSKRYPCJA")) + "</body>")
         self.stack.setCurrentIndex(1)
         self._live_mode = None
+        self._update_src_buttons()
         QTimer.singleShot(0, self._relayout_live)
+        self._ticks = 0
         self.timer.start()
         self.recording_state.emit(True)
 
-    def _setup_live_panels(self, sess):
+    def _on_start_done(self, pending: dict):
+        sess, err = pending.get("sess"), pending.get("err")
+        if pending.get("handled"):
+            return
+        pending["handled"] = True
+        if self._pending is pending:
+            self._pending = None
+        if pending["cancelled"]:            # „Anuluj” w trakcie uruchamiania – zatrzymaj i posprzątaj w tle
+            def undo():
+                if sess is not None and not err:
+                    try:
+                        sess.stop()
+                    except Exception:  # noqa: BLE001
+                        log.exception("anulowanie: stop")
+                self._undo_start(pending)
+            th = threading.Thread(target=undo, name="RecordingCancel", daemon=True)
+            th.start()
+            self._cleanups.append((th, pending["lecture"].folder))
+            return
+        if err:
+            self._undo_start(pending)
+            self._show_start_failed(pending)
+            return
+        self._started(sess, pending)
+
+    @staticmethod
+    def _undo_start(pending: dict):
+        """Sprzątanie po nieudanym / anulowanym starcie: nowy wykład znika, kontynuowany wraca do stanu sprzed próby
+        (bez pliku nowej części)."""
+        lecture, sess = pending["lecture"], pending.get("sess")
+        try:
+            if pending["continuing"]:
+                m = lecture.meta
+                m.parts, m.duration, m.status = (pending["parts_before"], pending["duration_before"],
+                                                 pending["status_before"])
+                lecture.save_meta()
+                new = getattr(sess, "part_file", None) if sess is not None else None
+                if new and new not in {p_.get("file") for p_ in pending["parts_before"]}:
+                    (lecture.folder / new).unlink(missing_ok=True)
+            else:
+                shutil.rmtree(lecture.folder, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            log.exception("sprzątanie po starcie")
+
+    def _back_to_setup(self):
+        """Powrót do ekranu ustawień (start nieudany albo anulowany)."""
+        self.timer.stop()
+        self.problem_card.set_problems([])
+        self.btn_stop.setEnabled(True)
+        self.btn_stop.setText(tr("Zakończ"))
+        self.btn_stop.setToolTip(tr("Zakończ nagrywanie – notatki zrobią się same"))
+        set_icon(self.btn_stop, "stop", "on_red", 16)
+        self.stack.setCurrentIndex(0)
+        self.recording_state.emit(False)
+        if self.audio_picker.isVisible():
+            self.audio_picker.start_monitor()
+
+    def _cancel_start(self):
+        p = self._pending
+        if p is None:
+            return
+        p["cancelled"] = True
+        self._pending = None
+        self._back_to_setup()
+        self.setup_status.setText(tr("Nagrywanie anulowane."))
+
+    # ------------------------------------------------------------------ zaplanowane nagrywanie (2.3)
+    # Plan żyje tylko w pamięci (self._plan). Chwila startu to data i godzina z zegara ściennego; timer co sekundę
+    # porównuje ją z datetime.now(), więc uśpienie komputera i zmiana czasu niczego nie rozjeżdżają.
+    def has_plan(self) -> bool:
+        return self._plan is not None
+
+    def plan_when_text(self) -> str:
+        """„o 10:15” / „jutro o 8:15” – np. do pytania przy zamykaniu okna."""
+        from .. import schedule as sch
+        return sch.when_text(self._plan["at"]) if self._plan else ""
+
+    def _when_changed(self, i: int):
+        from .. import schedule as sch
+        on = i == 1
+        if on:
+            self.when_picker.set_time(sch.next_quarter())
+        show_if(self.when_picker, on)
+        show_if(self.when_hint, on)
+        self._update_start_caption()
+
+    def _reset_when(self):
+        """Po starcie albo anulowaniu planu formularz wraca do „Teraz”."""
+        self.when_seg.buttons[0].setChecked(True)
+        self._when_changed(0)
+
+    def _update_start_caption(self):
+        scheduled = self.when_seg.current() == 1 and self.mode != "files"
+        text = tr("Zaplanuj nagrywanie") if scheduled else (
+            tr("Rozpocznij zrzuty slajdów") if self.mode == "slides" else tr("Rozpocznij nagrywanie"))
+        self.start_caption.setText(text)
+        self.btn_start.setToolTip(text)
+        self.btn_start.setAccessibleName(text)
+        self.btn_start.set_scheduled(scheduled)
+
+    def _schedule(self, cfg: dict, at):
+        """„Zaplanuj nagrywanie”: ekran oczekiwania, od razu sprawdzenie (żeby był czas na naprawę), komputer nie zaśnie."""
+        from .. import schedule as sch
+        self._plan = {"scheduled": True, "cancelled": False, "cfg": cfg, "at": at, "audio": cfg["audio"],
+                      "video": cfg["video"], "warmed": False, "due": False, "late_ok": False, "start_now": False,
+                      "retry_at": 0.0, "refreshed": False, "wait_src": False, "last_list": 0.0}
+        self._attempt = self._plan
+        sch.awake().hold("plan")
+        self._show_waiting()
+        self._plan_resolve()
+        self._plan_check(warm=False)
+        self.schedule_state.emit(sch.short_when(at))
+        self._plan_timer.start()
+        self._plan_tick()                        # pierwszy tick od razu (może też od razu wystartować)
+        log.info("Zaplanowane nagrywanie: %s (%s)", at.isoformat(timespec="minutes"), cfg["mode"])
+
+    def _show_waiting(self):
+        """Ten sam ekran co nagrywanie: pasek z tytułem na górze, odliczanie na środku zamiast paneli."""
+        cfg = self._plan["cfg"]
+        cont = cfg["continue_lecture"]
+        self.timer.stop()
+        self.autostop.hide()
+        self.problem_card.set_problems([])
+        self.wait_panel.clear_ask()
+        self.rec_label.setText(tr("ZAPLANOWANE NAGRYWANIE"))
+        self.live_title.setText(cfg["title"].strip() or (cont.meta.title if cont is not None else tr("Nowa notatka")))
+        self.live_sub.setText(cfg["subject"])
+        self._set_status("")
+        self.video_status.setText("")
+        self._set_wait_mode(True)
+        self.stack.setCurrentIndex(1)
+
+    def _set_wait_mode(self, on: bool):
+        show_if(self.wait_panel, on)
+        show_if(self.dot, not on)
+        show_if(self.tools, not on)
+        show_if(self.live_panels, not on and self.problem_card.isHidden())
+        if on:
+            for w_ in (self.src_row, self.btn_more, self.bottom_bar):
+                show_if(w_, False)
+        else:
+            self._live_mode = None          # przyciski nagrywania wracają na swoje miejsce (także dolny pasek)
+            self._relayout_live()
+            self._update_src_buttons()
+
+    def _plan_tick(self):
+        """Co sekundę (QTimer, bez blokowania): odliczanie, odświeżanie źródeł, przygotowanie ok. 2 min przed, start."""
+        import time as _t
+        from datetime import datetime
+        from .. import schedule as sch
+        p = self._plan
+        if p is None:
+            self._plan_timer.stop()
+            return
+        left = (p["at"] - datetime.now()).total_seconds()
+        mono = _t.monotonic()
+        every = 3 if (p["due"] or left < sch.PREPARE_S + 30) else 10
+        if mono - p["last_list"] >= every:      # czy aplikacja / okno już są? (lista dźwięku zbiera się w tle)
+            p["last_list"] = mono
+            self.audio_picker.refresh(quiet=True)
+            self._plan_refresh_video()
+            if p["due"] and p["wait_src"]:
+                self._plan_try_fire()
+                return
+        if not p["warmed"] and left <= sch.PREPARE_S:
+            p["warmed"] = True
+            self._plan_prepare()
+        if p["due"]:
+            if p["retry_at"] and mono >= p["retry_at"]:
+                p["retry_at"] = 0.0
+                self._plan_try_fire()
+            return
+        if left <= 0:
+            p["due"] = True
+            late = -left
+            if late > sch.LATE_OK_S and not p["late_ok"]:
+                self._plan_ask_late(late)
+            else:
+                self._plan_try_fire()
+            return
+        self._plan_texts(left)
+
+    def _plan_texts(self, left: float, big: str = ""):
+        from .. import schedule as sch
+        p = self._plan
+        cfg = p["cfg"]
+        parts = [sch.when_text(p["at"])]
+        if cfg["audio_spec"]:
+            parts.append(cfg["audio_spec"].get("label") or tr("dźwięk"))
+        if cfg["video_spec"]:
+            parts.append(tr("slajdy: {name}", name=cfg["video_spec"].get("label") or ""))
+        note = self._plan_missing()
+        if not note and not big:             # przy pytaniu / starcie zostaje tylko informacja o brakującym źródle
+            note = (tr("Wszystko gotowe – nagrywanie ruszy samo.") if p["warmed"] else
+                    tr("Komputer nie zaśnie do startu – zostaw aplikację otwartą. Ekran może się wygasić."))
+        self.wait_panel.set_texts(big or sch.countdown_text(left), " · ".join(parts), note)
+
+    def _plan_missing(self) -> str:
+        """Opis brakującego źródła ("" = wszystko jest)."""
+        p = self._plan
+        cfg = p["cfg"]
+        a, v = cfg["audio_spec"], cfg["video_spec"]
+        if a and p["audio"] is None:
+            name = a.get("label") or tr("wybrana aplikacja")
+            if a.get("kind") == "process":
+                return tr("Czekam na „{name}” – uruchom ją przed startem, nagrywanie zacznie się samo.", name=name)
+            return tr("Źródło dźwięku „{name}” jest teraz niedostępne – podłącz je przed startem.", name=name)
+        if v and p["video"] is None:
+            name = v.get("label") or ""
+            if str(v.get("key", "")).startswith("window:"):
+                return tr("Okno „{name}” jest teraz niedostępne – otwórz je przed startem.", name=name)
+            return tr("Ekran „{name}” jest teraz niedostępny – podłącz go przed startem.", name=name)
+        return ""
+
+    def _plan_resolve(self):
+        """Źródła z planu na obecnych listach (Teams po ponownym uruchomieniu ma nowy PID – szukamy po .exe)."""
+        p = self._plan
+        cfg = p["cfg"]
+        a = v = None
+        if cfg["audio_spec"]:
+            idx = self._find_audio(cfg["audio_spec"])
+            a = self.audio_picker.sources[idx] if idx >= 0 else None
+        if cfg["video_spec"]:
+            key = cfg["video_spec"].get("key")
+            v = next((x for x in self._video_sources if self._video_key(x) == key), None)
+        p["audio"], p["video"] = a, v
+
+    def _plan_refresh_video(self):
+        """Lista ekranów i okien dla planu (bez przebudowy pola wyboru na ukrytym formularzu)."""
+        p = self._plan
+        if p is None or not p["cfg"]["video_spec"] or not LIVE_RECORDING:
+            return
+        try:
+            from ..screen_capture import list_monitors, list_windows
+            self._video_sources = list_monitors() + list_windows()
+        except Exception:  # noqa: BLE001
+            log.exception("lista ekranów (plan)")
+        self._plan_resolve()
+
+    def _plan_sources_changed(self):
+        """Nowa lista dźwięku – może aplikacja z planu już działa."""
+        from datetime import datetime
+        p = self._plan
+        self._plan_resolve()
+        if p["due"]:
+            if (p["wait_src"] or p["retry_at"]) and not self._plan_missing():
+                p["retry_at"] = 0.0
+                self._plan_try_fire()
+            return
+        self._plan_texts((p["at"] - datetime.now()).total_seconds())
+
+    def _plan_check(self, warm: bool = True):
+        """Sprawdzenie z healthcheck.py w tle. Brakującego źródła nie zgłaszamy – na nie plan czeka (notka pod
+        odliczaniem). warm=True (ok. 2 min przed) ładuje też model notatek na żywo w Ollamie (keep_alive)."""
+        p = self._plan
+        if p is None:
+            return
+        self._start_healthcheck(p, p["audio"], p["video"], p["cfg"]["live_notes"], warm=warm)
+
+    def _plan_health_done(self, probs: list):
+        if not probs or self._fix_key:          # naprawa trwa – nie podmieniaj karty pod ręką
+            return
+        self.problem_card.set_problems(probs, waiting=True)
+
+    def _plan_prepare(self):
+        """Ok. 2 min przed startem: drugie sprawdzenie i rozgrzanie modeli, żeby start był natychmiastowy."""
+        p = self._plan
+        cfg = p["cfg"]
+        self.audio_picker.refresh(quiet=True)
+        self._plan_refresh_video()
+        self._plan_check(warm=True)
+        if cfg["live"] and cfg["audio_spec"]:
+            try:
+                from ..transcriber import prewarm
+                prewarm(self.settings, self._language_for(cfg), low_vram=cfg["live_notes"])
+            except Exception:  # noqa: BLE001
+                log.exception("rozgrzanie Whispera")
+        if cfg["live_notes"] and cfg["audio_spec"] and p["audio"] is None:
+            # sprawdzenie bez źródła dźwięku nie rozgrzeje modelu notatek na żywo – zrób to osobno
+            settings = self.settings
+
+            def work():
+                from .. import ollama_local
+                from ..healthcheck import warm_up
+                if settings.live_model and ollama_local.quick_is_up(settings.ollama_url, timeout=1.5):
+                    warm_up(settings.ollama_url, settings.live_model, int(getattr(settings, "live_ctx", 8192)))
+            threading.Thread(target=work, name="PlanWarmUp", daemon=True).start()
+
+    def _plan_try_fire(self):
+        """Pora startu: źródła są → start; nie ma → chwila na odświeżenie listy, potem pytanie (nigdy start z niczego)."""
+        import time as _t
+        p = self._plan
+        if p is None:
+            return
+        self._plan_refresh_video()
+        self._plan_resolve()
+        if not self._plan_missing():
+            self._plan_launch()
+            return
+        if not p["refreshed"]:                   # lista dźwięku mogła być sprzed kilku sekund – odśwież i daj 4 s
+            p["refreshed"] = True
+            p["retry_at"] = _t.monotonic() + 4
+            self.audio_picker.refresh(quiet=True)
+            self._plan_texts(0, tr("Uruchamiam nagrywanie…"))
+            return
+        if p["wait_src"]:
+            self._plan_texts(0, tr("Czekam na źródło…"))
+            return
+        self._plan_ask_source()
+
+    def _plan_ask_late(self, late: float):
+        from .. import schedule as sch
+        from .schedule_view import notify
+        p = self._plan
+        n = sch.late_minutes(late)
+        self._plan_texts(0, tr("Nagrywanie się nie rozpoczęło"))
+        self.wait_panel.ask("late", tr("Zaplanowany start ({time}) minął {n} min temu", time=sch.clock(p["at"]), n=n),
+                            tr("Komputer był chyba uśpiony. Zacząć nagrywanie teraz?"),
+                            [("late_go", tr("Zacznij teraz"), True), ("cancel", tr("Anuluj"), False)])
+        notify(tr("Zaplanowane nagrywanie"), tr("Start minął {n} min temu – zacząć teraz?", n=n))
+
+    def _plan_ask_source(self):
+        from .schedule_view import notify
+        p = self._plan
+        cfg = p["cfg"]
+        audio_missing = bool(cfg["audio_spec"]) and p["audio"] is None
+        spec = cfg["audio_spec"] if audio_missing else cfg["video_spec"]
+        name = (spec or {}).get("label") or ""
+        title = (tr("Pora nagrywania, ale „{name}” nadal nie działa", name=name) if audio_missing else
+                 tr("Pora nagrywania, ale „{name}” jest niedostępne", name=name))
+        self._plan_texts(0, tr("Nagrywanie się nie rozpoczęło"))
+        self.wait_panel.ask("source", title,
+                            tr("Bez źródła nagrywanie się nie zacznie. Uruchom aplikację – nagrywanie ruszy samo, "
+                               "gdy się pojawi – albo wybierz inne źródło."),
+                            [("wait", tr("Czekaj dalej"), True), ("pick", tr("Wybierz inne źródło"), False),
+                             ("cancel", tr("Anuluj"), False)])
+        notify(tr("Nagrywanie się nie rozpoczęło"), title)
+
+    def _plan_answer(self, key: str):
+        p = self._plan
+        if p is None:
+            return
+        if key == "late_go":
+            p["late_ok"] = True
+            self._plan_try_fire()
+        elif key == "wait":
+            p["wait_src"] = True
+            self._plan_texts(0, tr("Czekam na źródło…"))
+        elif key == "pick":
+            audio = bool(p["cfg"]["audio_spec"]) and p["audio"] is None
+            self._cancel_plan(tr("Wybierz inne źródło i zaplanuj nagrywanie jeszcze raz."))
+            QTimer.singleShot(0, lambda: self._point_to_source(audio))
+        else:
+            self._cancel_plan(tr("Zaplanowane nagrywanie anulowane."))
+
+    def _plan_fire(self, now: bool = False):
+        """„Zacznij teraz” – bez czekania na godzinę (źródła i tak muszą być)."""
+        p = self._plan
+        if p is None:
+            return
+        p["due"] = True
+        p["start_now"] = now
+        self.wait_panel.clear_ask()
+        self._plan_try_fire()
+
+    def _plan_launch(self):
+        """O czasie: dokładnie ta sama ścieżka co „Rozpocznij nagrywanie” (_launch) z ustawieniami z planu."""
+        import time as _t
+        from datetime import datetime
+        from .. import schedule as sch
+        from .schedule_view import notify
+        p = self._plan
+        cfg = dict(p["cfg"], audio=p["audio"], video=p["video"])
+        if self._start_busy(cfg["continue_lecture"]):       # poprzednie uruchamianie jeszcze się sprząta
+            p["retry_at"] = _t.monotonic() + 1
+            return
+        late_s = 0.0 if p["start_now"] else (datetime.now() - p["at"]).total_seconds()
+        late_min = sch.late_minutes(late_s) if late_s >= sch.LATE_NOTE_S else 0
+        self._end_plan()
+        self._reset_when()
+        if self._launch(cfg, late_min=late_min):
+            lec = self._pending["lecture"] if self._pending else None
+            text = lec.meta.title if lec is not None else ""
+            if late_min:
+                text = tr("{title} · start spóźniony o {n} min", title=text, n=late_min)
+            notify(tr("Nagrywanie rozpoczęte"), text)
+        else:
+            self._back_to_setup()
+
+    def _plan_change_time(self):
+        from .. import schedule as sch
+        from .schedule_view import ChangeTimeDialog
+        p = self._plan
+        if p is None:
+            return
+        dlg = ChangeTimeDialog(p["at"], self)
+        if not dlg.exec() or self._plan is not p:        # w trakcie okienka plan mógł już ruszyć
+            return
+        p["at"] = dlg.when()
+        p.update(due=False, late_ok=False, start_now=False, retry_at=0.0, refreshed=False, wait_src=False)
+        from datetime import datetime
+        if (p["at"] - datetime.now()).total_seconds() > sch.PREPARE_S + 60 and p["warmed"]:
+            p["warmed"] = False                          # do startu daleko – rozgrzeje się jeszcze raz przed nim
+            from ..transcriber import drop_warm
+            drop_warm()
+        self.wait_panel.clear_ask()
+        self.schedule_state.emit(sch.short_when(p["at"]))
+        self._plan_tick()
+
+    def _end_plan(self):
+        """Koniec oczekiwania (start albo anulowanie): timer stoi, komputer może znów zasnąć."""
+        from .. import schedule as sch
+        p = self._plan
+        if p is None:
+            return
+        p["cancelled"] = True
+        self._plan = None
+        if self._attempt is p:
+            self._attempt = None
+        self._plan_timer.stop()
+        sch.awake().release("plan")
+        self.wait_panel.clear_ask()
+        self.problem_card.set_problems([])
+        self._set_wait_mode(False)
+        self.schedule_state.emit("")
+
+    def _cancel_plan(self, msg: str = "", keep_when: bool = False, to_setup: bool = True):
+        if self._plan is None:
+            return
+        log.info("Zaplanowane nagrywanie anulowane")
+        self._end_plan()
+        from ..transcriber import drop_warm
+        drop_warm()
+        if not keep_when:
+            self._reset_when()
+        if to_setup:
+            self._back_to_setup()
+        if msg:
+            self.setup_status.setText(msg)
+
+    # ------------------------------------------------------------------ sprawdzenie przed nagrywaniem (2.3)
+    def _start_healthcheck(self, pending: dict, audio, video, live_notes: bool, warm: bool = True):
+        """Rusza razem z uruchamianiem nagrywania. Wszystko OK – nic nie widać; problem – karta na ekranie nagrywania.
+        warm=False – bez ładowania modelu notatek na żywo (sprawdzenie zaraz po zaplanowaniu, start jest daleko)."""
+        settings = self.settings
+
+        def work():
+            from ..healthcheck import run_checks
+            try:
+                probs = run_checks(settings, audio, video, live_notes, warm=warm)
+            except Exception:  # noqa: BLE001
+                log.exception("sprawdzenie przed nagrywaniem")
+                probs = []
+            self.health_done.emit(pending, probs)
+        threading.Thread(target=work, name="Healthcheck", daemon=True).start()
+
+    def _problem_shown(self, on: bool):
+        show_if(self.problem_scroll, on)
+        show_if(self.live_panels, not on and self._plan is None)
+        if not on:
+            QTimer.singleShot(0, self._relayout_live)
+
+    def _attempt_alive(self, pending: dict) -> bool:
+        """Ta próba startu wciąż jest na ekranie (uruchamia się, już nagrywa albo pokazuje, czemu się nie udała)."""
+        return pending is self._attempt and not pending["cancelled"] and (
+            self._pending is pending or self.session is not None or bool(pending.get("failed")))
+
+    def _on_health_done(self, pending: dict, probs: list):
+        if pending.get("scheduled"):             # sprawdzenie w czasie oczekiwania na zaplanowany start
+            if pending is self._plan:
+                self._plan_health_done(probs)
+            return
+        pending["health"] = probs
+        if not self._attempt_alive(pending) or not probs:
+            return
+        if pending.get("failed"):        # start już się nie udał – konkretny powód ze sprawdzenia zamiast ogólnego
+            rec = [p_ for p_ in probs if p_.area in ("audio", "slides")]
+            if rec:
+                self.problem_card.set_problems(rec, failed=True)
+            return
+        self.problem_card.set_problems(probs, running=self.session is not None)
+
+    def _show_start_failed(self, pending: dict):
+        """Start nie wyszedł (np. źródło dźwięku zniknęło) – karta z powodem zamiast okienka systemowego."""
+        from ..healthcheck import Problem
+        pending["failed"] = True
+        self.timer.stop()
+        self.recording_state.emit(False)
+        self.rec_label.setText(tr("NIE UDAŁO SIĘ ROZPOCZĄĆ"))
+        self.dot.on = False
+        self.dot.update()
+        self.btn_stop.setEnabled(False)
+        self._set_status("")
+        rec = [p_ for p_ in (pending.get("health") or []) if p_.area in ("audio", "slides")]
+        if not rec:
+            audio = pending.get("audio")
+            rec = [Problem("start_error", tr("Nie udało się rozpocząć nagrywania"),
+                           tr("Powód: {err}", err=pending.get("err") or "?"),
+                           [tr("Sprawdź, czy wybrane źródło dźwięku i ekran są wciąż dostępne."),
+                            tr("Kliknij „Wybierz inne źródło” albo spróbuj jeszcze raz.")],
+                           "pick_audio" if audio is not None else "pick_video", tr("Wybierz inne źródło"),
+                           True, "audio" if audio is not None else "slides")]
+        self.problem_card.set_problems(rec, failed=True)
+
+    def _health_proceed(self):
+        """„Nagrywaj mimo to” – karta znika, nagrywanie idzie dalej (AI dorobi transkrypcję i notatki później)."""
+        from ..healthcheck import ai_only
+        p = self._attempt
+        probs = self.problem_card.problems
+        self.problem_card.set_problems([])
+        if p is not None:
+            p["proceed"] = True
+        if probs and ai_only(probs) and self.session is not None and self.session.audio_info is not None:
+            self._set_status(tr("Nagrywanie trwa – transkrypcja i notatki zrobią się po zakończeniu, gdy AI zadziała."))
+
+    def _health_cancel(self):
+        if self._plan is not None:               # „Anuluj nagrywanie” na karcie w czasie oczekiwania
+            self._cancel_plan(tr("Zaplanowane nagrywanie anulowane."))
+            return
+        p = self._attempt
+        if p is None or p.get("failed"):
+            self._back_to_setup()
+            return
+        if self._pending is p:                   # wciąż się uruchamia
+            self._cancel_start()
+            return
+        if self.session is not None:             # już nagrywa – zatrzymaj i usuń to, co zdążyło się zapisać
+            self._discard_session(p)
+            self.setup_status.setText(tr("Nagrywanie anulowane."))
+
+    def _discard_session(self, pending: dict):
+        sess, self.session = self.session, None
+        pending["cancelled"] = True
+
+        def undo():
+            try:
+                sess.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("anulowanie po starcie: stop")
+            self._undo_start(pending)
+        th = threading.Thread(target=undo, name="RecordingDiscard", daemon=True)
+        th.start()
+        self._cleanups.append((th, pending["lecture"].folder))
+        self.autostop.hide()
+        self._back_to_setup()
+
+    def _health_action(self, action: str, key: str):
+        from .. import healthcheck as hc
+        kind, _, arg = action.partition(":")
+        card = self.problem_card
+        if kind == "start_ollama":
+            self._fix_key = key
+            card.set_busy(key, tr("Uruchamiam Ollamę…"))
+            self._watch.start_ollama(on_done=lambda ok: self._ollama_fixed(key, ok))
+        elif kind == "install_ollama":
+            from .health_ui import open_ollama_download
+            open_ollama_download()
+        elif kind == "pull":
+            self._fix_key = key
+            card.set_busy(key, tr("Pobieram model {name}…", name=hc._short(arg)), 0.0)
+            self._watch.pull([arg], on_done=lambda ok: self._pull_fixed(key, ok))
+        elif kind == "cpu":
+            hc.switch_to_cpu(self.settings)
+            self._remove_problem(key)
+        elif kind == "whisper":
+            card.set_busy(key, tr("Pobieram model rozpoznawania mowy…"), 0.0)
+
+            def work():
+                try:
+                    hc.download_whisper(arg, progress=lambda f: self.health_progress.emit(
+                        key, tr("Pobieram model rozpoznawania mowy · {x}%", x=round(100 * f)), f))
+                    self.health_fixed.emit(key, [])
+                except Exception:  # noqa: BLE001
+                    log.exception("pobieranie modelu Whisper")
+                    self.health_fixed.emit(key, None)
+            threading.Thread(target=work, name="WhisperDownload", daemon=True).start()
+        elif kind in ("pick_audio", "pick_video"):
+            if self._plan is not None:       # w oczekiwaniu: wróć do formularza z zachowaną godziną
+                self._cancel_plan(tr("Wybierz inne źródło i zaplanuj nagrywanie jeszcze raz."), keep_when=True)
+            self._health_cancel()
+            if self.stack.currentIndex() != 0:
+                self._back_to_setup()
+            QTimer.singleShot(0, lambda: self._point_to_source(kind == "pick_audio"))
+
+    def _point_to_source(self, audio: bool):
+        """Po „Wybierz inne źródło”: odśwież listę i pokaż, które pole poprawić."""
+        if audio:
+            self.refresh_audio()
+            self._field_warn(self.row_audio, tr("Wybierz źródło dźwięku, które teraz działa."))
+        else:
+            self.refresh_video()
+            self._field_warn(self.row_video, tr("Wybierz ekran albo okno, które jest teraz widoczne."))
+
+    def _watch_changed(self):
+        """Postęp uruchamiania Ollamy / pobierania modelu na karcie problemu."""
+        w = self._watch
+        if self._fix_key and w.busy:
+            self.problem_card.set_busy(self._fix_key, w.busy_text, w.busy_frac)
+
+    def _ollama_fixed(self, key: str, ok: bool):
+        self._fix_key = ""
+        if not ok:
+            self.problem_card.set_busy(key, tr("Nie udało się uruchomić Ollamy – otwórz ją z {where}.",
+                                               where=tr("folderu Aplikacje") if IS_MAC else tr("menu Start")),
+                                       busy=False)
+            return
+        p = self._attempt
+        settings = self.settings
+        live_notes = bool(p and p.get("audio") is not None and self.live_cb.isChecked()
+                          and self.live_notes_cb.isChecked())
+        slides = bool(p and p.get("video") is not None)
+
+        def work():               # Ollama działa – czy ma potrzebne modele?
+            from ..healthcheck import check_ollama
+            try:
+                self.health_fixed.emit(key, check_ollama(settings, live_notes, slides))
+            except Exception:  # noqa: BLE001
+                log.exception("sprawdzenie modeli")
+                self.health_fixed.emit(key, [])
+        threading.Thread(target=work, name="HealthRecheck", daemon=True).start()
+
+    def _pull_fixed(self, key: str, ok: bool):
+        self._fix_key = ""
+        if ok:
+            self._remove_problem(key)
+        else:
+            self.problem_card.set_busy(key, self._watch.error or tr("Nie udało się pobrać modelu."), busy=False)
+
+    def _on_health_fixed(self, key: str, probs):
+        card = self.problem_card
+        if not card.problems:
+            return
+        if probs is None:
+            card.set_busy(key, tr("Nie udało się pobrać modelu. Sprawdź internet i spróbuj ponownie."), busy=False)
+            return
+        rest = [p_ for p_ in card.problems if p_.key != key]
+        keys = {p_.key for p_ in rest}
+        new = rest + [p_ for p_ in probs if p_.key not in keys]
+        if not new:
+            self._remove_problem(key)
+        else:
+            card.set_problems(new, failed=card.failed, running=card.running)
+
+    def _remove_problem(self, key: str):
+        """Naprawione – gdy nic nie zostało, karta znika, a nagrywanie idzie dalej bez pytania."""
+        if self.problem_card.remove(key):
+            self._health_proceed()
+            if self.session is not None:
+                self._set_status(tr("Naprawione – wszystko działa."))
+
+    def _started(self, sess, pending: dict):
+        """Dźwięk już płynie – zwykły widok nagrywania; zegar liczy od faktycznego startu dźwięku (sess.t0)."""
+        import time as _t
+        audio, lecture = pending["audio"], pending["lecture"]
+        self.session = sess
+        self._last_sound = 0.0
+        self._autostop_deadline = None
+        self._autostop_snooze = 0.0
+        self.rec_label.setText(tr("NAGRYWANIE"))
+        self.dot.on = True
+        self.dot.update()
+        self._marks_count = 0
+        self.live_title.setText(lecture.meta.title + (tr("  ·  część {part_index}", part_index=sess.part_index) if sess.is_continuation else ""))
+        if audio is None:
+            self._set_status(tr("Zrzuty slajdów – notatka powstanie z ich treści po zakończeniu."))
+        elif not sess.whisper_ready and not sess.whisper_error:   # inaczej status ustawił już wątek modelu
+            self._set_status(tr("Ładowanie modelu rozpoznawania mowy…") if sess.live else
+                             tr("Nagrywanie – transkrypcja zrobi się po zakończeniu."))
+        for b_ in (self.btn_mark, self.btn_mark_kind, self.btn_pause):
+            b_.setEnabled(True)
+        show_if(self.btn_live_roi, sess.slide_rec is not None)
+        self._update_src_buttons()
+        self.btn_stop.setText(tr("Zakończ"))
+        self.btn_stop.setToolTip(tr("Zakończ nagrywanie – notatki zrobią się same"))
+        set_icon(self.btn_stop, "stop", "on_red", 16)
+        self.btn_stop.setEnabled(True)
+        self.live_ask_field.setEnabled(sess.live)
+        if pending["continuing"]:     # pokaż dotychczasową transkrypcję – nowa część dopisze się pod nią
+            self._titems = [dict(x, kind="seg") for x in sess.lecture.load_segments()[-40:]] + self._titems
+            self._titems.append({"kind": "note", "text": tr("część {part_index}", part_index=sess.part_index)})
+        if pending.get("late_min"):   # zaplanowany start po uśpieniu – notka w transkrypcji (meta.switches)
+            entry = {"t": round(sess.offset, 2), "kind": "late", "minutes": int(pending["late_min"])}
+            try:
+                sess._note_switch(entry)
+            except Exception:  # noqa: BLE001
+                log.exception("notka o spóźnionym starcie")
+            self._titems.append({"kind": "note", "text": switch_note(entry)})
+        from ..transcriber import drop_warm
+        drop_warm()                   # rozgrzany silnik, którego sesja nie wzięła (np. inne ustawienia) – zwolnij
+        self._render_transcript()
+        self.time_label.setText(fmt_time(sess.now()))
+        if self.problem_card.problems:
+            self.problem_card.set_running(True)
+        log.info("Start nagrywania: od kliknięcia do działającego nagrania %.0f ms",
+                 1000 * (_t.perf_counter() - pending["clicked"]))
+        self.recording_state.emit(True)
+
+    def _setup_live_panels(self, lec, has_audio: bool, live: bool, on: bool):
         t = T()
         self.live_notes_view.images = {}
-        on = sess.live_notes_enabled
-        self.live_seg.buttons[0].setEnabled(sess.audio_info is not None)
-        self.live_seg.buttons[2].setEnabled(sess.live)
-        self.live_ask_field.setEnabled(sess.live)
-        self.live_ask_field.setPlaceholderText(tr("Zapytaj o to, co już padło na wykładzie…  (Ctrl K)") if sess.live else
+        self.live_seg.buttons[0].setEnabled(has_audio)
+        self.live_seg.buttons[2].setEnabled(live)
+        self.live_ask_field.setEnabled(live)
+        self.live_ask_field.setPlaceholderText(tr("Zapytaj o to, co już padło na wykładzie…  (Ctrl K)") if live else
                                               tr("Pytania działają, gdy włączona jest transkrypcja na żywo."))
         self._show_notes_page(0)
         self.notes_head.setText(tr("NOTATKI NA ŻYWO") if on else tr("NOTATKI"))
@@ -1554,10 +2694,9 @@ class RecordTab(QWidget):
                    "wyłączone.</b></p><p>Notatka powstanie po zakończeniu nagrywania. Możesz je włączyć w "
                    "opcjach przed nagraniem („Notatki i pytania na żywo”).</p></body>", text2=t.text2, text=t.text))
             self.live_notes_status.setText("")
-        lec = sess.lecture
 
         def get_md():
-            ln = sess.live_notes
+            ln = getattr(self.session, "live_notes", None)
             if ln is not None:
                 return ln.qa_markdown()
             segs = lec.load_segments()     # bez notatek na żywo – pytania do samej transkrypcji
@@ -1567,7 +2706,7 @@ class RecordTab(QWidget):
         self.live_ask.set_source(get_md, lec.folder / "qa.json", int(self.settings.live_ctx),
                                  lang=lambda: notes_lang(lec))
         if self._live_mode == "narrow":
-            self._narrow_tab(0 if sess.audio_info is not None else 1)
+            self._narrow_tab(0 if has_audio else 1)
 
     def _skeleton(self) -> str:
         from .live_view import skeleton_html
@@ -1618,10 +2757,16 @@ class RecordTab(QWidget):
                    "rozpoczęcia mowy.</p>", text3=T().text3))
 
     def stop(self):
+        if self._pending is not None:        # „Anuluj” w trakcie uruchamiania
+            self._cancel_start()
+            return
         if self.session is None:
             return
         sess = self.session
+        self.problem_card.set_problems([])
         self.btn_stop.setEnabled(False)
+        for b_ in (self.btn_src_audio, self.btn_src_video, self.btn_hold, self.btn_more):
+            b_.setEnabled(False)
         self._set_status(tr("Kończenie – zapisywanie nagrania i dokończenie transkrypcji…"))
 
         def work():
@@ -1635,6 +2780,23 @@ class RecordTab(QWidget):
         threading.Thread(target=work, daemon=True).start()
 
     def stop_blocking(self):
+        self._cancel_plan(to_setup=False)          # zamknięcie okna anuluje plan (komputer może znów zasnąć)
+        p = self._pending
+        if p is not None:                     # zamknięcie okna w trakcie uruchamiania
+            p["cancelled"] = True
+            self._pending = None
+            if self._start_thread is not None:
+                self._start_thread.join(20)
+            if not p.get("handled"):
+                p["handled"] = True
+                if p.get("sess") is not None and not p.get("err"):
+                    try:
+                        p["sess"].stop()
+                    except Exception:
+                        log.exception("stop_blocking: start")
+                self._undo_start(p)
+        for th, _f in self._cleanups:            # sprzątanie po anulowanych startach
+            th.join(20)
         if self.session:
             try:
                 self.session.stop()
@@ -1644,6 +2806,7 @@ class RecordTab(QWidget):
 
     def _on_stopped(self, lecture, needs_file):
         self.timer.stop()
+        self.problem_card.set_problems([])
         self.session = None
         self.stack.setCurrentIndex(0)
         self.title.clear()
@@ -1674,14 +2837,19 @@ class RecordTab(QWidget):
         self.subject.setEditText(lecture.meta.subject)
         self.title.setEnabled(False)
         self.subject.setEnabled(False)
+        self.cards_cb.setChecked(bool(lecture.meta.make_flashcards))
 
     def cancel_continue(self):
+        was = self.continue_lecture is not None
         self.continue_lecture = None
         self.cont_banner.hide()
         self.setup_title.setText(tr("Nowa notatka"))
         self.title.setEnabled(True)
         self.subject.setEnabled(True)
         self.title.clear()
+        if was:
+            self.cards_cb.setChecked(bool((self.settings.last_rec or {}).get("make_flashcards",
+                                                                             self.settings.auto_flashcards)))
 
     # ------------------------------------------------------------------ zaznaczanie ważnych fragmentów
     def _set_mark_kind(self, kind: str):
@@ -1800,12 +2968,19 @@ class RecordTab(QWidget):
     def _tick(self):
         s = self.session
         if not s:
+            if self._pending is not None:      # „Uruchamiam nagrywanie…” – kropka pulsuje szybciej
+                self._ticks += 1
+                if self._ticks % 3 == 0:
+                    self.dot.blink()
             return
         self._ticks += 1
         paused = getattr(s, "paused", False)
         self.meter.push(0.0 if paused else (s.level_db() + 60) / 60)
         if self._ticks % 5 == 0:
-            self.time_label.setText(fmt_time(s.now()))
+            txt = fmt_time(s.now())
+            if len(txt) != len(self.time_label.text()):      # 59:59 → 1:00:00 – zegar dostaje więcej miejsca
+                self.time_label.setMinimumWidth(self.time_label.fontMetrics().horizontalAdvance(txt) + 6)
+            self.time_label.setText(txt)
             if not paused:
                 self.dot.blink()
         if self._ticks % 300 == 0 and s.live_notes_enabled:

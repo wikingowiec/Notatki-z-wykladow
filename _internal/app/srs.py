@@ -36,4 +36,5 @@ def review(card: dict, ok: bool) -> None:
 def next_label(card: dict) -> str:
     ivl = int(card.get("ivl", 0) or 0)
     nxt = 1 if ivl <= 0 else 3 if ivl == 1 else max(ivl + 1, round(ivl * 2.3))
-    return "jutro" if nxt == 1 else f"za {nxt} dni"
+    from .i18n import tr, tn
+    return tr("jutro") if nxt == 1 else tn(nxt, "za {n} dzień", "za {n} dni", "za {n} dni")

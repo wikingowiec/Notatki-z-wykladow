@@ -364,5 +364,18 @@ def _insert_before(prompt: str, extra: str) -> str:
     return prompt + extra
 
 
+def avoid_questions(prompt: str, lang: str, questions: list[str]) -> str:
+    """„Dodaj więcej fiszek”: pytania, które student już ma – model ma zadać inne (dopisek po format(),
+    bo pytania mogą mieć nawiasy klamrowe z LaTeX-a)."""
+    qs = [" ".join(q.split()) for q in questions if q.strip()]
+    if not qs:
+        return prompt
+    head = ("Student ma już fiszki z tymi pytaniami – nie powtarzaj ich, zapytaj o inne pojęcia i szczegóły:"
+            if (lang or "pl") == "pl" else
+            "The student already has flashcards with these questions – do not repeat them, ask about other "
+            "concepts and details:")  # i18n: nie
+    return _insert_before(prompt, head + "\n" + "\n".join(f"- {q[:200]}" for q in qs) + "\n")
+
+
 def mark_names(lang: str) -> dict:
     return MARK_NAMES.get(lang, MARK_NAMES["en"] if lang and lang != "pl" else MARK_NAMES["pl"])

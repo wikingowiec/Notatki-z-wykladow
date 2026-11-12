@@ -206,7 +206,8 @@ class SettingsTab(QWidget):
         self.goal.valueChanged.connect(lambda v: (setattr(self.s, "daily_goal", int(v)), self.s.save()))
         g.add_row(tr("Cel dzienny"), self.goal, tr("Ile fiszek dziennie chcesz powtórzyć – pierścień na ekranie Fiszki."))
         g.add_row(tr("Notatki po nagraniu"), self.auto,
-                  tr("Po zakończeniu nagrania automatycznie twórz notatki, podsumowanie i fiszki."))
+                  tr("Po zakończeniu nagrania automatycznie twórz notatki i podsumowanie (fiszki – gdy przy nagraniu "
+                     "włączysz „Zrób fiszki z tego wykładu”)."))
         v.addWidget(g)
 
         # ---------------- Wydajność ----------------

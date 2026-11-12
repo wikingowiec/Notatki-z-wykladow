@@ -61,6 +61,10 @@ class AskPanel(QStackedWidget):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
+        # mały baner, gdy Ollama nie działa albo brakuje modelu do odpowiedzi (healthcheck, 2.3)
+        from .health_ui import OllamaBanner
+        self.ollama_banner = OllamaBanner(settings, lambda: [(self.settings.ollama_model, "qa")], compact=True)
+        lay.addWidget(self.ollama_banner)
         lay.addWidget(self.view, 1)
         row = QHBoxLayout()
         row.setSpacing(8)
